@@ -25,8 +25,9 @@ temp_plus_platform dev guidelines.
   supplies something a folder needs to work.
 - **Wide, shallow files, one concern each.** One main thing per file, named
   after it. Helpers group by subject (`utils/string.ts`, `utils/date.ts`).
-  Group by feature at the top, keep tests and types beside what they cover,
-  and give shared folders an `index.ts` that re-exports.
+  Group by feature at the top, keep types beside what they cover, and give
+  shared folders an `index.ts` that re-exports. Tests live in their own
+  folder, `src/tests/<area>/` (like `src/tests/pairing/`), not beside the code.
 - **No magic values.** Give every meaningful literal a named constant:
   `RETRY_DELAY_MS = 2000`, not a bare `2000`. Keep constants in a constants
   file. A fixed set of related values is a union type or enum; grouped
@@ -59,6 +60,7 @@ temp_plus_platform dev guidelines.
 - **Test behavior, not internals.** Test what goes in and what comes out, so
   tests survive rewrites. Pure functions make this easy, so test them
   heavily: edge cases, limits, and error paths.
+- **UI.** Anything people look at follows [UI_RULES.md](UI_RULES.md).
 - **Comment the why, not the what.** Comments explain business rules,
   surprising decisions, and traps ("retries twice because the vendor's API
   fails on a cold start"). Delete comments that repeat the code, and never

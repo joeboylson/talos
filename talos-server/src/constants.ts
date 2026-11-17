@@ -3,13 +3,14 @@ export const SERVER_ENV_KEYS = {
   publicUrl: "TALOS_PUBLIC_URL",
   githubClientId: "TALOS_GITHUB_CLIENT_ID",
   githubClientSecret: "TALOS_GITHUB_CLIENT_SECRET",
-  allowedGithubLogin: "TALOS_ALLOWED_GITHUB_LOGIN",
+  adminGithubLogin: "TALOS_ADMIN_GITHUB_LOGIN",
   sessionSecret: "TALOS_SESSION_SECRET",
-  machinesTable: "TALOS_MACHINES_TABLE",
+  tablePrefix: "TALOS_TABLE_PREFIX",
   awsEndpointUrl: "AWS_ENDPOINT_URL",
 } as const;
 
 export const DEFAULT_SERVER_PORT = 7070;
+export const DEFAULT_TABLE_PREFIX = "talos-";
 
 // AWS's load balancer calls this to check the server is up.
 export const HEALTH_ROUTE = "/health";

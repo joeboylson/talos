@@ -1,24 +1,35 @@
 import type { Server } from "bun";
-import { SERVER_ROUTES } from "talos-shared";
+import { SERVER_ROUTES, createLogger } from "talos-shared";
 import page from "../../talos-web/src/index.html";
 import { createAuthRoutes } from "./auth-routes";
 import { readServerConfig } from "./config";
 import { createConnections, type SocketData } from "./connections";
 import { HEALTH_ROUTE } from "./constants";
+import { buildTableName, createDocumentClient, createEmulatorTables } from "./dynamo";
 import { createMachineRoutes } from "./machine-routes";
-import { createEmulatorTable, createMachinesTable } from "./machines-table";
+import { createMachinesTable } from "./machines-table";
 import { createPairingRoutes } from "./pairing-routes";
 import { createRequestChecks } from "./request-checks";
+import { createSettingsRoutes } from "./settings-routes";
+import { createSettingsTable } from "./settings-table";
+import { createSignInsTable } from "./sign-ins-table";
 import { textResponse } from "./utils/request";
 
 const config = readServerConfig(process.env, SERVER_ROUTES.signInCallback);
-if (config.isUsingEmulator) await createEmulatorTable(config.machinesTable);
-const machinesTable = createMachinesTable(config.machinesTable, config.isUsingEmulator);
+const log = createLogger(config.logsMode);
+if (config.isUsingEmulator) await createEmulatorTables(config.tablePrefix, log);
+
+const documentClient = createDocumentClient(config.isUsingEmulator);
+const machinesTable = createMachinesTable(documentClient, buildTableName(config.tablePrefix, "machines"));
+const signInsTable = createSignInsTable(documentClient, buildTableName(config.tablePrefix, "signIns"));
+const settingsTable = createSettingsTable(documentClient, buildTableName(config.tablePrefix, "settings"));
+
 const checks = createRequestChecks(config);
-const connections = createConnections(machinesTable);
-const authRoutes = createAuthRoutes(config, checks);
-const machineRoutes = createMachineRoutes(machinesTable, checks, connections);
-const pairingRoutes = createPairingRoutes(machinesTable, checks, connections.sendMachineListToAllPages);
+const connections = createConnections(machinesTable, log);
+const authRoutes = createAuthRoutes(config, checks, { signInsTable, settingsTable }, log);
+const settingsRoutes = createSettingsRoutes(checks, settingsTable, log);
+const machineRoutes = createMachineRoutes(machinesTable, checks, connections, log);
+const pairingRoutes = createPairingRoutes(machinesTable, checks, connections.sendMachineListToPages, log);
 
 const upgradeToSocket = (request: Request, server: Server<SocketData>, data: SocketData) => {
   const isUpgraded = server.upgrade(request, { data });
@@ -30,8 +41,8 @@ const server = Bun.serve<SocketData>({
   port: config.serverPort,
   development: !config.isProduction,
 
-  // The page itself holds nothing secret. It asks for the signed-in user and
-  // sends anyone else to GitHub; every route with data checks the session.
+  // The page itself holds nothing secret: it shows a sign-in button until
+  // someone signs in. Every route with data checks the session.
   routes: {
     "/": page,
     [HEALTH_ROUTE]: new Response("ok"),
@@ -39,6 +50,7 @@ const server = Bun.serve<SocketData>({
     [SERVER_ROUTES.signInCallback]: { GET: authRoutes.signInCallback },
     [SERVER_ROUTES.signOut]: { POST: authRoutes.signOut },
     [SERVER_ROUTES.currentUser]: { GET: authRoutes.currentUser },
+    [SERVER_ROUTES.settings]: { GET: settingsRoutes.read, PUT: settingsRoutes.update },
     [SERVER_ROUTES.pairStart]: { POST: pairingRoutes.start },
     [SERVER_ROUTES.pairPoll]: { POST: pairingRoutes.poll },
     [SERVER_ROUTES.pairApprove]: { POST: pairingRoutes.approve },
@@ -50,19 +62,20 @@ const server = Bun.serve<SocketData>({
     const requestPath = new URL(request.url).pathname;
 
     if (requestPath === SERVER_ROUTES.pageSocket) {
-      const login = checks.readTrustedLogin(request);
-      if (!login) return textResponse("Not signed in", 401);
-      return upgradeToSocket(request, server, { role: "page", login });
+      const person = checks.readTrustedPerson(request);
+      if (!person) return textResponse("Not signed in", 401);
+      const { personId, displayName } = person;
+      return upgradeToSocket(request, server, { role: "page", personId, displayName });
     }
 
     if (requestPath === SERVER_ROUTES.machineSocket) {
       const machine = await machineRoutes.findMachineForRequest(request);
       if (!machine) {
-        console.warn(`turned away a machine with an unknown key from ${server.requestIP(request)?.address}`);
+        log.warn(`turned away a machine with an unknown key from ${server.requestIP(request)?.address}`);
         return textResponse("Unknown machine key", 401);
       }
-      const { machineId, machineName } = machine;
-      return upgradeToSocket(request, server, { role: "machine", machineId, machineName });
+      const { machineId, machineName, ownerPersonId } = machine;
+      return upgradeToSocket(request, server, { role: "machine", machineId, machineName, ownerPersonId });
     }
 
     return textResponse("Not found", 404);
@@ -71,4 +84,4 @@ const server = Bun.serve<SocketData>({
   websocket: connections.websocketHandlers,
 });
 
-console.log(`talos-server: http://localhost:${server.port}`);
+log.event(`talos-server: http://localhost:${server.port} (logs: ${config.logsMode})`);

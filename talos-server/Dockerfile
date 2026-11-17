@@ -20,6 +20,9 @@ COPY talos-shared/package.json talos-shared/
 COPY talos-web/package.json talos-web/
 RUN bun install --frozen-lockfile --production
 
+# bunfig.toml and the tsconfigs: the page's Tailwind plugin and its @/ imports.
+COPY bunfig.toml tsconfig.base.json ./
+COPY talos-web/tsconfig.json talos-web/
 COPY talos-shared/src talos-shared/src
 COPY talos-web/src talos-web/src
 COPY talos-server/src talos-server/src

@@ -1,5 +1,5 @@
-import { requireEnv } from "talos-shared";
-import { DEFAULT_SERVER_PORT, SERVER_ENV_KEYS } from "./constants";
+import { ENV_KEYS, readLogsMode, requireEnv, type LogsMode } from "talos-shared";
+import { DEFAULT_SERVER_PORT, DEFAULT_TABLE_PREFIX, SERVER_ENV_KEYS } from "./constants";
 
 export type ServerConfig = {
   serverPort: number;
@@ -7,11 +7,12 @@ export type ServerConfig = {
   signInCallbackUrl: string;
   githubClientId: string;
   githubClientSecret: string;
-  allowedGithubLogin: string;
+  adminGithubLogin: string;
   sessionSecret: string;
-  machinesTable: string;
+  tablePrefix: string;
   isUsingEmulator: boolean;
   isProduction: boolean;
+  logsMode: LogsMode;
 };
 
 type Env = Record<string, string | undefined>;
@@ -24,11 +25,12 @@ export const readServerConfig = (env: Env, signInCallbackRoute: string): ServerC
     signInCallbackUrl: new URL(signInCallbackRoute, publicUrl).toString(),
     githubClientId: requireEnv(SERVER_ENV_KEYS.githubClientId, env),
     githubClientSecret: requireEnv(SERVER_ENV_KEYS.githubClientSecret, env),
-    allowedGithubLogin: requireEnv(SERVER_ENV_KEYS.allowedGithubLogin, env),
+    adminGithubLogin: requireEnv(SERVER_ENV_KEYS.adminGithubLogin, env),
     sessionSecret: requireEnv(SERVER_ENV_KEYS.sessionSecret, env),
-    machinesTable: requireEnv(SERVER_ENV_KEYS.machinesTable, env),
+    tablePrefix: env[SERVER_ENV_KEYS.tablePrefix] || DEFAULT_TABLE_PREFIX,
     isUsingEmulator: Boolean(env[SERVER_ENV_KEYS.awsEndpointUrl]),
     // Production serves the page pre-built; anything else rebuilds it on each change.
     isProduction: env.NODE_ENV === "production",
+    logsMode: readLogsMode(env[ENV_KEYS.logsMode]),
   };
 };

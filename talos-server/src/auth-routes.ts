@@ -1,15 +1,33 @@
-import type { CurrentUserResponse } from "talos-shared";
+import { randomUUID } from "node:crypto";
+import { SIGN_IN_CLOSED, SIGN_IN_RESULT_PARAM, type CurrentUserResponse, type Logger } from "talos-shared";
 import type { ServerConfig } from "./config";
 import { COOKIE_NAMES, SESSION_LIFETIME_MS, SIGN_IN_STATE_LIFETIME_MS } from "./constants";
 import { buildGithubSignInUrl, fetchGithubLogin } from "./github";
 import type { RequestChecks } from "./request-checks";
-import { createSessionToken } from "./session";
+import { createSessionToken, type SessionPerson } from "./session";
+import type { SettingsTable } from "./settings-table";
+import { decideSignIn } from "./sign-in-decision";
+import { buildGithubSignInId, type SignInsTable } from "./sign-ins-table";
 import { buildCookie, buildExpiredCookie, readCookie } from "./utils/cookies";
 import { createRandomSecret, isSameSecret } from "./utils/crypto";
 import { textResponse } from "./utils/request";
 
-export const createAuthRoutes = (config: ServerConfig, checks: RequestChecks) => {
+type AuthTables = { signInsTable: SignInsTable; settingsTable: SettingsTable };
+
+const redirectTo = (location: string, cookies: string[]): Response => {
+  const headers = new Headers({ Location: location });
+  cookies.forEach((cookie) => headers.append("Set-Cookie", cookie));
+  return new Response(null, { status: 302, headers });
+};
+
+export const createAuthRoutes = (
+  config: ServerConfig,
+  checks: RequestChecks,
+  { signInsTable, settingsTable }: AuthTables,
+  log: Logger,
+) => {
   const isSecure = config.publicOrigin.startsWith("https:");
+  const clearStateCookie = buildExpiredCookie(COOKIE_NAMES.signInState, isSecure);
 
   const signIn = (): Response => {
     const signInState = createRandomSecret();
@@ -18,7 +36,32 @@ export const createAuthRoutes = (config: ServerConfig, checks: RequestChecks) =>
       maxAgeMs: SIGN_IN_STATE_LIFETIME_MS,
       isSecure,
     });
-    return new Response(null, { status: 302, headers: { Location: signInUrl, "Set-Cookie": stateCookie } });
+    log.detail("sign-in: sending a visitor to GitHub");
+    return redirectTo(signInUrl, [stateCookie]);
+  };
+
+  // Finds the person behind a GitHub login, making a new person if this is
+  // their first visit and the switch lets them in. Null means turned away.
+  const findOrCreatePerson = async (githubLogin: string): Promise<SessionPerson | null> => {
+    const signInId = buildGithubSignInId(githubLogin);
+    const existingSignIn = await signInsTable.findSignIn(signInId);
+    const { allowNewPeople } = await settingsTable.readSettings();
+    const decision = decideSignIn({
+      existingPersonId: existingSignIn?.personId ?? null,
+      isAdmin: checks.isAdminSignIn(signInId),
+      allowNewPeople,
+    });
+
+    if (decision.outcome === "closed") return null;
+    if (decision.outcome === "welcome-back") {
+      log.event(`signed in: ${githubLogin}`);
+      return { personId: decision.personId, signInId, displayName: githubLogin };
+    }
+
+    const newSignIn = { signInId, personId: randomUUID(), displayName: githubLogin, linkedAtMs: Date.now() };
+    await signInsTable.saveSignIn(newSignIn);
+    log.event(`new person signed up: ${githubLogin}`);
+    return { personId: newSignIn.personId, signInId, displayName: githubLogin };
   };
 
   const signInCallback = async (request: Request): Promise<Response> => {
@@ -28,36 +71,45 @@ export const createAuthRoutes = (config: ServerConfig, checks: RequestChecks) =>
     const expectedState = readCookie(request.headers.get("cookie"), COOKIE_NAMES.signInState);
     // A matching state proves this sign-in started on this server, not on another site.
     const isStateValid = Boolean(returnedState && expectedState && isSameSecret(returnedState, expectedState));
-    if (!code || !isStateValid) return textResponse("Sign-in failed. Start again from the page.", 400);
+    if (!code || !isStateValid) {
+      log.warn("sign-in failed: GitHub sent someone back without a matching sign-in start");
+      return textResponse("Sign-in failed. Start again from the page.", 400);
+    }
 
-    const login = await fetchGithubLogin(code, {
+    log.detail("sign-in: GitHub sent someone back, asking GitHub who they are");
+    const githubLogin = await fetchGithubLogin(code, {
       clientId: config.githubClientId,
       clientSecret: config.githubClientSecret,
       redirectUri: config.signInCallbackUrl,
     });
-    const isAllowedLogin = login.toLowerCase() === config.allowedGithubLogin.toLowerCase();
-    if (!isAllowedLogin) {
-      console.warn(`turned away GitHub user ${login}`);
-      return textResponse(`${login} isn't allowed to use Talos.`, 403);
+    const person = await findOrCreatePerson(githubLogin);
+    if (!person) {
+      log.event(`turned away new person ${githubLogin}: new people are switched off`);
+      return redirectTo(`/?${SIGN_IN_RESULT_PARAM}=${SIGN_IN_CLOSED}`, [clearStateCookie]);
     }
 
-    const sessionToken = createSessionToken(login, Date.now() + SESSION_LIFETIME_MS, config.sessionSecret);
-    const headers = new Headers({ Location: "/" });
-    headers.append("Set-Cookie", buildCookie(COOKIE_NAMES.session, sessionToken, { maxAgeMs: SESSION_LIFETIME_MS, isSecure }));
-    headers.append("Set-Cookie", buildExpiredCookie(COOKIE_NAMES.signInState, isSecure));
-    return new Response(null, { status: 302, headers });
+    const sessionToken = createSessionToken(person, Date.now() + SESSION_LIFETIME_MS, config.sessionSecret);
+    const sessionCookie = buildCookie(COOKIE_NAMES.session, sessionToken, { maxAgeMs: SESSION_LIFETIME_MS, isSecure });
+    return redirectTo("/", [sessionCookie, clearStateCookie]);
   };
 
   const signOut = (request: Request): Response => {
-    if (!checks.readTrustedLogin(request)) return textResponse("Not signed in", 401);
+    const person = checks.readTrustedPerson(request);
+    if (!person) return textResponse("Not signed in", 401);
+    log.event(`signed out: ${person.displayName}`);
     const headers = { "Set-Cookie": buildExpiredCookie(COOKIE_NAMES.session, isSecure) };
     return new Response(null, { status: 204, headers });
   };
 
   const currentUser = (request: Request): Response => {
-    const login = checks.readSignedInLogin(request);
-    if (!login) return textResponse("Not signed in", 401);
-    return Response.json({ login } satisfies CurrentUserResponse);
+    const person = checks.readSignedInPerson(request);
+    if (!person) {
+      log.detail("page opened by someone not signed in");
+      return textResponse("Not signed in", 401);
+    }
+    log.detail(`page opened by ${person.displayName}`);
+    const isAdmin = checks.isAdminSignIn(person.signInId);
+    return Response.json({ displayName: person.displayName, isAdmin } satisfies CurrentUserResponse);
   };
 
   return { signIn, signInCallback, signOut, currentUser };

@@ -1,6 +1,7 @@
 export const ENV_KEYS = {
   serverUrl: "TALOS_SERVER_URL",
   machineName: "TALOS_MACHINE_NAME",
+  logsMode: "TALOS_LOGS_MODE",
 } as const;
 
 export const SERVER_ROUTES = {
@@ -15,7 +16,12 @@ export const SERVER_ROUTES = {
   signInCallback: "/auth/callback",
   signOut: "/auth/logout",
   currentUser: "/auth/me",
+  settings: "/settings",
 } as const;
+
+// GitHub sends a turned-away new person back to the page with ?signIn=closed.
+export const SIGN_IN_RESULT_PARAM = "signIn";
+export const SIGN_IN_CLOSED = "closed";
 
 export const BEARER_PREFIX = "Bearer ";
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PairApproveResponse, PairPollResponse, PairStartResponse } from "talos-shared";
+import type { Logger, PairApproveResponse, PairPollResponse, PairStartResponse } from "talos-shared";
 import { MAX_WAITING_PAIRINGS, PAIRING_LIFETIME_MS } from "./constants";
 import { createMachineKey, formatMachineKey } from "./machine-keys";
 import type { MachinesTable } from "./machines-table";
@@ -21,7 +21,8 @@ type WaitingPairing = {
 export const createPairingRoutes = (
   machinesTable: MachinesTable,
   checks: RequestChecks,
-  onMachinePaired: () => Promise<void>,
+  onMachinePaired: (ownerPersonId: string) => Promise<void>,
+  log: Logger,
 ) => {
   // Waiting pairings live only in memory. A restart just means pairing again.
   let waitingPairings: WaitingPairing[] = [];
@@ -37,7 +38,10 @@ export const createPairingRoutes = (
 
     const nowMs = Date.now();
     dropExpiredPairings(nowMs);
-    if (waitingPairings.length >= MAX_WAITING_PAIRINGS) return textResponse("Too many machines waiting", 429);
+    if (waitingPairings.length >= MAX_WAITING_PAIRINGS) {
+      log.warn(`turned away a pairing request from "${machineName}": ${MAX_WAITING_PAIRINGS} machines are already waiting`);
+      return textResponse("Too many machines waiting", 429);
+    }
 
     const pairing: WaitingPairing = {
       pairingId: randomUUID(),
@@ -47,6 +51,7 @@ export const createPairingRoutes = (
       approvedMachineKey: null,
     };
     waitingPairings = [...waitingPairings, pairing];
+    log.event(`machine "${machineName}" asked to pair; its code is ${pairing.userCode}`);
     const { pairingId, userCode, expiresAtMs } = pairing;
     return Response.json({ pairingId, userCode, expiresAtMs } satisfies PairStartResponse);
   };
@@ -55,16 +60,24 @@ export const createPairingRoutes = (
     const pairingId = readStringField(await readJsonBody(request), "pairingId");
     dropExpiredPairings(Date.now());
     const pairing = waitingPairings.find((waitingPairing) => waitingPairing.pairingId === pairingId);
-    if (!pairing) return Response.json({ status: "expired" } satisfies PairPollResponse);
-    if (!pairing.approvedMachineKey) return Response.json({ status: "waiting" } satisfies PairPollResponse);
+    if (!pairing) {
+      log.detail("a machine checked on a pairing that ran out");
+      return Response.json({ status: "expired" } satisfies PairPollResponse);
+    }
+    if (!pairing.approvedMachineKey) {
+      log.detail(`"${pairing.machineName}" is still waiting for its code to be entered`);
+      return Response.json({ status: "waiting" } satisfies PairPollResponse);
+    }
 
     // The key goes out once. After this, only the machine has it.
     waitingPairings = waitingPairings.filter((waitingPairing) => waitingPairing !== pairing);
+    log.event(`"${pairing.machineName}" collected its key`);
     return Response.json({ status: "approved", machineKey: pairing.approvedMachineKey } satisfies PairPollResponse);
   };
 
   const approve = async (request: Request): Promise<Response> => {
-    if (!checks.readTrustedLogin(request)) return textResponse("Not signed in", 401);
+    const person = checks.readTrustedPerson(request);
+    if (!person) return textResponse("Not signed in", 401);
     const typedCode = readStringField(await readJsonBody(request), "userCode");
     if (!typedCode) return textResponse("Missing userCode", 400);
 
@@ -74,12 +87,17 @@ export const createPairingRoutes = (
     const pairing = waitingPairings.find(
       (waitingPairing) => waitingPairing.userCode === userCode && !waitingPairing.approvedMachineKey,
     );
-    if (!pairing) return textResponse("No machine is waiting with that code", 404);
+    if (!pairing) {
+      log.detail(`${person.displayName} entered ${userCode}, but no machine is waiting with that code`);
+      return textResponse("No machine is waiting with that code", 404);
+    }
 
+    // Whoever approves the code owns the machine.
     const machineKey = createMachineKey();
     await machinesTable.saveMachine({
       machineId: machineKey.machineId,
       machineName: pairing.machineName,
+      ownerPersonId: person.personId,
       keyHash: hashSecret(machineKey.secret),
       pairedAtMs: nowMs,
     });
@@ -87,7 +105,8 @@ export const createPairingRoutes = (
     waitingPairings = waitingPairings.map((waitingPairing) =>
       waitingPairing === pairing ? { ...waitingPairing, approvedMachineKey } : waitingPairing,
     );
-    await onMachinePaired();
+    log.event(`${person.displayName} approved "${pairing.machineName}"; it now belongs to them`);
+    await onMachinePaired(person.personId);
     return Response.json({ machineName: pairing.machineName } satisfies PairApproveResponse);
   };
 

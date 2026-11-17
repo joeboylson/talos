@@ -1,0 +1,5 @@
+# talos-server bundles the talos-web page itself (an HTML import), and this
+# plugin turns its Tailwind classes into CSS. Bun reads this from the folder
+# the server starts in: the repo root locally, /app in the container.
+[serve.static]
+plugins = ["bun-plugin-tailwind"]

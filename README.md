@@ -25,7 +25,7 @@ nothing else.
 ## Layout
 
 - `talos-server/`: the central server. It serves the page from `talos-web/`.
-- `talos-web/`: the one page, for browsers and the desktop app.
+- `talos-web/`: the one page (React and shadcn), for browsers and the desktop app.
 - `talos-desktop/`: the desktop app (Tauri): one window on the server's page.
 - `talos/`: the program each machine runs. It connects to the server and
   answers each ping with a pong. It also answers questions about its own
@@ -46,6 +46,8 @@ make down               # stops the Docker side
 `make logs` follows talos-server's output. It restarts on every save.
 
 Open http://localhost:7070 (or `make desktop`) and sign in with GitHub. The
+admin (`TALOS_ADMIN_GITHUB_LOGIN`) has a switch that lets new people sign up;
+it starts off. Everyone sees and pings only the machines they paired. The
 `talos` terminal shows a code; enter it under "Pair a machine". The machine
 saves its key in `~/.talos/credentials.json` and connects. Then press Ping.
 

@@ -1,0 +1,54 @@
+# Local dev: the AWS emulator and talos-server. `make dev` starts these and
+# then runs talos on this Mac. talos-server restarts on every save.
+name: talos
+
+services:
+  aws-emulator:
+    build: dev/aws-emulator
+    command: ["-p", "9297", "-a", "off"]
+    environment:
+      EMULATOR_TELEMETRY: "off"
+    # talos-server shares this service's network (see below), so its port is
+    # published here too.
+    ports:
+      - "127.0.0.1:9297:9297"
+      - "127.0.0.1:7070:7070"
+    # The emulator writes a fresh certificate here on each start; the server reads it.
+    volumes:
+      - emulator-home:/home/emulator
+    healthcheck:
+      test: ["CMD", "curl", "-sfk", "https://localhost:9297/__admin/health"]
+      interval: 1s
+      retries: 30
+
+  talos-server:
+    build:
+      context: .
+      dockerfile: talos-server/Dockerfile
+    # The emulator's certificate only covers "localhost", so the server shares
+    # its network and reaches it there.
+    network_mode: service:aws-emulator
+    depends_on:
+      aws-emulator:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: https://localhost:9297
+      NODE_EXTRA_CA_CERTS: /emulator-home/.aws/emulator/9297/ca.pem
+    volumes:
+      - ./talos-server/src:/app/talos-server/src:ro
+      - ./talos-shared/src:/app/talos-shared/src:ro
+      - ./talos-web/src:/app/talos-web/src:ro
+      - emulator-home:/emulator-home:ro
+    # --no-clear-screen keeps earlier log lines when it restarts on a save.
+    command: ["bun", "--watch", "--no-clear-screen", "talos-server/src/index.ts"]
+    # Lets `docker compose up --wait` hold until the server answers.
+    healthcheck:
+      test: ["CMD", "bun", "-e", "process.exit((await fetch('http://localhost:7070/health')).ok ? 0 : 1)"]
+      interval: 1s
+      retries: 30
+
+volumes:
+  emulator-home:

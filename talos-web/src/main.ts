@@ -4,12 +4,21 @@ import {
   SERVER_ROUTES,
   decode,
   encode,
+  type CurrentUserResponse,
   type LocalStatus,
+  type MachineSummary,
   type PageToServer,
+  type PairApproveResponse,
   type ServerToPage,
 } from "talos-shared";
 import { LOCAL_STATUS_CHECK_INTERVAL_MS } from "./constants";
-import { describeLocalStatus, describeMachineList, describeServerMessage, formatLogLine } from "./describe";
+import {
+  describeLocalStatus,
+  describeMachine,
+  describeMachineCount,
+  describeServerMessage,
+  formatLogLine,
+} from "./describe";
 
 const requireElement = <T extends HTMLElement>(elementId: string): T => {
   const element = document.getElementById(elementId);
@@ -17,13 +26,19 @@ const requireElement = <T extends HTMLElement>(elementId: string): T => {
   return element as T;
 };
 
-const machineListText = requireElement("machines");
+const loginText = requireElement("login");
+const signOutButton = requireElement<HTMLButtonElement>("sign-out");
+const connectionStatusText = requireElement("connection-status");
+const machineList = requireElement("machines");
+const pairForm = requireElement<HTMLFormElement>("pair-form");
+const pairCodeInput = requireElement<HTMLInputElement>("pair-code");
+const pairResultText = requireElement("pair-result");
 const pingButton = requireElement<HTMLButtonElement>("ping");
 const logList = requireElement("log");
 const thisMachinePanel = requireElement("this-machine");
 const thisMachineText = requireElement("this-machine-status");
 
-// The page's only state: the current line to the server.
+// The page's only changing state: the current line to the server.
 let serverSocket: WebSocket | null = null;
 
 const addLogLine = (text: string) => {
@@ -32,9 +47,27 @@ const addLogLine = (text: string) => {
   logList.prepend(logItem);
 };
 
+// No "are you sure?": a removed machine just pairs again to come back.
+const removeMachine = async ({ machineId, machineName }: MachineSummary) => {
+  const response = await fetch(`${SERVER_ROUTES.machines}/${encodeURIComponent(machineId)}`, { method: "DELETE" });
+  if (!response.ok) addLogLine(`couldn't remove ${machineName}: ${response.status}`);
+};
+
+const buildMachineListItem = (machine: MachineSummary): HTMLLIElement => {
+  const listItem = document.createElement("li");
+  const nameText = document.createElement("span");
+  nameText.textContent = describeMachine(machine);
+  const removeButton = document.createElement("button");
+  removeButton.textContent = "Remove";
+  removeButton.onclick = () => removeMachine(machine);
+  listItem.append(nameText, removeButton);
+  return listItem;
+};
+
 const handleServerMessage = (message: ServerToPage) => {
   if (message.type === "machines") {
-    machineListText.textContent = describeMachineList(message.machineNames);
+    connectionStatusText.textContent = describeMachineCount(message.machines);
+    machineList.replaceChildren(...message.machines.map(buildMachineListItem));
     return;
   }
   const logLine = describeServerMessage(message);
@@ -43,7 +76,7 @@ const handleServerMessage = (message: ServerToPage) => {
 
 const connectToServer = () => {
   const socketScheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${socketScheme}://${location.host}${SERVER_ROUTES.page}`);
+  const socket = new WebSocket(`${socketScheme}://${location.host}${SERVER_ROUTES.pageSocket}`);
   serverSocket = socket;
 
   socket.onopen = () => {
@@ -57,7 +90,7 @@ const connectToServer = () => {
 
   socket.onclose = () => {
     pingButton.disabled = true;
-    machineListText.textContent = "Lost the server. Reconnecting…";
+    connectionStatusText.textContent = "Lost the server. Reconnecting…";
     setTimeout(connectToServer, RECONNECT_DELAY_MS);
   };
 };
@@ -76,11 +109,48 @@ const checkThisMachine = async () => {
   }
 };
 
-pingButton.onclick = () => {
-  serverSocket?.send(encode<PageToServer>({ type: "ping" }));
-  addLogLine("ping");
+const approvePairing = async (event: SubmitEvent) => {
+  event.preventDefault();
+  const response = await fetch(SERVER_ROUTES.pairApprove, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userCode: pairCodeInput.value }),
+  });
+  if (!response.ok) {
+    pairResultText.textContent = await response.text();
+    return;
+  }
+  const { machineName } = (await response.json()) as PairApproveResponse;
+  pairResultText.textContent = `Paired ${machineName}. It connects within a few seconds.`;
+  pairCodeInput.value = "";
 };
 
-connectToServer();
-checkThisMachine();
-setInterval(checkThisMachine, LOCAL_STATUS_CHECK_INTERVAL_MS);
+const signOut = async () => {
+  await fetch(SERVER_ROUTES.signOut, { method: "POST" });
+  location.href = SERVER_ROUTES.signIn;
+};
+
+// Anyone not signed in goes straight to GitHub; nothing else loads first.
+const start = async () => {
+  const currentUserResponse = await fetch(SERVER_ROUTES.currentUser);
+  if (currentUserResponse.status === 401) {
+    location.href = SERVER_ROUTES.signIn;
+    return;
+  }
+  const { login } = (await currentUserResponse.json()) as CurrentUserResponse;
+  loginText.textContent = login;
+  signOutButton.hidden = false;
+
+  signOutButton.onclick = signOut;
+  pairForm.onsubmit = approvePairing;
+  pingButton.onclick = () => {
+    serverSocket?.send(encode<PageToServer>({ type: "ping" }));
+    addLogLine("ping");
+  };
+
+  connectToServer();
+  checkThisMachine();
+  setInterval(checkThisMachine, LOCAL_STATUS_CHECK_INTERVAL_MS);
+};
+
+start();

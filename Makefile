@@ -1,31 +1,31 @@
-.PHONY: dev desktop talos server-image server-container install typecheck test
+.PHONY: dev down logs desktop talos server-image install typecheck test
 
-SERVER_PORT ?= 7070
 # AWS Graviton (arm64) is cheaper than x86 and matches Apple silicon.
 SERVER_PLATFORM ?= linux/arm64
 
-# Runs talos-server and talos together. Ctrl-C stops both.
+# Starts the AWS emulator and talos-server in Docker, then runs talos here.
+# Ctrl-C stops talos; `make down` stops the rest.
 dev: node_modules .env
-	@trap 'kill 0' INT TERM; \
-	(cd talos-server && bun run dev) & \
-	(cd talos && bun run dev) & \
-	wait
+	docker compose up --build --detach --wait
+	cd talos && bun run dev
+
+down:
+	docker compose down
+
+logs:
+	docker compose logs --follow talos-server
 
 # Opens the desktop app on the server's page. Run `make dev` first.
 desktop: node_modules .env
 	cd talos-desktop && bun run dev
 
-# Runs only talos, for when the server runs somewhere else (like its container).
+# Runs only talos, for when the server is already up.
 talos: node_modules .env
 	cd talos && bun run dev
 
 # Builds the container that goes on AWS.
 server-image:
 	docker build --platform $(SERVER_PLATFORM) -f talos-server/Dockerfile -t talos-server .
-
-# Runs that container here, the way AWS would. Pair it with `make talos`.
-server-container: server-image .env
-	docker run --rm --name talos-server --env-file .env -e TALOS_SERVER_PORT=$(SERVER_PORT) -p $(SERVER_PORT):$(SERVER_PORT) talos-server
 
 install:
 	bun install
@@ -41,4 +41,4 @@ node_modules: package.json talos/package.json talos-server/package.json talos-sh
 	@touch node_modules
 
 .env:
-	@echo "No .env yet: copy .env.example to .env and set TALOS_MACHINE_KEY." && exit 1
+	@echo "No .env yet: copy .env.example to .env and fill it in." && exit 1

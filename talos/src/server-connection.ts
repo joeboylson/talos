@@ -1,7 +1,5 @@
 import {
   BEARER_PREFIX,
-  MACHINE_NAME_QUERY_PARAM,
-  RECONNECT_DELAY_MS,
   SERVER_ROUTES,
   decode,
   encode,
@@ -12,24 +10,19 @@ import {
 type ServerConnectionOptions = {
   serverUrl: string;
   machineKey: string;
-  machineName: string;
   onConnectionChange: (isConnected: boolean) => void;
 };
 
 // talos always calls the server, never the other way round, so this machine
-// doesn't have to accept connections from anywhere. Reconnects forever.
-export const connectToServer = (options: ServerConnectionOptions): void => {
-  const { serverUrl, machineKey, machineName, onConnectionChange } = options;
-  const machineUrl = new URL(SERVER_ROUTES.machine, serverUrl);
-  machineUrl.searchParams.set(MACHINE_NAME_QUERY_PARAM, machineName);
-
-  const socket = new WebSocket(machineUrl, {
+// doesn't have to accept connections from anywhere.
+export const connectToServer = ({ serverUrl, machineKey, onConnectionChange }: ServerConnectionOptions): void => {
+  const socket = new WebSocket(new URL(SERVER_ROUTES.machineSocket, serverUrl), {
     headers: { Authorization: `${BEARER_PREFIX}${machineKey}` },
   });
 
   socket.onopen = () => {
     onConnectionChange(true);
-    console.log(`talos: connected to ${serverUrl} as ${machineName}`);
+    console.log(`talos: connected to ${serverUrl}`);
   };
 
   socket.onmessage = (event) => {
@@ -40,8 +33,7 @@ export const connectToServer = (options: ServerConnectionOptions): void => {
   };
 
   socket.onclose = (event) => {
+    console.log(`talos: disconnected (${event.code} ${event.reason})`);
     onConnectionChange(false);
-    console.log(`talos: disconnected (${event.code}), retrying in ${RECONNECT_DELAY_MS / 1000}s`);
-    setTimeout(() => connectToServer(options), RECONNECT_DELAY_MS);
   };
 };

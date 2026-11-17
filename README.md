@@ -38,12 +38,19 @@ All three are TypeScript, run with [Bun](https://bun.com).
 ## Running it
 
 ```sh
-cp .env.example .env    # then set TALOS_MACHINE_KEY (openssl rand -hex 32)
-make dev                # installs packages the first time, then runs both
+cp .env.example .env    # then fill it in (it says how)
+make dev                # local AWS + talos-server in Docker, then talos here
+make down               # stops the Docker side
 ```
 
-Open http://localhost:7070 and press Ping, or run `make desktop` in a second
-terminal to open the same page in the desktop app.
+`make logs` follows talos-server's output. It restarts on every save.
+
+Open http://localhost:7070 (or `make desktop`) and sign in with GitHub. The
+`talos` terminal shows a code; enter it under "Pair a machine". The machine
+saves its key in `~/.talos/credentials.json` and connects. Then press Ping.
+
+The emulator forgets everything when it stops, so after `make down` each
+machine shows a new code to pair with.
 
 `make test` and `make typecheck` run each folder's tests and type checks.
 

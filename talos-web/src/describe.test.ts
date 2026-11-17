@@ -1,10 +1,24 @@
 import { expect, test } from "bun:test";
-import { describeLocalStatus, describeMachineList, describeServerMessage, formatLogLine } from "./describe";
+import {
+  describeLocalStatus,
+  describeMachine,
+  describeMachineCount,
+  describeServerMessage,
+  formatLogLine,
+} from "./describe";
 
-test("describeMachineList", () => {
-  expect(describeMachineList([])).toBe("No machines connected");
-  expect(describeMachineList(["atlas"])).toBe("Connected: atlas");
-  expect(describeMachineList(["atlas", "spark"])).toBe("Connected: atlas, spark");
+const ATLAS = { machineId: "1", machineName: "atlas", isConnected: true };
+const SPARK = { machineId: "2", machineName: "spark", isConnected: false };
+
+test("describeMachine", () => {
+  expect(describeMachine(ATLAS)).toBe("atlas: connected");
+  expect(describeMachine(SPARK)).toBe("spark: offline");
+});
+
+test("describeMachineCount", () => {
+  expect(describeMachineCount([])).toBe("No machines paired yet");
+  expect(describeMachineCount([ATLAS, SPARK])).toBe("1 of 2 connected");
+  expect(describeMachineCount([SPARK])).toBe("0 of 1 connected");
 });
 
 test("describeLocalStatus", () => {
@@ -28,5 +42,5 @@ test("describeServerMessage", () => {
   expect(describeServerMessage({ type: "error", message: "No machines connected" })).toBe(
     "No machines connected",
   );
-  expect(describeServerMessage({ type: "machines", machineNames: ["atlas"] })).toBeNull();
+  expect(describeServerMessage({ type: "machines", machines: [ATLAS] })).toBeNull();
 });

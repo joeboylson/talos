@@ -1,18 +1,22 @@
 export const ENV_KEYS = {
-  machineKey: "TALOS_MACHINE_KEY",
-  serverPort: "TALOS_SERVER_PORT",
   serverUrl: "TALOS_SERVER_URL",
   machineName: "TALOS_MACHINE_NAME",
 } as const;
 
-export const DEFAULT_SERVER_PORT = 7070;
-
 export const SERVER_ROUTES = {
-  page: "/page",
-  machine: "/machine",
+  pageSocket: "/page",
+  machineSocket: "/machine",
+  machineCheck: "/machine/check",
+  pairStart: "/pair/start",
+  pairPoll: "/pair/poll",
+  pairApprove: "/pair/approve",
+  machines: "/machines",
+  signIn: "/auth/login",
+  signInCallback: "/auth/callback",
+  signOut: "/auth/logout",
+  currentUser: "/auth/me",
 } as const;
 
-export const MACHINE_NAME_QUERY_PARAM = "name";
 export const BEARER_PREFIX = "Bearer ";
 
 // talos answers questions about its own machine here. 127.0.0.1 only, so

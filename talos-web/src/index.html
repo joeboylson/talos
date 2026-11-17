@@ -6,14 +6,22 @@
     <title>Talos</title>
     <style>
       body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; padding: 0 1rem; }
+      header { display: flex; justify-content: space-between; align-items: baseline; }
       button { font-size: 1rem; padding: 0.5rem 1.25rem; }
-      ul { padding-left: 1.25rem; font-family: ui-monospace, monospace; }
+      input { font-size: 1rem; padding: 0.45rem; font-family: ui-monospace, monospace; text-transform: uppercase; }
+      ul { padding-left: 1.25rem; }
+      #log { font-family: ui-monospace, monospace; }
+      #machines li { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; }
+      #machines button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
       section { border: 1px solid #8884; border-radius: 6px; padding: 0.5rem 1rem; margin-bottom: 1rem; }
       h2 { font-size: 1rem; margin: 0.5rem 0; }
     </style>
   </head>
   <body>
-    <h1>Talos</h1>
+    <header>
+      <h1>Talos</h1>
+      <span><span id="login"></span> <button id="sign-out" hidden>Sign out</button></span>
+    </header>
 
     <!-- Only shown when talos is running on the machine viewing this page. -->
     <section id="this-machine" hidden>
@@ -21,7 +29,21 @@
       <p id="this-machine-status"></p>
     </section>
 
-    <p id="machines">Connecting…</p>
+    <section>
+      <h2>Machines</h2>
+      <p id="connection-status">Connecting…</p>
+      <ul id="machines"></ul>
+    </section>
+
+    <section>
+      <h2>Pair a machine</h2>
+      <form id="pair-form">
+        <input id="pair-code" placeholder="ABCD-EFGH" autocomplete="off" required />
+        <button>Pair</button>
+      </form>
+      <p id="pair-result"></p>
+    </section>
+
     <button id="ping" disabled>Ping</button>
     <ul id="log"></ul>
     <script type="module" src="./main.ts"></script>

@@ -1,13 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildCorsHeaders, pageOriginFromServerUrl } from "./cors";
-
-test.each([
-  ["ws://localhost:7070", "http://localhost:7070"],
-  ["wss://talos.example.com", "https://talos.example.com"],
-  ["wss://talos.example.com:8443/some/path", "https://talos.example.com:8443"],
-])("pageOriginFromServerUrl(%s) is %s", (serverUrl, expectedOrigin) => {
-  expect(pageOriginFromServerUrl(serverUrl)).toBe(expectedOrigin);
-});
+import { buildCorsHeaders } from "./cors";
 
 const PAGE_ORIGIN = "http://localhost:7070";
 

@@ -1,7 +1,13 @@
-import type { LocalStatus, ServerToPage } from "talos-shared";
+import type { LocalStatus, MachineSummary, ServerToPage } from "talos-shared";
 
-export const describeMachineList = (machineNames: string[]): string =>
-  machineNames.length > 0 ? `Connected: ${machineNames.join(", ")}` : "No machines connected";
+export const describeMachine = ({ machineName, isConnected }: MachineSummary): string =>
+  `${machineName}: ${isConnected ? "connected" : "offline"}`;
+
+export const describeMachineCount = (machines: MachineSummary[]): string => {
+  if (machines.length === 0) return "No machines paired yet";
+  const connectedCount = machines.filter((machine) => machine.isConnected).length;
+  return `${connectedCount} of ${machines.length} connected`;
+};
 
 export const describeLocalStatus = ({ machineName, isConnected }: LocalStatus): string => {
   const connectionText = isConnected ? "connected to the server" : "not connected to the server";

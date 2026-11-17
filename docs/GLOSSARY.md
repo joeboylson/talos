@@ -1,0 +1,58 @@
+# Glossary
+
+The words Talos uses, in the code, the page, the `talos` command and these
+docs. Use these and no others.
+
+## Things
+
+- **person**: someone who uses Talos. A person can have several sign-ins.
+- **sign-in**: one way a person gets in, like a GitHub account
+  (`github:joeboylson`). Tailscale sign-ins come later.
+- **admin**: the one person named in `TALOS_ADMIN_GITHUB_LOGIN`. Only the
+  admin sees settings.
+- **machine**: a computer running `talos`, belonging to the person who paired
+  it. Nobody else can see or use it.
+- **pairing**: how a machine joins: `talos` shows a **pairing code**, its
+  owner enters it on the page.
+- **machine key**: the secret a machine gets when it's paired and uses every
+  time it connects.
+- **folder**: a folder on a machine that its owner allows sessions in.
+- **session**: a Claude Code conversation that `talos` runs in a folder.
+- **server**: `talos-server`, the one central program.
+- **page**: the website the server shows (`talos-web`), in a browser or the
+  desktop app.
+
+## Identifiers
+
+Every thing has an identifier: `talos:` and then kind and name pairs,
+separated by colons, from the biggest thing to the smallest.
+
+```
+talos:machines                              all your machines
+talos:machines:work-mac                     one machine
+talos:machines:work-mac:folders:talos       a folder on it
+talos:machines:work-mac:sessions:fix-login  a session on it
+talos:settings                              the admin's settings
+```
+
+Kinds are plural (`machines`, `folders`, `sessions`). Names are lowercase
+letters, numbers and dashes, and unique among their siblings: a person can't
+have two machines called `work-mac`.
+
+## The same shape everywhere
+
+An identifier, a page address and a command name the same thing the same way.
+Only the separator changes.
+
+| Identifier                         | Page                    | Command                            |
+| ---------------------------------- | ----------------------- | ---------------------------------- |
+| `talos:machines`                   | `/machines`             | `talos machines`                   |
+| `talos:machines:work-mac`          | `/machines/work-mac`    | `talos machines work-mac`          |
+| `talos:machines:work-mac` + ping   | the row's ping button   | `talos machines work-mac ping`     |
+| `talos:settings`                   | `/settings`             | `talos settings`                   |
+
+Actions (`ping`, `add`, `remove`, `attach`) come after the thing they act on.
+They're verbs, so they never appear in an identifier.
+
+The server's own data routes live under `/api`, so they never clash with a
+page address.

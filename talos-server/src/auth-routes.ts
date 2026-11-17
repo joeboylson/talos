@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SIGN_IN_CLOSED, SIGN_IN_RESULT_PARAM, type CurrentUserResponse, type Logger } from "talos-shared";
+import { SIGN_IN_CLOSED, SIGN_IN_RESULT_PARAM, buildPagePath, type CurrentUserResponse, type Logger } from "talos-shared";
 import type { ServerConfig } from "./config";
 import { COOKIE_NAMES, SESSION_LIFETIME_MS, SIGN_IN_STATE_LIFETIME_MS } from "./constants";
 import { buildGithubSignInUrl, fetchGithubLogin } from "./github";
@@ -11,6 +11,8 @@ import { buildGithubSignInId, type SignInsTable } from "./sign-ins-table";
 import { buildCookie, buildExpiredCookie, readCookie } from "./utils/cookies";
 import { createRandomSecret, isSameSecret } from "./utils/crypto";
 import { textResponse } from "./utils/request";
+
+const HOME_PAGE_PATH = buildPagePath(["machines"]);
 
 type AuthTables = { signInsTable: SignInsTable; settingsTable: SettingsTable };
 
@@ -85,12 +87,12 @@ export const createAuthRoutes = (
     const person = await findOrCreatePerson(githubLogin);
     if (!person) {
       log.event(`turned away new person ${githubLogin}: new people are switched off`);
-      return redirectTo(`/?${SIGN_IN_RESULT_PARAM}=${SIGN_IN_CLOSED}`, [clearStateCookie]);
+      return redirectTo(`${HOME_PAGE_PATH}?${SIGN_IN_RESULT_PARAM}=${SIGN_IN_CLOSED}`, [clearStateCookie]);
     }
 
     const sessionToken = createSessionToken(person, Date.now() + SESSION_LIFETIME_MS, config.sessionSecret);
     const sessionCookie = buildCookie(COOKIE_NAMES.session, sessionToken, { maxAgeMs: SESSION_LIFETIME_MS, isSecure });
-    return redirectTo("/", [sessionCookie, clearStateCookie]);
+    return redirectTo(HOME_PAGE_PATH, [sessionCookie, clearStateCookie]);
   };
 
   const signOut = (request: Request): Response => {

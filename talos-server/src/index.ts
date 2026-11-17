@@ -1,5 +1,5 @@
 import type { Server } from "bun";
-import { SERVER_ROUTES, createLogger } from "talos-shared";
+import { PAGE_KINDS, SERVER_ROUTES, buildPagePath, createLogger } from "talos-shared";
 import page from "../../talos-web/src/index.html";
 import { createAuthRoutes } from "./auth-routes";
 import { readServerConfig } from "./config";
@@ -44,7 +44,8 @@ const server = Bun.serve<SocketData>({
   // The page itself holds nothing secret: it shows a sign-in button until
   // someone signs in. Every route with data checks the session.
   routes: {
-    "/": page,
+    "/": Response.redirect(buildPagePath(["machines"])),
+    ...Object.fromEntries(PAGE_KINDS.map((pageKind) => [buildPagePath([pageKind]), page])),
     [HEALTH_ROUTE]: new Response("ok"),
     [SERVER_ROUTES.signIn]: { GET: authRoutes.signIn },
     [SERVER_ROUTES.signInCallback]: { GET: authRoutes.signInCallback },

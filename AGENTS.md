@@ -12,4 +12,9 @@ side effects kept at the edges).
 Follow the UI rules in [docs/UI_RULES.md](docs/UI_RULES.md) for anything
 people look at. Above all: as little text as possible, and icons over words.
 
+Every command goes in the README's Commands section: each `talos` command
+and each `make` target, with a line on what it does. Add, change or remove a
+command there in the same change that adds, changes or removes it. Name
+things with the words in [docs/GLOSSARY.md](docs/GLOSSARY.md).
+
 Follow the commit rules in [docs/COMMITS.md](docs/COMMITS.md).

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import type { CurrentUserResponse, MachineSummary } from "talos-shared";
 import { removeMachine, signOut } from "@/api";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -6,8 +6,9 @@ import { MachinesTable } from "@/components/machines-table";
 import { SettingsView } from "@/components/settings-view";
 import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { VIEWS, type View } from "@/constants";
+import { VIEWS } from "@/constants";
 import { useLocalStatus } from "@/hooks/use-local-status";
+import { usePagePath } from "@/hooks/use-page-path";
 import { useServerSocket } from "@/hooks/use-server-socket";
 
 // Sizes from shadcn's dashboard-01 block.
@@ -17,7 +18,9 @@ const LAYOUT_SIZES = {
 } as CSSProperties;
 
 export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse }) => {
-  const [activeView, setActiveView] = useState<View>("machines");
+  const { pageKind, openPage } = usePagePath();
+  // Settings belong to the admin; anyone else at /settings sees their machines.
+  const activeView = pageKind === "settings" && !currentUser.isAdmin ? "machines" : pageKind;
   const { machines, roundTripMsByMachineId, notice, setNotice, isConnected, ping } = useServerSocket();
   const localStatus = useLocalStatus();
 
@@ -36,7 +39,7 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
         variant="inset"
         currentUser={currentUser}
         activeView={activeView}
-        onViewChange={setActiveView}
+        onViewChange={openPage}
         onSignOut={handleSignOut}
       />
       <SidebarInset>

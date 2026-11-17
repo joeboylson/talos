@@ -4,20 +4,27 @@ export const ENV_KEYS = {
   logsMode: "TALOS_LOGS_MODE",
 } as const;
 
+// The server's data routes live under /api, so they never clash with page
+// addresses (/machines, /settings). Sign-in and its callback are pages the
+// browser itself goes to, and GitHub knows the callback address.
 export const SERVER_ROUTES = {
-  pageSocket: "/page",
-  machineSocket: "/machine",
-  machineCheck: "/machine/check",
-  pairStart: "/pair/start",
-  pairPoll: "/pair/poll",
-  pairApprove: "/pair/approve",
-  machines: "/machines",
+  pageSocket: "/api/sockets/page",
+  machineSocket: "/api/sockets/machine",
+  machineCheck: "/api/machine/check",
+  pairStart: "/api/pair/start",
+  pairPoll: "/api/pair/poll",
+  pairApprove: "/api/pair/approve",
+  machines: "/api/machines",
+  signOut: "/api/auth/logout",
+  currentUser: "/api/auth/me",
+  settings: "/api/settings",
   signIn: "/auth/login",
   signInCallback: "/auth/callback",
-  signOut: "/auth/logout",
-  currentUser: "/auth/me",
-  settings: "/settings",
 } as const;
+
+// Page addresses, one per kind of thing (see docs/GLOSSARY.md).
+export const PAGE_KINDS = ["machines", "settings"] as const;
+export type PageKind = (typeof PAGE_KINDS)[number];
 
 // GitHub sends a turned-away new person back to the page with ?signIn=closed.
 export const SIGN_IN_RESULT_PARAM = "signIn";

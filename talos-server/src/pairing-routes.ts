@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { Logger, PairApproveResponse, PairPollResponse, PairStartResponse } from "talos-shared";
+import {
+  pickUniqueName,
+  toIdentifierName,
+  type Logger,
+  type PairApproveResponse,
+  type PairPollResponse,
+  type PairStartResponse,
+} from "talos-shared";
 import { MAX_WAITING_PAIRINGS, PAIRING_LIFETIME_MS } from "./constants";
 import { createMachineKey, formatMachineKey } from "./machine-keys";
 import type { MachinesTable } from "./machines-table";
@@ -92,11 +99,16 @@ export const createPairingRoutes = (
       return textResponse("No machine is waiting with that code", 404);
     }
 
-    // Whoever approves the code owns the machine.
+    // Whoever approves the code owns the machine. Its name is cleaned up for
+    // identifiers and made unique among that person's machines.
+    const ownMachineNames = (await machinesTable.listMachines())
+      .filter((machine) => machine.ownerPersonId === person.personId)
+      .map((machine) => machine.machineName);
+    const machineName = pickUniqueName(toIdentifierName(pairing.machineName), ownMachineNames);
     const machineKey = createMachineKey();
     await machinesTable.saveMachine({
       machineId: machineKey.machineId,
-      machineName: pairing.machineName,
+      machineName,
       ownerPersonId: person.personId,
       keyHash: hashSecret(machineKey.secret),
       pairedAtMs: nowMs,
@@ -105,9 +117,9 @@ export const createPairingRoutes = (
     waitingPairings = waitingPairings.map((waitingPairing) =>
       waitingPairing === pairing ? { ...waitingPairing, approvedMachineKey } : waitingPairing,
     );
-    log.event(`${person.displayName} approved "${pairing.machineName}"; it now belongs to them`);
+    log.event(`${person.displayName} approved "${machineName}"; it now belongs to them`);
     await onMachinePaired(person.personId);
-    return Response.json({ machineName: pairing.machineName } satisfies PairApproveResponse);
+    return Response.json({ machineName } satisfies PairApproveResponse);
   };
 
   return { start, poll, approve };

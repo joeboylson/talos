@@ -1,11 +1,19 @@
 import type { BunRequest } from "bun";
-import type { Logger, MachineCheckResponse } from "talos-shared";
+import { pickUniqueName, toIdentifierName, type Logger, type MachineCheckResponse } from "talos-shared";
 import type { Connections } from "./connections";
 import { parseMachineKey } from "./machine-keys";
 import type { MachineRecord, MachinesTable } from "./machines-table";
 import type { RequestChecks } from "./request-checks";
+import type { SessionPerson } from "./session";
 import { hashSecret, isSameSecret } from "./utils/crypto";
-import { textResponse } from "./utils/request";
+import { readJsonBody, readStringField, textResponse } from "./utils/request";
+
+// A new name for a machine: cleaned up like any name, and unique among the
+// owner's other machines (its own current name doesn't count as taken).
+export const chooseMachineName = (typedName: string, ownMachines: MachineRecord[], machineId: string): string => {
+  const otherNames = ownMachines.filter((machine) => machine.machineId !== machineId).map((machine) => machine.machineName);
+  return pickUniqueName(toIdentifierName(typedName), otherNames);
+};
 
 export const createMachineRoutes = (
   machinesTable: MachinesTable,
@@ -50,5 +58,45 @@ export const createMachineRoutes = (
     return new Response(null, { status: 204 });
   };
 
-  return { findMachineForRequest, check, remove };
+  type RenameRequest = { person: SessionPerson; machine: MachineRecord; typedName: string } | { response: Response };
+
+  const readRenameRequest = async (request: BunRequest): Promise<RenameRequest> => {
+    const person = checks.readTrustedPerson(request);
+    if (!person) return { response: textResponse("Not signed in", 401) };
+    const machine = await machinesTable.findMachine(request.params.machineId ?? "");
+    if (!machine || machine.ownerPersonId !== person.personId) return { response: textResponse("No such machine", 404) };
+    const typedName = readStringField(await readJsonBody(request), "name");
+    if (!typedName) return { response: textResponse("Missing name", 400) };
+    return { person, machine, typedName };
+  };
+
+  const rename = async (request: BunRequest): Promise<Response> => {
+    const renameRequest = await readRenameRequest(request);
+    if ("response" in renameRequest) return renameRequest.response;
+    const { person, machine, typedName } = renameRequest;
+
+    const ownMachines = (await machinesTable.listMachines()).filter((candidate) => candidate.ownerPersonId === person.personId);
+    const machineName = chooseMachineName(typedName, ownMachines, machine.machineId);
+    await machinesTable.saveMachine({ ...machine, machineName });
+    connections.renameConnectedMachine(machine.machineId, machineName);
+    log.event(`${person.displayName} renamed "${machine.machineName}" to "${machineName}"`);
+    await connections.sendMachineListToPages(person.personId);
+    return Response.json({ name: machineName });
+  };
+
+  // The machine owns its folders, so the server only passes the rename on;
+  // the machine's new folder list then updates the page.
+  const renameFolder = async (request: BunRequest): Promise<Response> => {
+    const renameRequest = await readRenameRequest(request);
+    if ("response" in renameRequest) return renameRequest.response;
+    const { person, machine, typedName } = renameRequest;
+    const folderName = request.params.folderName ?? "";
+
+    const isSent = connections.sendFolderRename(machine.machineId, folderName, typedName);
+    if (!isSent) return textResponse(`${machine.machineName} is offline`, 409);
+    log.event(`${person.displayName} asked "${machine.machineName}" to rename folder "${folderName}" to "${typedName}"`);
+    return new Response(null, { status: 202 });
+  };
+
+  return { findMachineForRequest, check, remove, rename, renameFolder };
 };

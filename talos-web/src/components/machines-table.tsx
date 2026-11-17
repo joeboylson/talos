@@ -1,7 +1,10 @@
-import { RadioIcon, TrashIcon } from "lucide-react";
+import { PencilIcon, RadioIcon, TrashIcon } from "lucide-react";
+import { useState } from "react";
+import { renameMachine } from "@/api";
 import type { LocalStatus, MachineSummary } from "talos-shared";
 import { IconButton } from "@/components/icon-button";
 import { PairMachineDialog } from "@/components/pair-machine-dialog";
+import { RenameDialog } from "@/components/rename-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatRoundTrip } from "@/describe";
@@ -28,6 +31,7 @@ const StatusBadge = ({ isConnected }: { isConnected: boolean }) => (
 export const MachinesTable = (props: MachinesTableProps) => {
   const { machines, roundTripMsByMachineId, localStatus, notice, canPing, onPing, onRemove } = props;
   const hasMachines = machines.length > 0;
+  const [machineBeingRenamed, setMachineBeingRenamed] = useState<MachineSummary | null>(null);
 
   return (
     <div className="flex flex-col gap-4 px-4 lg:px-6">
@@ -68,7 +72,9 @@ export const MachinesTable = (props: MachinesTableProps) => {
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
                     {machine.machineName}
-                    {localStatus?.machineName === machine.machineName && <Badge variant="secondary">This machine</Badge>}
+                    {localStatus?.machineName === machine.machineName && (
+                      <Badge variant="secondary">This machine</Badge>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -85,7 +91,16 @@ export const MachinesTable = (props: MachinesTableProps) => {
                       disabled={!canPing || !machine.isConnected}
                       onClick={() => onPing(machine.machineId)}
                     />
-                    <IconButton label={`Remove ${machine.machineName}`} icon={<TrashIcon />} onClick={() => onRemove(machine)} />
+                    <IconButton
+                      label={`Rename ${machine.machineName}`}
+                      icon={<PencilIcon />}
+                      onClick={() => setMachineBeingRenamed(machine)}
+                    />
+                    <IconButton
+                      label={`Remove ${machine.machineName}`}
+                      icon={<TrashIcon />}
+                      onClick={() => onRemove(machine)}
+                    />
                   </div>
                 </TableCell>
               </TableRow>
@@ -93,6 +108,12 @@ export const MachinesTable = (props: MachinesTableProps) => {
           </TableBody>
         </Table>
       </div>
+      <RenameDialog
+        title="Rename machine"
+        currentName={machineBeingRenamed?.machineName ?? null}
+        onClose={() => setMachineBeingRenamed(null)}
+        onRename={(name) => renameMachine(machineBeingRenamed?.machineId ?? "", name)}
+      />
     </div>
   );
 };

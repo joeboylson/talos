@@ -8,16 +8,22 @@ import {
   type ServerToMachine,
 } from "talos-shared";
 
+export type SendToServer = (message: MachineToServer) => void;
+
 type ServerConnectionOptions = {
   serverUrl: string;
   machineKey: string;
   onConnectionChange: (isConnected: boolean) => void;
+  onOpen: (sendToServer: SendToServer) => void;
+  // Everything but pings, which are answered here.
+  onServerMessage: (message: Exclude<ServerToMachine, { type: "ping" }>) => void;
   log: Logger;
 };
 
 // talos always calls the server, never the other way round, so this machine
 // doesn't have to accept connections from anywhere.
-export const connectToServer = ({ serverUrl, machineKey, onConnectionChange, log }: ServerConnectionOptions): void => {
+export const connectToServer = (options: ServerConnectionOptions): void => {
+  const { serverUrl, machineKey, onConnectionChange, onOpen, onServerMessage, log } = options;
   const socket = new WebSocket(new URL(SERVER_ROUTES.machineSocket, serverUrl), {
     headers: { Authorization: `${BEARER_PREFIX}${machineKey}` },
   });
@@ -25,11 +31,13 @@ export const connectToServer = ({ serverUrl, machineKey, onConnectionChange, log
   socket.onopen = () => {
     onConnectionChange(true);
     log.event(`talos: connected to ${serverUrl}`);
+    onOpen((message) => socket.send(encode<MachineToServer>(message)));
   };
 
   socket.onmessage = (event) => {
     const message = decode<ServerToMachine>(event.data);
-    if (message?.type !== "ping") return;
+    if (!message) return;
+    if (message.type !== "ping") return onServerMessage(message);
     log.detail("talos: ping from the server, sending pong");
     socket.send(encode<MachineToServer>({ type: "pong", id: message.id }));
   };

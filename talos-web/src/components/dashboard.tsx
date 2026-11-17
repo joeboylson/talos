@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import type { CurrentUserResponse, MachineSummary } from "talos-shared";
 import { removeMachine, signOut } from "@/api";
 import { AppSidebar } from "@/components/app-sidebar";
+import { FoldersTable } from "@/components/folders-table";
 import { MachinesTable } from "@/components/machines-table";
 import { SettingsView } from "@/components/settings-view";
 import { SiteHeader } from "@/components/site-header";
@@ -23,6 +24,7 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
   const activeView = pageKind === "settings" && !currentUser.isAdmin ? "machines" : pageKind;
   const { machines, roundTripMsByMachineId, notice, setNotice, isConnected, ping } = useServerSocket();
   const localStatus = useLocalStatus();
+  const machineList = machines ?? [];
 
   // No "are you sure?": a removed machine just pairs again to come back.
   const handleRemove = (machine: MachineSummary) =>
@@ -43,11 +45,11 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
         onSignOut={handleSignOut}
       />
       <SidebarInset>
-        <SiteHeader title={VIEWS[activeView].title} isLive={isConnected} />
+        <SiteHeader crumbs={[{ label: VIEWS[activeView].title }]} isLive={isConnected} />
         <div className="@container/main flex flex-1 flex-col gap-4 py-4 md:gap-6 md:py-6">
           {activeView === "machines" && (
             <MachinesTable
-              machines={machines ?? []}
+              machines={machineList}
               roundTripMsByMachineId={roundTripMsByMachineId}
               localStatus={localStatus}
               notice={notice}
@@ -56,6 +58,7 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
               onRemove={handleRemove}
             />
           )}
+          {activeView === "folders" && <FoldersTable machines={machineList} />}
           {activeView === "settings" && currentUser.isAdmin && <SettingsView />}
         </div>
       </SidebarInset>

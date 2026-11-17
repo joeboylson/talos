@@ -1,13 +1,30 @@
 import { parseJsonOrNull } from "./json";
 
-export type ServerToMachine = { type: "ping"; id: string };
-export type MachineToServer = { type: "pong"; id: string };
+// machine-name: the owner renamed this machine on the page.
+// rename-folder: the owner renamed one of its folders; the machine keeps its
+// folders, so it makes the change and sends its new list.
+export type ServerToMachine =
+  | { type: "ping"; id: string }
+  | { type: "machine-name"; machineName: string }
+  | { type: "rename-folder"; folderName: string; newFolderName: string };
+// A folder a machine allows sessions in. The name is its identifier part
+// (talos:machines:work-mac:folders:<folderName>).
+export type Folder = { folderName: string; path: string };
+
+export type MachineToServer = { type: "pong"; id: string } | { type: "folders"; folders: Folder[] };
 
 export type CurrentUserResponse = { displayName: string; isAdmin: boolean };
 export type Settings = { allowNewPeople: boolean };
+export type RenameRequest = { name: string };
 export type MachineCheckResponse = { machineName: string };
 
-export type MachineSummary = { machineId: string; machineName: string; isConnected: boolean };
+// folders is null while the machine is offline: only the machine knows them.
+export type MachineSummary = {
+  machineId: string;
+  machineName: string;
+  isConnected: boolean;
+  folders: Folder[] | null;
+};
 
 // Without a machineId, a ping goes to all of the person's connected machines.
 export type PageToServer = { type: "ping"; machineId?: string };

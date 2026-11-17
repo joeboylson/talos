@@ -8,7 +8,7 @@ export type PairStartResponse = { pairingId: string; userCode: string; expiresAt
 export type PairPollRequest = { pairingId: string };
 export type PairPollResponse =
   | { status: "waiting" }
-  | { status: "approved"; machineKey: string }
+  | { status: "approved"; machineKey: string; machineName: string }
   | { status: "expired" };
 
 export type PairApproveRequest = { userCode: string };

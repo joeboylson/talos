@@ -2,6 +2,7 @@ import {
   SERVER_ROUTES,
   type CurrentUserResponse,
   type PairApproveResponse,
+  type RenameRequest,
   type Settings,
 } from "talos-shared";
 
@@ -31,6 +32,20 @@ export const removeMachine = async (machineId: string): Promise<void> => {
   const response = await fetch(`${SERVER_ROUTES.machines}/${encodeURIComponent(machineId)}`, { method: "DELETE" });
   if (!response.ok) throw new Error(`couldn't remove the machine: ${response.status}`);
 };
+
+// Both renames return null when done, or the server's reason they didn't happen.
+const sendRename = async (url: string, name: string): Promise<string | null> => {
+  const response = await sendJson(url, "PATCH", { name } satisfies RenameRequest);
+  return response.ok ? null : await response.text();
+};
+
+export const renameMachine = (machineId: string, name: string): Promise<string | null> =>
+  sendRename(`${SERVER_ROUTES.machines}/${encodeURIComponent(machineId)}`, name);
+
+// The machine makes the change and sends its new folder list, so the table
+// updates a moment later.
+export const renameFolder = (machineId: string, folderName: string, name: string): Promise<string | null> =>
+  sendRename(`${SERVER_ROUTES.machines}/${encodeURIComponent(machineId)}/folders/${encodeURIComponent(folderName)}`, name);
 
 export const fetchSettings = async (): Promise<Settings> => {
   const response = await fetch(SERVER_ROUTES.settings);

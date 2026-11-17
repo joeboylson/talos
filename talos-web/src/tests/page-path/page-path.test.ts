@@ -3,6 +3,7 @@ import { readPageKind } from "../../hooks/use-page-path";
 
 test.each([
   ["/machines", "machines"],
+  ["/folders", "folders"],
   ["/settings", "settings"],
   ["/settings/", "settings"],
   ["/machines/work-mac", "machines"],

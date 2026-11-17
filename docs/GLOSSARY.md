@@ -16,7 +16,8 @@ docs. Use these and no others.
   owner enters it on the page.
 - **machine key**: the secret a machine gets when it's paired and uses every
   time it connects.
-- **folder**: a folder on a machine that its owner allows sessions in.
+- **folder**: a folder on a machine that its owner allows sessions in. Only
+  `talos` on that machine can add or remove one; the page just shows them.
 - **session**: a Claude Code conversation that `talos` runs in a folder.
 - **server**: `talos-server`, the one central program.
 - **page**: the website the server shows (`talos-web`), in a browser or the
@@ -44,15 +45,21 @@ have two machines called `work-mac`.
 An identifier, a page address and a command name the same thing the same way.
 Only the separator changes.
 
-| Identifier                         | Page                    | Command                            |
-| ---------------------------------- | ----------------------- | ---------------------------------- |
-| `talos:machines`                   | `/machines`             | `talos machines`                   |
-| `talos:machines:work-mac`          | `/machines/work-mac`    | `talos machines work-mac`          |
-| `talos:machines:work-mac` + ping   | the row's ping button   | `talos machines work-mac ping`     |
-| `talos:settings`                   | `/settings`             | `talos settings`                   |
+| Identifier                       | Page                  | Command                        |
+| -------------------------------- | --------------------- | ------------------------------ |
+| `talos:machines`                 | `/machines`           | `talos machines`               |
+| `talos:machines:work-mac`        | `/machines/work-mac`  | `talos machines work-mac`      |
+| `talos:machines:work-mac` + ping | the row's ping button | `talos machines work-mac ping` |
+| `talos:folders`                  | `/folders`            | `talos folders`                |
+| `talos:settings`                 | `/settings`           | `talos settings`               |
 
-Actions (`ping`, `add`, `remove`, `attach`) come after the thing they act on.
+Actions (`ping`, `add`, `remove`, `rename`, `attach`) come after the thing they act on.
 They're verbs, so they never appear in an identifier.
+
+A command run on a machine is about that machine, so it leaves the machine
+out: `talos folders add ~/code/x` on work-mac adds
+`talos:machines:work-mac:folders:x`. The Folders page lists every machine's
+folders together, with a Machine column.
 
 The server's own data routes live under `/api`, so they never clash with a
 page address.

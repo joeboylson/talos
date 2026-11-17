@@ -1,5 +1,6 @@
 export * from "./constants";
 export * from "./env";
+export * from "./folders";
 export * from "./identifiers";
 export * from "./json";
 export * from "./local-status";

@@ -1,3 +1,6 @@
+import { watch } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { basename } from "node:path";
 import { hostname } from "node:os";
 import {
   ENV_KEYS,
@@ -7,33 +10,70 @@ import {
   readLogsMode,
   requireEnv,
   toIdentifierName,
+  type ServerToMachine,
 } from "talos-shared";
-import { forgetMachineKey, readMachineKey, saveMachineKey } from "./credentials";
+import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE } from "./constants";
+import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
+import { readFolders, renameFolder, saveFolders } from "./folders";
 import { startLocalStatusServer } from "./local-status-server";
-import { isMachineKeyAccepted, pairMachine } from "./pairing";
-import { connectToServer } from "./server-connection";
+import { fetchMachineName, pairMachine } from "./pairing";
+import { connectToServer, type SendToServer } from "./server-connection";
 
 // `talos` with no command: pair this machine if it isn't yet, connect to the
 // server, and stay connected.
-export const runConnect = (): void => {
+export const runConnect = async (): Promise<void> => {
   const serverUrl = requireEnv(ENV_KEYS.serverUrl);
   const serverOrigin = httpOriginFromServerUrl(serverUrl);
-  const machineName = toIdentifierName(process.env[ENV_KEYS.machineName] || hostname());
+  const wantedMachineName = toIdentifierName(process.env[ENV_KEYS.machineName] || hostname());
   const log = createLogger(readLogsMode(process.env[ENV_KEYS.logsMode]));
 
-  // The one value talos changes as it runs. Everything else is passed in.
+  // What talos changes as it runs: whether it's connected, the name the server
+  // gave it, and how to reach the server while connected.
   let isConnected = false;
+  let machineName = wantedMachineName;
+  let sendToServer: SendToServer | null = null;
+
+  const sendFolders = async () => {
+    if (!sendToServer) return;
+    const folders = await readFolders();
+    sendToServer({ type: "folders", folders });
+    log.detail(`talos: told the server about ${folders.length} folder(s)`);
+  };
+
+  // The owner renamed this machine, or one of its folders, on the page.
+  const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
+    if (message.type === "machine-name") {
+      machineName = message.machineName;
+      const savedCredentials = await readCredentials(serverUrl);
+      if (savedCredentials) await saveCredentials({ ...savedCredentials, machineName });
+      return log.event(`talos: this machine is now called ${machineName}`);
+    }
+    const change = renameFolder(await readFolders(), message.folderName, message.newFolderName);
+    if ("problem" in change) return log.warn(`talos: couldn't rename a folder: ${change.problem}`);
+    await saveFolders(change.folders);
+    log.event(`talos: folder ${message.folderName} is now called ${change.folder.folderName}`);
+  };
 
   // A saved key the server no longer knows (the machine was removed from the
-  // page) is thrown away, and the machine pairs again.
+  // page) is thrown away, and the machine pairs again. The server's name for
+  // the machine is saved too, for folder identifiers.
   const getAcceptedMachineKey = async (): Promise<string> => {
-    const savedMachineKey = await readMachineKey(serverUrl);
-    if (savedMachineKey && (await isMachineKeyAccepted(serverOrigin, savedMachineKey, log))) return savedMachineKey;
-    if (savedMachineKey) await forgetMachineKey();
+    const savedCredentials = await readCredentials(serverUrl);
+    const knownMachineName =
+      savedCredentials && (await fetchMachineName(serverOrigin, savedCredentials.machineKey, log));
+    if (savedCredentials && knownMachineName) {
+      machineName = knownMachineName;
+      if (savedCredentials.machineName !== knownMachineName) {
+        await saveCredentials({ ...savedCredentials, machineName: knownMachineName });
+      }
+      return savedCredentials.machineKey;
+    }
+    if (savedCredentials) await forgetCredentials();
 
-    const machineKey = await pairMachine(serverOrigin, machineName, log);
-    await saveMachineKey({ serverUrl, machineKey });
-    return machineKey;
+    const pairedMachine = await pairMachine(serverOrigin, wantedMachineName, log);
+    machineName = pairedMachine.machineName;
+    await saveCredentials({ serverUrl, ...pairedMachine });
+    return pairedMachine.machineKey;
   };
 
   // Each connection, and each retry after it drops, starts by checking the key.
@@ -43,9 +83,16 @@ export const runConnect = (): void => {
       serverUrl,
       machineKey,
       log,
+      onServerMessage: (message) => void handleServerMessage(message),
+      onOpen: (send) => {
+        sendToServer = send;
+        void sendFolders();
+      },
       onConnectionChange: (isNowConnected) => {
         isConnected = isNowConnected;
-        if (!isNowConnected) setTimeout(connectWithRetry, RECONNECT_DELAY_MS);
+        if (isNowConnected) return;
+        sendToServer = null;
+        setTimeout(connectWithRetry, RECONNECT_DELAY_MS);
       },
     });
   };
@@ -58,12 +105,19 @@ export const runConnect = (): void => {
     });
   };
 
+  // `talos folders add|remove` edits the folders file from
+  // another terminal; this tells the server as soon as it changes.
+  await mkdir(CREDENTIALS_FOLDER, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
+  watch(CREDENTIALS_FOLDER, (_event, changedFileName) => {
+    if (changedFileName === basename(FOLDERS_FILE)) void sendFolders();
+  });
+
   startLocalStatusServer({
     allowedOrigin: serverOrigin,
     readLocalStatus: () => ({ machineName, isConnected }),
     log,
   });
-  log.event(`talos: starting as ${machineName}, server ${serverOrigin}`);
+  log.event(`talos: starting as ${wantedMachineName}, server ${serverOrigin}`);
 
   connectWithRetry();
 };

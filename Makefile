@@ -19,9 +19,22 @@ logs:
 desktop: node_modules .env
 	cd talos-desktop && bun run dev
 
-# Runs only talos, for when the server is already up.
+# `make talos <command>` runs any talos command from here, like
+# `make talos folders add ~/code/x`. Plain `make talos`
+# connects (and restarts on each save), for when the server is already up.
+# The words after `talos` would otherwise be read as make targets, so they're
+# turned into targets that do nothing.
+ifeq (talos,$(firstword $(MAKECMDGOALS)))
+  TALOS_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  $(eval $(TALOS_ARGS):;@:)
+endif
+
 talos: node_modules .env
+ifeq ($(TALOS_ARGS),)
 	cd talos && bun run dev
+else
+	@bun --env-file=.env talos/src/index.ts $(TALOS_ARGS)
+endif
 
 # Builds the container that goes on AWS.
 server-image:

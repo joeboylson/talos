@@ -23,7 +23,7 @@ export const SERVER_ROUTES = {
 } as const;
 
 // Page addresses, one per kind of thing (see docs/GLOSSARY.md).
-export const PAGE_KINDS = ["machines", "settings"] as const;
+export const PAGE_KINDS = ["machines", "folders", "settings"] as const;
 export type PageKind = (typeof PAGE_KINDS)[number];
 
 // GitHub sends a turned-away new person back to the page with ?signIn=closed.

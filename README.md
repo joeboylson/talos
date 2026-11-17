@@ -59,27 +59,36 @@ Every command lives here. Names follow the glossary
 
 ### `talos` (on each machine)
 
-| Command      | What it does                                                           |
-| ------------ | ---------------------------------------------------------------------- |
-| `talos`      | Pairs this machine if it isn't yet, then connects and stays connected. |
-| `talos help` | Lists these commands.                                                  |
+| Command                                    | What it does                                                           |
+| ------------------------------------------ | ---------------------------------------------------------------------- |
+| `talos`                                    | Pairs this machine if it isn't yet, then connects and stays connected. |
+| `talos folders`                            | Lists the folders this machine allows sessions in.                     |
+| `talos folders add <path>`                 | Allows sessions in a folder on this machine. Prints its identifier.    |
+| `talos folders remove <folder>`            | Stops allowing a folder.                                               |
+| `talos folders rename <folder> <new-name>` | Gives a folder a new name. Its path never changes.                     |
+| `talos help`                               | Lists these commands.                                                  |
 
-In this repo, run them with `cd talos && bun src/index.ts <command>`
-(`make talos` runs plain `talos`).
+Folders belong to the machine the command runs on. They're kept there (in
+`~/.talos/folders.json`), and a running `talos` tells the server straight
+away. The page lists them under Folders, where they (and machines) can be
+renamed too.
+
+In this repo, run any of them with `make talos <command>`, like
+`make talos folders add ~/code/x`.
 
 ### `make` (in this repo)
 
-| Command             | What it does                                                                                  |
-| ------------------- | --------------------------------------------------------------------------------------------- |
-| `make dev`          | Starts the AWS emulator and talos-server in Docker, then runs talos here. Ctrl-C stops talos. |
-| `make down`         | Stops the Docker side (the emulator forgets everything).                                      |
-| `make logs`         | Follows talos-server's output. It restarts on every save.                                     |
-| `make talos`        | Runs only talos, for when the server is already up.                                           |
-| `make desktop`      | Opens the desktop app on the server's page. Run `make dev` first.                             |
-| `make server-image` | Builds the talos-server container that goes on AWS.                                           |
-| `make test`         | Runs every folder's tests.                                                                    |
-| `make typecheck`    | Type-checks every folder.                                                                     |
-| `make install`      | Installs packages (other commands do this when needed).                                       |
+| Command                | What it does                                                                                  |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `make dev`             | Starts the AWS emulator and talos-server in Docker, then runs talos here. Ctrl-C stops talos. |
+| `make down`            | Stops the Docker side (the emulator forgets everything).                                      |
+| `make logs`            | Follows talos-server's output. It restarts on every save.                                     |
+| `make talos <command>` | Runs any `talos` command from here (see above). Plain `make talos` connects.                  |
+| `make desktop`         | Opens the desktop app on the server's page. Run `make dev` first.                             |
+| `make server-image`    | Builds the talos-server container that goes on AWS.                                           |
+| `make test`            | Runs every folder's tests.                                                                    |
+| `make typecheck`       | Type-checks every folder.                                                                     |
+| `make install`         | Installs packages (other commands do this when needed).                                       |
 
 ## Status
 

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { HELP_TEXT, parseCommand } from "../../commands";
+import { resolveFolderPath } from "../../folder-commands";
 
 test("no command connects", () => {
   expect(parseCommand([])).toEqual({ name: "connect" });
@@ -9,11 +10,41 @@ test("help shows the list", () => {
   expect(parseCommand(["help"])).toEqual({ name: "help" });
 });
 
-test.each([[["machines"]], [["help", "me"]], [["connect"]], [["--help"]]])("%p isn't a command yet", (args) => {
+test("folder commands", () => {
+  expect(parseCommand(["folders"])).toEqual({ name: "folders-list" });
+  expect(parseCommand(["folders", "add", "~/code/talos"])).toEqual({ name: "folders-add", path: "~/code/talos" });
+  expect(parseCommand(["folders", "remove", "talos"])).toEqual({ name: "folders-remove", folderName: "talos" });
+  expect(parseCommand(["folders", "rename", "talos", "main"])).toEqual({ name: "folders-rename", folderName: "talos", newName: "main" });
+});
+
+test.each([
+  [["folders", "add"]],
+  [["folders", "remove"]],
+  [["folders", "rename", "x"]],
+  [["folders", "add", "a", "b"]],
+  [["folders", "rename", "talos"]],
+  [["folders", "remove", "a", "b"]],
+  [["folders", "rename", "a", "b", "c"]],
+  [["machines", "work-mac", "folders"]],
+  [["help", "me"]],
+  [["--help"]],
+])("%p isn't a command", (args) => {
   expect(parseCommand(args)).toEqual({ name: "unknown", typed: args.join(" ") });
 });
 
 test("help lists every command", () => {
-  expect(HELP_TEXT).toContain("  talos  ");
-  expect(HELP_TEXT).toContain("  talos help");
+  ["  talos  ", "  talos help", "  talos folders  ", "talos folders add <path>", "talos folders remove <folder>"].forEach((line) =>
+    expect(HELP_TEXT).toContain(line),
+  );
+});
+
+test.each([
+  ["~/code/talos", "/work/here", "/home/joe", "/home/joe/code/talos"],
+  ["~", "/work/here", "/home/joe", "/home/joe"],
+  [".", "/work/here", "/home/joe", "/work/here"],
+  ["../other", "/work/here", "/home/joe", "/work/other"],
+  ["/abs/path/", "/work/here", "/home/joe", "/abs/path"],
+  ["~not-home", "/work/here", "/home/joe", "/work/here/~not-home"],
+])("resolveFolderPath(%p) is %p", (typedPath, currentFolder, homeFolder, expected) => {
+  expect(resolveFolderPath(typedPath, currentFolder, homeFolder)).toBe(expected);
 });

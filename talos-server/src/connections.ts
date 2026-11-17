@@ -2,11 +2,13 @@ import type { ServerWebSocket, WebSocketHandler } from "bun";
 import {
   decode,
   encode,
+  type Folder,
   type MachineSummary,
   type MachineToServer,
   type PageToServer,
   type ServerToMachine,
   type Logger,
+  readFolderList,
   type ServerToPage,
 } from "talos-shared";
 import { CLOSE_CODES, NO_MACHINES_MESSAGE } from "./constants";
@@ -17,15 +19,21 @@ export type SocketData =
   | { role: "page"; personId: string; displayName: string };
 type Socket = ServerWebSocket<SocketData>;
 
-// A person only ever sees their own machines.
+// A person only ever sees their own machines. Folders come from each
+// connected machine, so an offline machine's folders are unknown (null).
 export const buildMachineSummaries = (
   machines: MachineRecord[],
-  connectedMachineIds: Set<string>,
+  foldersByMachineId: Map<string, Folder[]>,
   personId: string,
 ): MachineSummary[] =>
   machines
     .filter((machine) => machine.ownerPersonId === personId)
-    .map(({ machineId, machineName }) => ({ machineId, machineName, isConnected: connectedMachineIds.has(machineId) }))
+    .map(({ machineId, machineName }) => ({
+      machineId,
+      machineName,
+      isConnected: foldersByMachineId.has(machineId),
+      folders: foldersByMachineId.get(machineId) ?? null,
+    }))
     .sort((first, second) => first.machineName.localeCompare(second.machineName));
 
 // Which of a person's connected machines a ping goes to: the one asked for
@@ -36,8 +44,10 @@ export const chooseMachinesToPing = (ownConnectedMachineIds: string[], requested
 };
 
 export const createConnections = (machinesTable: MachinesTable, log: Logger) => {
-  // The server's only changing state: who's connected, and when each unanswered ping went out.
+  // The server's only changing state: who's connected, each connected
+  // machine's folders, and when each unanswered ping went out.
   const machineSockets = new Map<string, Socket>();
+  const foldersByMachineId = new Map<string, Folder[]>();
   const pageSockets = new Set<Socket>();
   const pingSentAtById = new Map<string, number>();
 
@@ -48,13 +58,30 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
 
   const sendMachineList = (pageSocket: Socket, machines: MachineRecord[]) => {
     if (pageSocket.data.role !== "page") return;
-    const machineSummaries = buildMachineSummaries(machines, new Set(machineSockets.keys()), pageSocket.data.personId);
+    const machineSummaries = buildMachineSummaries(machines, foldersByMachineId, pageSocket.data.personId);
     pageSocket.send(encode<ServerToPage>({ type: "machines", machines: machineSummaries }));
   };
 
   const sendMachineListToPages = async (personId: string): Promise<void> => {
     const machines = await machinesTable.listMachines();
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) => sendMachineList(pageSocket, machines));
+  };
+
+  // Updates a connected machine's name in place, and tells talos on that
+  // machine so its own name and folder identifiers stay right.
+  const renameConnectedMachine = (machineId: string, machineName: string): void => {
+    const machineSocket = machineSockets.get(machineId);
+    if (machineSocket?.data.role !== "machine") return;
+    machineSocket.data.machineName = machineName;
+    machineSocket.send(encode<ServerToMachine>({ type: "machine-name", machineName }));
+  };
+
+  // False when the machine is offline: only the machine itself can change its folders.
+  const sendFolderRename = (machineId: string, folderName: string, newFolderName: string): boolean => {
+    const machineSocket = machineSockets.get(machineId);
+    if (!machineSocket) return false;
+    machineSocket.send(encode<ServerToMachine>({ type: "rename-folder", folderName, newFolderName }));
+    return true;
   };
 
   const disconnectMachine = (machineId: string): void => {
@@ -85,6 +112,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
   const handleMachineMessage = (machine: { machineId: string; machineName: string; ownerPersonId: string }, rawMessage: string | Buffer) => {
     const { machineId, machineName, ownerPersonId } = machine;
     const message = decode<MachineToServer>(rawMessage);
+    if (message?.type === "folders") return handleFolders(machine, message.folders);
     if (message?.type !== "pong") return;
     const pingSentAt = pingSentAtById.get(message.id);
     if (pingSentAt === undefined) return;
@@ -93,6 +121,14 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     log.detail(`pong from "${machineName}" in ${roundTripMs} ms`);
     const pongMessage = encode<ServerToPage>({ type: "pong", machineId, machineName, roundTripMs });
     findOwnedSockets(pageSockets, ownerPersonId).forEach((pageSocket) => pageSocket.send(pongMessage));
+  };
+
+  const handleFolders = (machine: { machineId: string; machineName: string; ownerPersonId: string }, value: unknown) => {
+    const folders = readFolderList(value);
+    if (!folders) return log.warn(`"${machine.machineName}" sent a folder list the server can't read`);
+    foldersByMachineId.set(machine.machineId, folders);
+    log.detail(`"${machine.machineName}" has ${folders.length} folder(s)`);
+    void sendMachineListToPages(machine.ownerPersonId);
   };
 
   const websocketHandlers: WebSocketHandler<SocketData> = {
@@ -106,6 +142,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       const { machineId, machineName, ownerPersonId } = socket.data;
       machineSockets.get(machineId)?.close(CLOSE_CODES.machineReplaced, "replaced by a newer connection");
       machineSockets.set(machineId, socket);
+      foldersByMachineId.set(machineId, []);
       log.event(`machine connected: "${machineName}"`);
       await sendMachineListToPages(ownerPersonId);
     },
@@ -125,12 +162,13 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       const isCurrentConnection = machineSockets.get(socket.data.machineId) === socket;
       if (!isCurrentConnection) return;
       machineSockets.delete(socket.data.machineId);
+      foldersByMachineId.delete(socket.data.machineId);
       log.event(`machine disconnected: "${socket.data.machineName}"`);
       await sendMachineListToPages(socket.data.ownerPersonId);
     },
   };
 
-  return { websocketHandlers, sendMachineListToPages, disconnectMachine };
+  return { websocketHandlers, sendMachineListToPages, disconnectMachine, renameConnectedMachine, sendFolderRename };
 };
 
 export type Connections = ReturnType<typeof createConnections>;

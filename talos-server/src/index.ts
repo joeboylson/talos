@@ -56,7 +56,8 @@ const server = Bun.serve<SocketData>({
     [SERVER_ROUTES.pairPoll]: { POST: pairingRoutes.poll },
     [SERVER_ROUTES.pairApprove]: { POST: pairingRoutes.approve },
     [SERVER_ROUTES.machineCheck]: { GET: machineRoutes.check },
-    [`${SERVER_ROUTES.machines}/:machineId`]: { DELETE: machineRoutes.remove },
+    [`${SERVER_ROUTES.machines}/:machineId`]: { DELETE: machineRoutes.remove, PATCH: machineRoutes.rename },
+    [`${SERVER_ROUTES.machines}/:machineId/folders/:folderName`]: { PATCH: machineRoutes.renameFolder },
   },
 
   async fetch(request, server) {

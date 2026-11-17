@@ -1,10 +1,18 @@
 import { expect, test } from "bun:test";
-import { pickMachineKey } from "../../credentials";
+import { pickCredentials } from "../../credentials";
 
 const SERVER_URL = "ws://localhost:7070";
 
-test("returns the key saved for this server", () => {
-  expect(pickMachineKey({ serverUrl: SERVER_URL, machineKey: "id.secret" }, SERVER_URL)).toBe("id.secret");
+test("returns what was saved for this server", () => {
+  expect(pickCredentials({ serverUrl: SERVER_URL, machineKey: "id.secret", machineName: "work-mac" }, SERVER_URL)).toEqual({
+    serverUrl: SERVER_URL,
+    machineKey: "id.secret",
+    machineName: "work-mac",
+  });
+});
+
+test("a file from before machine names has no name yet", () => {
+  expect(pickCredentials({ serverUrl: SERVER_URL, machineKey: "id.secret" }, SERVER_URL)?.machineName).toBeNull();
 });
 
 test.each([
@@ -14,5 +22,5 @@ test.each([
   ["no key", { serverUrl: SERVER_URL }],
   ["a key that isn't text", { serverUrl: SERVER_URL, machineKey: 42 }],
 ])("returns null for %s", (_label, savedValue) => {
-  expect(pickMachineKey(savedValue, SERVER_URL)).toBeNull();
+  expect(pickCredentials(savedValue, SERVER_URL)).toBeNull();
 });

@@ -79,7 +79,8 @@ export const createPairingRoutes = (
     // The key goes out once. After this, only the machine has it.
     waitingPairings = waitingPairings.filter((waitingPairing) => waitingPairing !== pairing);
     log.event(`"${pairing.machineName}" collected its key`);
-    return Response.json({ status: "approved", machineKey: pairing.approvedMachineKey } satisfies PairPollResponse);
+    const { approvedMachineKey: machineKey, machineName } = pairing;
+    return Response.json({ status: "approved", machineKey, machineName } satisfies PairPollResponse);
   };
 
   const approve = async (request: Request): Promise<Response> => {
@@ -115,7 +116,7 @@ export const createPairingRoutes = (
     });
     const approvedMachineKey = formatMachineKey(machineKey);
     waitingPairings = waitingPairings.map((waitingPairing) =>
-      waitingPairing === pairing ? { ...waitingPairing, approvedMachineKey } : waitingPairing,
+      waitingPairing === pairing ? { ...waitingPairing, machineName, approvedMachineKey } : waitingPairing,
     );
     log.event(`${person.displayName} approved "${machineName}"; it now belongs to them`);
     await onMachinePaired(person.personId);

@@ -1,0 +1,10 @@
+# Used only by `make screenshots`: its own ports and made-up settings, so it
+# never touches the real dev setup.
+services:
+  aws-emulator:
+    ports: !override
+      - "127.0.0.1:9497:9297"
+      - "127.0.0.1:7370:7070"
+  talos-server:
+    env_file: !override
+      - dev/screenshots/screenshots.env

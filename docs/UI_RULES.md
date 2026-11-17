@@ -21,3 +21,7 @@ For `talos-web` and anything else people look at.
   shadcn one (like `IconButton` wraps `Button` and `Tooltip`).
 - **Light and dark.** Everything works in both; use the theme colors
   (`bg-muted`, `text-muted-foreground`), never fixed ones, except status dots.
+- **Retake the screenshots.** After any change to the page, run
+  `make screenshots`. It retakes every screen into `docs/screenshots/` under
+  the same names, so the folder always shows the page as it is now. A new
+  screen gets a new entry in `dev/screenshots/take-screenshots.ts`.

@@ -11,6 +11,8 @@ side effects kept at the edges).
 
 Follow the UI rules in [docs/UI_RULES.md](docs/UI_RULES.md) for anything
 people look at. Above all: as little text as possible, and icons over words.
+After any change to the page, run `make screenshots` and commit the new
+screenshots with it.
 
 Every command goes in the README's Commands section: each `talos` command
 and each `make` target, with a line on what it does. Add, change or remove a

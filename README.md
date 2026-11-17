@@ -78,17 +78,18 @@ In this repo, run any of them with `make talos <command>`, like
 
 ### `make` (in this repo)
 
-| Command                | What it does                                                                                  |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| `make dev`             | Starts the AWS emulator and talos-server in Docker, then runs talos here. Ctrl-C stops talos. |
-| `make down`            | Stops the Docker side (the emulator forgets everything).                                      |
-| `make logs`            | Follows talos-server's output. It restarts on every save.                                     |
-| `make talos <command>` | Runs any `talos` command from here (see above). Plain `make talos` connects.                  |
-| `make desktop`         | Opens the desktop app on the server's page. Run `make dev` first.                             |
-| `make server-image`    | Builds the talos-server container that goes on AWS.                                           |
-| `make test`            | Runs every folder's tests.                                                                    |
-| `make typecheck`       | Type-checks every folder.                                                                     |
-| `make install`         | Installs packages (other commands do this when needed).                                       |
+| Command                | What it does                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| `make dev`             | Starts the AWS emulator and talos-server in Docker, then runs talos here. Ctrl-C stops talos.         |
+| `make down`            | Stops the Docker side (the emulator forgets everything).                                              |
+| `make logs`            | Follows talos-server's output. It restarts on every save.                                             |
+| `make talos <command>` | Runs any `talos` command from here (see above). Plain `make talos` connects.                          |
+| `make desktop`         | Opens the desktop app on the server's page. Run `make dev` first.                                     |
+| `make screenshots`     | Retakes every screen of the page into `docs/screenshots/`, from a throwaway server with made-up data. |
+| `make server-image`    | Builds the talos-server container that goes on AWS.                                                   |
+| `make test`            | Runs every folder's tests.                                                                            |
+| `make typecheck`       | Type-checks every folder.                                                                             |
+| `make install`         | Installs packages (other commands do this when needed).                                               |
 
 ## Status
 

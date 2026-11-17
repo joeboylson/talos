@@ -1,4 +1,4 @@
-.PHONY: dev down logs desktop talos server-image install typecheck test
+.PHONY: dev down logs desktop talos screenshots server-image install typecheck test
 
 # AWS Graviton (arm64) is cheaper than x86 and matches Apple silicon.
 SERVER_PLATFORM ?= linux/arm64
@@ -35,6 +35,14 @@ ifeq ($(TALOS_ARGS),)
 else
 	@bun --env-file=.env talos/src/index.ts $(TALOS_ARGS)
 endif
+
+# Retakes every screen of the page into docs/screenshots/, under fixed names,
+# from a throwaway server with made-up data (its own ports; the real dev setup
+# is left alone). Needs Playwright's Chromium once: bunx playwright@1.62.0 install chromium
+screenshots: node_modules
+	@trap 'docker compose -p talos-screenshots down -v >/dev/null 2>&1' EXIT; \
+	docker compose -p talos-screenshots -f docker-compose.yml -f dev/screenshots/compose.override.yml up --build --detach --wait >/dev/null && \
+	bun dev/screenshots/take-screenshots.ts
 
 # Builds the container that goes on AWS.
 server-image:

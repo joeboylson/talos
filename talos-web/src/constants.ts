@@ -1,0 +1,1 @@
+export const LOCAL_STATUS_CHECK_INTERVAL_MS = 5000;

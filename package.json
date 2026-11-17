@@ -1,0 +1,13 @@
+{
+  "name": "talos-root",
+  "private": true,
+  "workspaces": ["talos", "talos-server", "talos-shared", "talos-web", "talos-desktop"],
+  "scripts": {
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "typescript": "^5.9.0"
+  }
+}

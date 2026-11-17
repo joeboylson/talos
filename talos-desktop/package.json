@@ -1,0 +1,13 @@
+{
+  "name": "talos-desktop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --env-file=../.env run tauri dev",
+    "build": "bun --env-file=../.env run tauri build",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.5"
+  }
+}

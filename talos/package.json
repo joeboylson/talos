@@ -1,0 +1,13 @@
+{
+  "name": "talos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --env-file=../.env --watch src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "talos-shared": "workspace:*"
+  }
+}

@@ -6,6 +6,7 @@ const machine = (machineName: string, folders: { folderName: string; path: strin
   machineName,
   isConnected: folders !== null,
   folders,
+  sessions: folders === null ? null : [],
 });
 
 test("lists every connected machine's folders, by machine then folder", () => {

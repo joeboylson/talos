@@ -17,7 +17,18 @@ test("folder commands", () => {
   expect(parseCommand(["folders", "rename", "talos", "main"])).toEqual({ name: "folders-rename", folderName: "talos", newName: "main" });
 });
 
+test("session commands", () => {
+  expect(parseCommand(["sessions"])).toEqual({ name: "sessions-list" });
+  expect(parseCommand(["sessions", "fix-login", "attach"])).toEqual({ name: "sessions-attach", sessionName: "fix-login" });
+  expect(parseCommand(["sessions", "fix-login", "stop"])).toEqual({ name: "sessions-stop", sessionName: "fix-login" });
+  expect(parseCommand(["host", "stop"])).toEqual({ name: "host-stop" });
+});
+
 test.each([
+  [["sessions", "fix-login"]],
+  [["sessions", "fix-login", "attach", "now"]],
+  [["host"]],
+  [["host", "start"]],
   [["folders", "add"]],
   [["folders", "remove"]],
   [["folders", "rename", "x"]],
@@ -33,7 +44,7 @@ test.each([
 });
 
 test("help lists every command", () => {
-  ["  talos  ", "  talos help", "  talos folders  ", "talos folders add <path>", "talos folders remove <folder>"].forEach((line) =>
+  ["  talos  ", "  talos help", "  talos folders  ", "talos folders add <path>", "talos folders remove <folder>", "talos sessions <session> attach", "talos host stop"].forEach((line) =>
     expect(HELP_TEXT).toContain(line),
   );
 });

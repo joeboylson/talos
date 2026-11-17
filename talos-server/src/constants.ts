@@ -21,6 +21,9 @@ export const CLOSE_CODES = {
   machineRemoved: 4001,
 } as const;
 
+// Per session. Older exchanges stay in the session's own saved conversation.
+export const MAX_EXCHANGES_KEPT = 50;
+
 export const NO_MACHINES_MESSAGE = "No machines connected";
 
 export const COOKIE_NAMES = {

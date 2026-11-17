@@ -1,4 +1,4 @@
-import { CpuIcon, FolderIcon, ServerIcon, SettingsIcon, type LucideIcon } from "lucide-react";
+import { CpuIcon, FolderIcon, MessagesSquareIcon, ServerIcon, SettingsIcon, type LucideIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 import type { CurrentUserResponse } from "talos-shared";
 import { NavUser } from "@/components/nav-user";
@@ -26,11 +26,12 @@ type NavItem = { view: View; icon: LucideIcon };
 
 const MACHINES_ITEM: NavItem = { view: "machines", icon: ServerIcon };
 const FOLDERS_ITEM: NavItem = { view: "folders", icon: FolderIcon };
+const SESSIONS_ITEM: NavItem = { view: "sessions", icon: MessagesSquareIcon };
 const SETTINGS_ITEM: NavItem = { view: "settings", icon: SettingsIcon };
 
 // Settings only appear for the admin.
 const buildNavItems = (isAdmin: boolean): NavItem[] =>
-  isAdmin ? [MACHINES_ITEM, FOLDERS_ITEM, SETTINGS_ITEM] : [MACHINES_ITEM, FOLDERS_ITEM];
+  isAdmin ? [MACHINES_ITEM, FOLDERS_ITEM, SESSIONS_ITEM, SETTINGS_ITEM] : [MACHINES_ITEM, FOLDERS_ITEM, SESSIONS_ITEM];
 
 export const AppSidebar = ({ currentUser, activeView, onViewChange, onSignOut, ...sidebarProps }: AppSidebarProps) => (
   <Sidebar collapsible="offcanvas" {...sidebarProps}>

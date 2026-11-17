@@ -1,36 +1,55 @@
 import { parseJsonOrNull } from "./json";
+import type { Exchange, SessionSummary } from "./sessions";
 
-// machine-name: the owner renamed this machine on the page.
-// rename-folder: the owner renamed one of its folders; the machine keeps its
-// folders, so it makes the change and sends its new list.
-export type ServerToMachine =
-  | { type: "ping"; id: string }
-  | { type: "machine-name"; machineName: string }
-  | { type: "rename-folder"; folderName: string; newFolderName: string };
 // A folder a machine allows sessions in. The name is its identifier part
 // (talos:machines:work-mac:folders:<folderName>).
 export type Folder = { folderName: string; path: string };
 
-export type MachineToServer = { type: "pong"; id: string } | { type: "folders"; folders: Folder[] };
+// machine-name: the owner renamed this machine on the page.
+// rename-folder: the owner renamed one of its folders; the machine keeps its
+// folders, so it makes the change and sends its new list.
+// start-, send-to- and stop-session: the owner, from the page.
+export type ServerToMachine =
+  | { type: "ping"; id: string }
+  | { type: "machine-name"; machineName: string }
+  | { type: "rename-folder"; folderName: string; newFolderName: string }
+  | { type: "start-session"; folderName: string; sessionName: string }
+  | { type: "send-to-session"; sessionName: string; text: string }
+  | { type: "stop-session"; sessionName: string };
+
+export type MachineToServer =
+  | { type: "pong"; id: string }
+  | { type: "folders"; folders: Folder[] }
+  | { type: "sessions"; sessions: SessionSummary[] }
+  | { type: "exchange"; sessionName: string; exchange: Exchange };
 
 export type CurrentUserResponse = { displayName: string; isAdmin: boolean };
 export type Settings = { allowNewPeople: boolean };
 export type RenameRequest = { name: string };
 export type MachineCheckResponse = { machineName: string };
 
-// folders is null while the machine is offline: only the machine knows them.
+// folders and sessions are null while the machine is offline: only the
+// machine knows them.
 export type MachineSummary = {
   machineId: string;
   machineName: string;
   isConnected: boolean;
   folders: Folder[] | null;
+  sessions: SessionSummary[] | null;
 };
 
 // Without a machineId, a ping goes to all of the person's connected machines.
-export type PageToServer = { type: "ping"; machineId?: string };
+// A new session's name is optional: the machine names it after its folder.
+export type PageToServer =
+  | { type: "ping"; machineId?: string }
+  | { type: "start-session"; machineId: string; folderName: string; sessionName?: string }
+  | { type: "send-to-session"; machineId: string; sessionName: string; text: string }
+  | { type: "stop-session"; machineId: string; sessionName: string };
+
 export type ServerToPage =
   | { type: "machines"; machines: MachineSummary[] }
   | { type: "pong"; machineId: string; machineName: string; roundTripMs: number }
+  | { type: "exchange"; machineId: string; sessionName: string; exchange: Exchange }
   | { type: "error"; message: string };
 
 export type Message = ServerToMachine | MachineToServer | PageToServer | ServerToPage;

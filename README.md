@@ -59,19 +59,30 @@ Every command lives here. Names follow the glossary
 
 ### `talos` (on each machine)
 
-| Command                                    | What it does                                                           |
-| ------------------------------------------ | ---------------------------------------------------------------------- |
-| `talos`                                    | Pairs this machine if it isn't yet, then connects and stays connected. |
-| `talos folders`                            | Lists the folders this machine allows sessions in.                     |
-| `talos folders add <path>`                 | Allows sessions in a folder on this machine. Prints its identifier.    |
-| `talos folders remove <folder>`            | Stops allowing a folder.                                               |
-| `talos folders rename <folder> <new-name>` | Gives a folder a new name. Its path never changes.                     |
-| `talos help`                               | Lists these commands.                                                  |
+| Command                                    | What it does                                                                      |
+| ------------------------------------------ | --------------------------------------------------------------------------------- |
+| `talos`                                    | Pairs this machine if it isn't yet, then connects and stays connected.            |
+| `talos folders`                            | Lists the folders this machine allows sessions in.                                |
+| `talos folders add <path>`                 | Allows sessions in a folder on this machine. Prints its identifier.               |
+| `talos folders remove <folder>`            | Stops allowing a folder.                                                          |
+| `talos folders rename <folder> <new-name>` | Gives a folder a new name. Its path never changes.                                |
+| `talos sessions`                           | Lists this machine's Claude sessions.                                             |
+| `talos sessions <session> attach`          | Shows a session's terminal in yours, to watch or type. Ctrl-\\ leaves it running. |
+| `talos sessions <session> stop`            | Ends a session.                                                                   |
+| `talos host stop`                          | Ends the session host and every session in it.                                    |
+| `talos help`                               | Lists these commands.                                                             |
 
 Folders belong to the machine the command runs on. They're kept there (in
 `~/.talos/folders.json`), and a running `talos` tells the server straight
 away. The page lists them under Folders, where they (and machines) can be
 renamed too.
+
+Sessions run in the session host, a background program `talos` starts on
+each machine. It holds Claude Code's terminals, so sessions keep running
+when `talos` restarts (it restarts on every save in development). After
+changing `talos/src/host.ts` or `talos/src/hook.ts`, run
+`make talos host stop` so the next `talos` starts a fresh host; that ends
+running sessions. The host's own log is `~/.talos/host.log`.
 
 In this repo, run any of them with `make talos <command>`, like
 `make talos folders add ~/code/x`.

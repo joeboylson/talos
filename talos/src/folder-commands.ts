@@ -2,11 +2,9 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { ENV_KEYS, buildIdentifier, requireEnv } from "talos-shared";
-import type { Command } from "./commands";
+import type { FolderCommand } from "./commands";
 import { readCredentials } from "./credentials";
 import { addFolder, readFolders, removeFolder, renameFolder, saveFolders } from "./folders";
-
-type FolderCommand = Extract<Command, { name: "folders-list" | "folders-add" | "folders-remove" | "folders-rename" }>;
 
 // "~/code/x" and "./x" both become full paths, so a folder means the same
 // thing however it was typed.

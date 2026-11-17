@@ -4,13 +4,16 @@ import { removeMachine, signOut } from "@/api";
 import { AppSidebar } from "@/components/app-sidebar";
 import { FoldersTable } from "@/components/folders-table";
 import { MachinesTable } from "@/components/machines-table";
+import { SessionView } from "@/components/session-view";
+import { SessionsTable } from "@/components/sessions-table";
 import { SettingsView } from "@/components/settings-view";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader, type Crumb } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { VIEWS } from "@/constants";
+import { VIEWS, type View } from "@/constants";
 import { useLocalStatus } from "@/hooks/use-local-status";
 import { usePagePath } from "@/hooks/use-page-path";
 import { useServerSocket } from "@/hooks/use-server-socket";
+import { findSessionRow, sessionKey, type SessionRow } from "@/session-rows";
 
 // Sizes from shadcn's dashboard-01 block.
 const LAYOUT_SIZES = {
@@ -19,12 +22,29 @@ const LAYOUT_SIZES = {
 } as CSSProperties;
 
 export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse }) => {
-  const { pageKind, openPage } = usePagePath();
+  const { pageLocation, openPage } = usePagePath();
   // Settings belong to the admin; anyone else at /settings sees their machines.
-  const activeView = pageKind === "settings" && !currentUser.isAdmin ? "machines" : pageKind;
-  const { machines, roundTripMsByMachineId, notice, setNotice, isConnected, ping } = useServerSocket();
+  const isHiddenSettings = pageLocation.pageKind === "settings" && !currentUser.isAdmin;
+  const activeView = isHiddenSettings ? "machines" : pageLocation.pageKind;
+  const serverSocket = useServerSocket();
+  const { machines, notice, setNotice, isConnected } = serverSocket;
   const localStatus = useLocalStatus();
   const machineList = machines ?? [];
+
+  const openView = (pageKind: View) => openPage({ pageKind, machineName: null, sessionName: null });
+  const openSession = ({ machineName, sessionName }: SessionRow) =>
+    openPage({ pageKind: "sessions", machineName, sessionName });
+
+  const { machineName: openMachineName, sessionName: openSessionName } = pageLocation;
+  const isSessionOpen = activeView === "sessions" && openMachineName !== null && openSessionName !== null;
+  const openSessionRow = isSessionOpen ? findSessionRow(machineList, openMachineName, openSessionName) : null;
+  const openSessionKey = openSessionRow ? sessionKey(openSessionRow.machineId, openSessionRow.sessionName) : "";
+  const crumbs: Crumb[] = isSessionOpen
+    ? [
+        { label: VIEWS.sessions.title, onOpen: () => openView("sessions") },
+        { label: `${openMachineName} / ${openSessionName}` },
+      ]
+    : [{ label: VIEWS[activeView].title }];
 
   // No "are you sure?": a removed machine just pairs again to come back.
   const handleRemove = (machine: MachineSummary) =>
@@ -41,24 +61,43 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
         variant="inset"
         currentUser={currentUser}
         activeView={activeView}
-        onViewChange={openPage}
+        onViewChange={openView}
         onSignOut={handleSignOut}
       />
       <SidebarInset>
-        <SiteHeader crumbs={[{ label: VIEWS[activeView].title }]} isLive={isConnected} />
+        <SiteHeader crumbs={crumbs} isLive={isConnected} />
         <div className="@container/main flex flex-1 flex-col gap-4 py-4 md:gap-6 md:py-6">
           {activeView === "machines" && (
             <MachinesTable
               machines={machineList}
-              roundTripMsByMachineId={roundTripMsByMachineId}
+              roundTripMsByMachineId={serverSocket.roundTripMsByMachineId}
               localStatus={localStatus}
               notice={notice}
               canPing={isConnected}
-              onPing={ping}
+              onPing={serverSocket.ping}
               onRemove={handleRemove}
             />
           )}
           {activeView === "folders" && <FoldersTable machines={machineList} />}
+          {activeView === "sessions" && !isSessionOpen && (
+            <SessionsTable
+              machines={machineList}
+              notice={notice}
+              onStart={serverSocket.startSession}
+              onOpen={openSession}
+              onStop={({ machineId, sessionName }) => serverSocket.stopSession(machineId, sessionName)}
+            />
+          )}
+          {isSessionOpen && (
+            <SessionView
+              sessionRow={openSessionRow}
+              exchanges={serverSocket.exchangesBySession[openSessionKey] ?? []}
+              waitingPrompts={serverSocket.waitingPromptsBySession[openSessionKey] ?? []}
+              onSend={(text) =>
+                openSessionRow && serverSocket.sendToSession(openSessionRow.machineId, openSessionRow.sessionName, text)
+              }
+            />
+          )}
           {activeView === "settings" && currentUser.isAdmin && <SettingsView />}
         </div>
       </SidebarInset>

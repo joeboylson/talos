@@ -46,6 +46,7 @@ const server = Bun.serve<SocketData>({
   routes: {
     "/": Response.redirect(buildPagePath(["machines"])),
     ...Object.fromEntries(PAGE_KINDS.map((pageKind) => [buildPagePath([pageKind]), page])),
+    [`${buildPagePath(["sessions"])}/:machineName/:sessionName`]: page,
     [HEALTH_ROUTE]: new Response("ok"),
     [SERVER_ROUTES.signIn]: { GET: authRoutes.signIn },
     [SERVER_ROUTES.signInCallback]: { GET: authRoutes.signInCallback },

@@ -8,3 +8,4 @@ export * from "./logger";
 export * from "./messages";
 export * from "./pairing";
 export * from "./server-url";
+export * from "./sessions";

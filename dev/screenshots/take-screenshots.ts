@@ -27,8 +27,17 @@ const pairMachine = async (machineName: string): Promise<string> => {
   return (await postJson("/api/pair/poll", { pairingId })).machineKey;
 };
 
-// Connects like talos: reports its folders and answers pings.
-const connectMachine = (machineKey: string, folders: { folderName: string; path: string }[]) =>
+type MadeUpSession = { sessionName: string; folderName: string; state: string };
+type MadeUpExchange = { sessionName: string; prompt: string; reply: string };
+
+// Connects like talos: reports its folders and sessions, sends finished
+// exchanges, and answers pings.
+const connectMachine = (
+  machineKey: string,
+  folders: { folderName: string; path: string }[],
+  sessions: MadeUpSession[] = [],
+  exchanges: MadeUpExchange[] = [],
+) =>
   new Promise<WebSocket>((resolve) => {
     const socket = new WebSocket(`${SOCKET_SERVER}/api/sockets/machine`, {
       headers: { Authorization: `Bearer ${machineKey}` },
@@ -39,6 +48,10 @@ const connectMachine = (machineKey: string, folders: { folderName: string; path:
     };
     socket.onopen = () => {
       socket.send(JSON.stringify({ type: "folders", folders }));
+      socket.send(JSON.stringify({ type: "sessions", sessions }));
+      exchanges.forEach(({ sessionName, prompt, reply }, index) =>
+        socket.send(JSON.stringify({ type: "exchange", sessionName, exchange: { prompt, reply, finishedAtMs: index + 1 } })),
+      );
       resolve(socket);
     };
   });
@@ -79,10 +92,27 @@ await takeShot({ name: "machines-empty", path: "/machines" });
 
 const atlasKey = await pairMachine("atlas");
 await pairMachine("spark");
-const atlas = await connectMachine(atlasKey, [
-  { folderName: "talos", path: "/Users/joe/code/talos" },
-  { folderName: "website", path: "/Users/joe/code/website" },
-]);
+const atlas = await connectMachine(
+  atlasKey,
+  [
+    { folderName: "talos", path: "/Users/joe/code/talos" },
+    { folderName: "website", path: "/Users/joe/code/website" },
+  ],
+  [
+    { sessionName: "fix-login", folderName: "talos", state: "idle" },
+    { sessionName: "new-homepage", folderName: "website", state: "working" },
+    { sessionName: "deploy", folderName: "talos", state: "needs-you" },
+  ],
+  [
+    {
+      sessionName: "fix-login",
+      prompt: "Why does sign-in fail after the session expires?",
+      reply:
+        "The page keeps the old session cookie, so /api/auth/me returns 401 and the page sends you to GitHub, but the callback finds no sign-in state cookie.\n\nI changed the sign-in route to set a fresh state cookie every time. Want me to add a test for it?",
+    },
+    { sessionName: "fix-login", prompt: "Yes, add the test.", reply: "Added tests/auth/session.test.ts → \"an expired session starts a fresh sign-in\". All 58 tests pass." },
+  ],
+);
 
 await takeShot({ name: "machines", path: "/machines", before: clickButton("Ping atlas") });
 await takeShot({ name: "machines-dark", path: "/machines", dark: true });
@@ -92,6 +122,11 @@ await takeShot({ name: "rename-machine-dialog", path: "/machines", before: click
 await takeShot({ name: "folders", path: "/folders" });
 await takeShot({ name: "folders-dark", path: "/folders", dark: true });
 await takeShot({ name: "rename-folder-dialog", path: "/folders", before: clickButton("Rename talos") });
+await takeShot({ name: "sessions", path: "/sessions" });
+await takeShot({ name: "sessions-dark", path: "/sessions", dark: true });
+await takeShot({ name: "start-session-dialog", path: "/sessions", before: clickButton("Start a session") });
+await takeShot({ name: "session", path: "/sessions/atlas/fix-login" });
+await takeShot({ name: "session-dark", path: "/sessions/atlas/fix-login", dark: true });
 await takeShot({ name: "settings", path: "/settings" });
 
 atlas.close();

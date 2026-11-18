@@ -1,12 +1,21 @@
-import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { DocumentClient } from "./dynamo";
 
 // One row per way a person signs in, pointing at the person. A person is just
 // the personId their sign-ins share, so linking a second account later is
 // one more row.
-export type SignInRecord = { signInId: string; personId: string; displayName: string; linkedAtMs: number };
+// Sessions made at or before sessionsEndedAtMs no longer count: signing out
+// sets it, which ends every session for that sign-in at once.
+export type SignInRecord = {
+  signInId: string;
+  personId: string;
+  displayName: string;
+  linkedAtMs: number;
+  sessionsEndedAtMs?: number;
+};
 
-export const buildGithubSignInId = (githubLogin: string): string => `github:${githubLogin.toLowerCase()}`;
+// By GitHub's permanent account number, never the login, which can change hands.
+export const buildGithubSignInId = (githubId: number): string => `github-id:${githubId}`;
 
 export const createSignInsTable = (documentClient: DocumentClient, tableName: string) => ({
   findSignIn: async (signInId: string): Promise<SignInRecord | null> => {
@@ -17,6 +26,18 @@ export const createSignInsTable = (documentClient: DocumentClient, tableName: st
 
   saveSignIn: async (signIn: SignInRecord): Promise<void> => {
     await documentClient.send(new PutCommand({ TableName: tableName, Item: signIn }));
+  },
+
+  endSessions: async (signInId: string, endedAtMs: number): Promise<void> => {
+    await documentClient.send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { signInId },
+        UpdateExpression: "SET sessionsEndedAtMs = :endedAtMs",
+        ConditionExpression: "attribute_exists(signInId)",
+        ExpressionAttributeValues: { ":endedAtMs": endedAtMs },
+      }),
+    );
   },
 });
 

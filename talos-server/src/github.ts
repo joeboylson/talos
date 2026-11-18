@@ -13,8 +13,13 @@ export const buildGithubSignInUrl = (clientId: string, redirectUri: string, sign
   return signInUrl.toString();
 };
 
-// Swaps the one-time code GitHub sends back for the signed-in person's login.
-export const fetchGithubLogin = async (code: string, settings: GithubAppSettings): Promise<string> => {
+// GitHub's permanent number for an account, and its current login. Logins
+// can change hands (rename an account and anyone can take the old name), so
+// Talos knows people by the number and only shows the login.
+export type GithubUser = { githubId: number; login: string };
+
+// Swaps the one-time code GitHub sends back for the signed-in person.
+export const fetchGithubUser = async (code: string, settings: GithubAppSettings): Promise<GithubUser> => {
   const tokenResponse = await fetch(GITHUB_URLS.accessToken, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -39,6 +44,9 @@ export const fetchGithubLogin = async (code: string, settings: GithubAppSettings
     },
   });
   if (!userResponse.ok) throw new Error(`GitHub user lookup failed: ${userResponse.status}`);
-  const githubUser = (await userResponse.json()) as { login: string };
-  return githubUser.login;
+  const githubUser: unknown = await userResponse.json();
+  const githubId: unknown = typeof githubUser === "object" && githubUser !== null ? Reflect.get(githubUser, "id") : null;
+  const login: unknown = typeof githubUser === "object" && githubUser !== null ? Reflect.get(githubUser, "login") : null;
+  if (!Number.isSafeInteger(githubId) || typeof login !== "string") throw new Error("GitHub sent an unexpected user");
+  return { githubId: Number(githubId), login };
 };

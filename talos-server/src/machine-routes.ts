@@ -43,7 +43,7 @@ export const createMachineRoutes = (
   // Someone else's machine answers the same as one that doesn't exist, so
   // nobody can learn which machine ids are real.
   const remove = async (request: BunRequest): Promise<Response> => {
-    const person = checks.readTrustedPerson(request);
+    const person = await checks.readTrustedPerson(request);
     if (!person) return textResponse("Not signed in", 401);
     const machine = await machinesTable.findMachine(request.params.machineId ?? "");
     if (!machine || machine.ownerPersonId !== person.personId) {
@@ -61,7 +61,7 @@ export const createMachineRoutes = (
   type RenameRequest = { person: SessionPerson; machine: MachineRecord; typedName: string } | { response: Response };
 
   const readRenameRequest = async (request: BunRequest): Promise<RenameRequest> => {
-    const person = checks.readTrustedPerson(request);
+    const person = await checks.readTrustedPerson(request);
     if (!person) return { response: textResponse("Not signed in", 401) };
     const machine = await machinesTable.findMachine(request.params.machineId ?? "");
     if (!machine || machine.ownerPersonId !== person.personId) return { response: textResponse("No such machine", 404) };

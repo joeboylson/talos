@@ -1,6 +1,8 @@
 // Pairing gives a new machine its own key. The machine asks for a short code,
-// Joe types that code into the page while signed in, and the machine collects
-// its key on its next poll.
+// its owner types that code into the page while signed in, the machine shows
+// who approved it and its owner confirms there, and only then does the
+// machine collect its key. Someone else who saw the code and typed it first
+// is caught at the machine, before any key exists.
 
 export type PairStartRequest = { machineName: string };
 export type PairStartResponse = { pairingId: string; userCode: string; expiresAtMs: number };
@@ -8,8 +10,11 @@ export type PairStartResponse = { pairingId: string; userCode: string; expiresAt
 export type PairPollRequest = { pairingId: string };
 export type PairPollResponse =
   | { status: "waiting" }
-  | { status: "approved"; machineKey: string; machineName: string }
+  | { status: "approved"; approvedBy: string }
   | { status: "expired" };
+
+export type PairCollectRequest = { pairingId: string };
+export type PairCollectResponse = { machineKey: string; machineName: string };
 
 export type PairApproveRequest = { userCode: string };
 export type PairApproveResponse = { machineName: string };

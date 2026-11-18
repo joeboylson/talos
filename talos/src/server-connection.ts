@@ -1,8 +1,9 @@
 import {
   BEARER_PREFIX,
   SERVER_ROUTES,
-  decode,
   encode,
+  parseJsonOrNull,
+  readServerToMachine,
   type Logger,
   type MachineToServer,
   type ServerToMachine,
@@ -35,8 +36,8 @@ export const connectToServer = (options: ServerConnectionOptions): void => {
   };
 
   socket.onmessage = (event) => {
-    const message = decode<ServerToMachine>(event.data);
-    if (!message) return;
+    const message = readServerToMachine(parseJsonOrNull(String(event.data)));
+    if (!message) return log.warn("talos: the server sent a message talos can't read; ignoring it");
     if (message.type !== "ping") return onServerMessage(message);
     log.detail("talos: ping from the server, sending pong");
     socket.send(encode<MachineToServer>({ type: "pong", id: message.id }));

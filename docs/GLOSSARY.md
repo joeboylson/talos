@@ -7,8 +7,9 @@ docs. Use these and no others.
 
 - **person**: someone who uses Talos. A person can have several sign-ins.
 - **sign-in**: one way a person gets in, like a GitHub account
-  (`github:joeboylson`). Tailscale sign-ins come later.
-- **admin**: the one person named in `TALOS_ADMIN_GITHUB_LOGIN`. Only the
+  (`github-id:34290408`, by GitHub's permanent account number). Tailscale
+  sign-ins come later.
+- **admin**: the one person named in `TALOS_ADMIN_GITHUB_ID`. Only the
   admin sees settings.
 - **machine**: a computer running `talos`, belonging to the person who paired
   it. Nobody else can see or use it.

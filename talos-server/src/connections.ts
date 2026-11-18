@@ -1,27 +1,23 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import {
   MAX_ENTRIES_KEPT,
-  MAX_ENTRY_TEXT_LENGTH,
-  decode,
   encode,
   mergeSessionEntries,
+  parseJsonOrNull,
+  readMachineToServer,
+  readPageToServer,
   pickUniqueName,
-  readFolderList,
-  readSentImages,
-  readSessionEntries,
-  readSessionList,
   toIdentifierName,
   type Folder,
   type Logger,
   type MachineSummary,
-  type MachineToServer,
   type PageToServer,
   type ServerToMachine,
   type ServerToPage,
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CLOSE_CODES, NO_MACHINES_MESSAGE } from "./constants";
+import { CLOSE_CODES, NO_MACHINES_MESSAGE, PING_ANSWER_WAIT_MS } from "./constants";
 import type { MachineRecord, MachinesTable } from "./machines-table";
 
 export type SocketData =
@@ -134,6 +130,13 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     [...machineSockets.values(), ...pageSockets].forEach((socket) => socket.ping());
   };
 
+  // After someone signs out everywhere, their open pages stop getting updates.
+  const disconnectPersonPages = (personId: string): void => {
+    findOwnedSockets(pageSockets, personId).forEach((pageSocket) =>
+      pageSocket.close(CLOSE_CODES.signedOut, "signed out"),
+    );
+  };
+
   const disconnectMachine = (machineId: string): void => {
     machineSockets.get(machineId)?.close(CLOSE_CODES.machineRemoved, "removed from the page");
   };
@@ -149,6 +152,9 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       return;
     }
     log.detail(`${displayName} pinged ${targetMachineIds.length} machine(s)`);
+    // A machine that never answers mustn't leave its pings here forever.
+    const oldestKeptMs = Date.now() - PING_ANSWER_WAIT_MS;
+    [...pingSentAtById].filter(([, sentAtMs]) => sentAtMs < oldestKeptMs).forEach(([pingId]) => pingSentAtById.delete(pingId));
     targetMachineIds.forEach((machineId) => {
       const pingId = crypto.randomUUID();
       pingSentAtById.set(pingId, Date.now());
@@ -187,10 +193,9 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       return machineSocket.send(encode<ServerToMachine>({ type: "stop-session", sessionName: message.sessionName }));
     }
 
-    const text = typeof message.text === "string" ? message.text.trim() : "";
-    const images = readSentImages(message.images);
-    const isEmpty = !text && images?.length === 0;
-    if (!images || isEmpty || text.length > MAX_ENTRY_TEXT_LENGTH) return sendProblem("That message can't be sent");
+    const text = message.text.trim();
+    const images = message.images ?? [];
+    if (!text && images.length === 0) return sendProblem("That message can't be sent");
     log.detail(`${displayName} sent a message to session "${message.sessionName}" on "${machineName}"`);
     machineSocket.send(
       encode<ServerToMachine>({ type: "send-to-session", sessionName: message.sessionName, text, images }),
@@ -198,11 +203,10 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
   };
 
   const handlePageMessage = (pageSocket: Socket, personId: string, displayName: string, rawMessage: string | Buffer) => {
-    const message = decode<PageToServer>(rawMessage);
-    if (!message) return;
+    const message = readPageToServer(parseJsonOrNull(String(rawMessage)));
+    if (!message) return log.warn(`${displayName}'s page sent a message the server can't read`);
     if (message.type === "ping") return handlePing(pageSocket, personId, displayName, message.machineId);
-    const isSessionCommand = ["start-session", "send-to-session", "stop-session"].includes(message.type);
-    if (isSessionCommand) handleSessionCommand(pageSocket, personId, displayName, message);
+    handleSessionCommand(pageSocket, personId, displayName, message);
   };
 
   const updateReport = (machine: MachineData, change: Partial<MachineReport>) => {
@@ -211,9 +215,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     void sendMachineListToPages(machine.ownerPersonId);
   };
 
-  const handleSessions = (machine: MachineData, value: unknown) => {
-    const sessions = readSessionList(value);
-    if (!sessions) return log.warn(`"${machine.machineName}" sent a session list the server can't read`);
+  const handleSessions = (machine: MachineData, sessions: SessionSummary[]) => {
     // A session that's gone takes its kept entries with it.
     const liveKeys = new Set(sessions.map(({ sessionName }) => entriesKey(machine.machineId, sessionName)));
     [...entriesBySession.keys()]
@@ -223,11 +225,11 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     updateReport(machine, { sessions });
   };
 
-  const handleSessionEntries = (machine: MachineData, sessionName: unknown, value: unknown) => {
-    const entries = readSessionEntries(value);
-    if (typeof sessionName !== "string" || !entries) {
-      return log.warn(`"${machine.machineName}" sent session entries the server can't read`);
-    }
+  // Only for a session the machine says it has, so a machine can't fill the
+  // server's memory with entries for made-up sessions.
+  const handleSessionEntries = (machine: MachineData, sessionName: string, entries: SessionEntry[]) => {
+    const hasSession = reportsByMachineId.get(machine.machineId)?.sessions.some((session) => session.sessionName === sessionName);
+    if (!hasSession) return log.warn(`"${machine.machineName}" sent entries for a session it doesn't have`);
     const key = entriesKey(machine.machineId, sessionName);
     entriesBySession.set(key, mergeSessionEntries(entriesBySession.get(key) ?? [], entries, MAX_ENTRIES_KEPT));
     log.detail(`session "${sessionName}" on "${machine.machineName}" has ${entries.length} new or changed entries`);
@@ -245,61 +247,80 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
   };
 
   const handleMachineMessage = (machine: MachineData, rawMessage: string | Buffer) => {
-    const message = decode<MachineToServer>(rawMessage);
-    if (message?.type === "pong") return handlePong(machine, message.id);
-    if (message?.type === "folders") {
-      const folders = readFolderList(message.folders);
-      if (!folders) return log.warn(`"${machine.machineName}" sent a folder list the server can't read`);
-      log.detail(`"${machine.machineName}" has ${folders.length} folder(s)`);
-      return updateReport(machine, { folders });
+    const message = readMachineToServer(parseJsonOrNull(String(rawMessage)));
+    if (!message) return log.warn(`"${machine.machineName}" sent a message the server can't read`);
+    if (message.type === "pong") return handlePong(machine, message.id);
+    if (message.type === "sessions") return handleSessions(machine, message.sessions);
+    if (message.type === "session-entries") return handleSessionEntries(machine, message.sessionName, message.entries);
+    log.detail(`"${machine.machineName}" has ${message.folders.length} folder(s)`);
+    updateReport(machine, { folders: message.folders });
+  };
+
+  // One socket's problem stays that socket's problem: an error here would
+  // otherwise stop the whole server, and every machine and page with it.
+  const reportSocketError = (socket: Socket, error: unknown) =>
+    log.warn(`a ${socket.data.role} socket's message failed: ${error instanceof Error ? error.message : error}`);
+
+  const openSocket = async (socket: Socket): Promise<void> => {
+    if (socket.data.role === "page") {
+      pageSockets.add(socket);
+      log.detail(`${socket.data.displayName} connected to the live updates`);
+      sendMachineList(socket, await machinesTable.listMachines());
+      sendKeptEntries(socket, socket.data.personId);
+      return;
     }
-    if (message?.type === "sessions") return handleSessions(machine, message.sessions);
-    if (message?.type === "session-entries") return handleSessionEntries(machine, message.sessionName, message.entries);
+    const { machineId, machineName, ownerPersonId } = socket.data;
+    machineSockets.get(machineId)?.close(CLOSE_CODES.machineReplaced, "replaced by a newer connection");
+    machineSockets.set(machineId, socket);
+    reportsByMachineId.set(machineId, { folders: [], sessions: [] });
+    log.event(`machine connected: "${machineName}"`);
+    await sendMachineListToPages(ownerPersonId);
+  };
+
+  const closeSocket = async (socket: Socket): Promise<void> => {
+    if (socket.data.role === "page") {
+      pageSockets.delete(socket);
+      log.detail(`${socket.data.displayName} closed the page`);
+      return;
+    }
+    // A replaced connection closing late mustn't remove its replacement.
+    const isCurrentConnection = machineSockets.get(socket.data.machineId) === socket;
+    if (!isCurrentConnection) return;
+    machineSockets.delete(socket.data.machineId);
+    reportsByMachineId.delete(socket.data.machineId);
+    const goneMachineId = socket.data.machineId;
+    [...entriesBySession.keys()]
+      .filter((key) => key.startsWith(`${goneMachineId}:`))
+      .forEach((key) => entriesBySession.delete(key));
+    log.event(`machine disconnected: "${socket.data.machineName}"`);
+    await sendMachineListToPages(socket.data.ownerPersonId);
   };
 
   const websocketHandlers: WebSocketHandler<SocketData> = {
-    async open(socket) {
-      if (socket.data.role === "page") {
-        pageSockets.add(socket);
-        log.detail(`${socket.data.displayName} connected to the live updates`);
-        sendMachineList(socket, await machinesTable.listMachines());
-        sendKeptEntries(socket, socket.data.personId);
-        return;
-      }
-      const { machineId, machineName, ownerPersonId } = socket.data;
-      machineSockets.get(machineId)?.close(CLOSE_CODES.machineReplaced, "replaced by a newer connection");
-      machineSockets.set(machineId, socket);
-      reportsByMachineId.set(machineId, { folders: [], sessions: [] });
-      log.event(`machine connected: "${machineName}"`);
-      await sendMachineListToPages(ownerPersonId);
+    open(socket) {
+      openSocket(socket).catch((error: unknown) => reportSocketError(socket, error));
     },
 
     message(socket, rawMessage) {
-      if (socket.data.role === "page") {
-        return handlePageMessage(socket, socket.data.personId, socket.data.displayName, rawMessage);
+      try {
+        if (socket.data.role === "page") {
+          return handlePageMessage(socket, socket.data.personId, socket.data.displayName, rawMessage);
+        }
+        handleMachineMessage(socket.data, rawMessage);
+      } catch (error) {
+        reportSocketError(socket, error);
       }
-      handleMachineMessage(socket.data, rawMessage);
     },
 
-    async close(socket) {
-      if (socket.data.role === "page") {
-        pageSockets.delete(socket);
-        log.detail(`${socket.data.displayName} closed the page`);
-        return;
-      }
-      // A replaced connection closing late mustn't remove its replacement.
-      const isCurrentConnection = machineSockets.get(socket.data.machineId) === socket;
-      if (!isCurrentConnection) return;
-      machineSockets.delete(socket.data.machineId);
-      reportsByMachineId.delete(socket.data.machineId);
-      log.event(`machine disconnected: "${socket.data.machineName}"`);
-      await sendMachineListToPages(socket.data.ownerPersonId);
+    close(socket) {
+      closeSocket(socket).catch((error: unknown) => reportSocketError(socket, error));
     },
   };
 
   return {
     websocketHandlers,
     pingAllSockets,
+    disconnectPersonPages,
     sendMachineListToPages,
     disconnectMachine,
     renameConnectedMachine,

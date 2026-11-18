@@ -45,8 +45,10 @@ make dev
 
 Open http://localhost:7070 (or run `make desktop`) and sign in with GitHub.
 The `talos` terminal shows a pairing code: enter it with the + button on the
-Machines page. The machine saves its key in `~/.talos/credentials.json` and
-connects. The admin (`TALOS_ADMIN_GITHUB_LOGIN`) has a switch under Settings
+Machines page. `talos` then shows who entered it and asks if that's you (or
+checks `TALOS_PAIR_OWNER` when it has no terminal), so someone else who saw the
+code can't take the machine. Then it saves its key in
+`~/.talos/credentials.json` and connects. The admin (`TALOS_ADMIN_GITHUB_ID`, a GitHub account number) has a switch under Settings
 that lets new people sign up; it starts off.
 
 The emulator forgets everything when it stops, so after `make down` each
@@ -98,6 +100,7 @@ In this repo, run any of them with `make talos <command>`, like
 | `make desktop`         | Opens the desktop app on the server's page. Run `make dev` first.                                     |
 | `make screenshots`     | Retakes every screen of the page into `docs/screenshots/`, from a throwaway server with made-up data. |
 | `make server-image`    | Builds the talos-server container that goes on AWS.                                                   |
+| `make security`        | Runs the security checks that GitHub and each publish run (see Publishing).                           |
 | `make test`            | Runs every folder's tests.                                                                            |
 | `make typecheck`       | Type-checks every folder.                                                                             |
 | `make install`         | Installs packages (other commands do this when needed).                                               |
@@ -106,9 +109,21 @@ In this repo, run any of them with `make talos <command>`, like
 
 Every push to `main` that changes the server publishes it. AWS CodeBuild
 (`talos-server-deploy` in us-east-2) runs `deploy/buildspec.yml`: it checks
-the code, builds the image, and switches the live server to it. Results show
-in the AWS console under CodeBuild. Changes to docs, `talos/` or
-`talos-desktop/` alone don't publish.
+the code, builds the image, runs the security checks, and only if they pass
+uploads the image and switches the live server to it. Results show in the AWS
+console under CodeBuild. Changes to docs, `talos/` or `talos-desktop/` alone
+don't publish.
+
+Every push and pull request also runs the Checks workflow on GitHub
+(`.github/workflows/security.yml`): types, tests and the same security checks.
+It has no access to AWS. The security checks (`dev/security/check.sh`, also
+`make security`) fail on high or critical problems only:
+
+- `bun audit`: packages with known holes.
+- gitleaks: keys or passwords committed anywhere in the history.
+- Semgrep: risky code patterns.
+- zizmor: mistakes in the GitHub workflows.
+- Trivy: known holes in the server image's system packages.
 
 ## Status
 

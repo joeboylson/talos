@@ -2,29 +2,34 @@
 // Run with `make screenshots`, which starts and stops the throwaway server.
 import { mkdir } from "node:fs/promises";
 import { chromium, type Page } from "playwright-core";
+import { createDocumentClient } from "../../talos-server/src/dynamo";
 import { createSessionToken } from "../../talos-server/src/session";
+import { createSignInsTable } from "../../talos-server/src/sign-ins-table";
 
 const SERVER = "http://localhost:7370";
 const SOCKET_SERVER = "ws://localhost:7370";
-const SESSION_SECRET = "screenshots-only";
+const SESSION_SECRET = "screenshots-only-not-a-real-secret-0000";
 const OUT_FOLDER = new URL("../../docs/screenshots/", import.meta.url).pathname;
 const DESKTOP = { width: 1280, height: 720 };
 const PHONE = { width: 390, height: 844 };
 const SETTLE_MS = 800;
 
-const signInAs = (personId: string, login: string) =>
-  createSessionToken({ personId, signInId: `github:${login}`, displayName: login }, Date.now() + 600_000, SESSION_SECRET);
-const adminSession = signInAs("joe", "joeboylson");
+// A session only counts while its sign-in is in the database, so the made-up
+// admin gets a sign-in there first (in the throwaway server's emulator).
+const ADMIN = { personId: "joe", signInId: "github-id:34290408", displayName: "joeboylson" };
+await createSignInsTable(createDocumentClient(true), "talos-sign-ins").saveSignIn({ ...ADMIN, linkedAtMs: Date.now() });
+const adminSession = createSessionToken(ADMIN, { issuedAtMs: Date.now(), expiresAtMs: Date.now() + 600_000 }, SESSION_SECRET);
 const pageHeaders = { Cookie: `talos_session=${adminSession}`, Origin: SERVER, "Content-Type": "application/json" };
 
 const postJson = async (path: string, body: unknown, headers: Record<string, string> = { "Content-Type": "application/json" }) =>
   (await fetch(SERVER + path, { method: "POST", headers, body: JSON.stringify(body) })).json() as Promise<any>;
 
-// Pairs a made-up machine for the admin, the way a real one pairs.
+// Pairs a made-up machine for the admin, the way a real one pairs (with the
+// machine's confirmation step skipped: it collects its key straight away).
 const pairMachine = async (machineName: string): Promise<string> => {
   const { pairingId, userCode } = await postJson("/api/pair/start", { machineName });
   await postJson("/api/pair/approve", { userCode }, pageHeaders);
-  return (await postJson("/api/pair/poll", { pairingId })).machineKey;
+  return (await postJson("/api/pair/collect", { pairingId })).machineKey;
 };
 
 type MadeUpSession = { sessionName: string; folderName: string; state: string };

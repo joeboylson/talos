@@ -28,6 +28,6 @@ describe("decideSignIn", () => {
   });
 });
 
-test("buildGithubSignInId ignores case, since GitHub logins do", () => {
-  expect(buildGithubSignInId("JoeBoylson")).toBe("github:joeboylson");
+test("buildGithubSignInId uses GitHub's permanent account number", () => {
+  expect(buildGithubSignInId(34290408)).toBe("github-id:34290408");
 });

@@ -8,6 +8,7 @@ import {
   nextSessionState,
   readCommandPrompt,
   readCompleteLines,
+  removeControlCharacters,
   readTranscriptLine,
   resolveTranscriptItems,
   summarizeToolInput,
@@ -173,4 +174,13 @@ test("appendOutput keeps only the most recent bytes", () => {
   const output = appendOutput(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]), 4);
   expect([...output]).toEqual([2, 3, 4, 5]);
   expect([...appendOutput(new Uint8Array(), new Uint8Array([1]), 4)]).toEqual([1]);
+});
+
+test("a message can't end the paste early and type keystrokes", () => {
+  const sneaky = "hello\x1b[201~\r!rm -rf ~\r";
+  expect(buildPastedText(sneaky)).toBe("\x1b[200~hello[201~!rm -rf ~\x1b[201~");
+});
+
+test("removeControlCharacters keeps line breaks and tabs only", () => {
+  expect(removeControlCharacters("a\nb\tc\x00d\x07e\x9bf\x7fg")).toBe("a\nb\tcdefg");
 });

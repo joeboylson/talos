@@ -2,6 +2,7 @@ export const ENV_KEYS = {
   serverUrl: "TALOS_SERVER_URL",
   machineName: "TALOS_MACHINE_NAME",
   logsMode: "TALOS_LOGS_MODE",
+  pairOwner: "TALOS_PAIR_OWNER",
 } as const;
 
 // The server's data routes live under /api, so they never clash with page
@@ -14,6 +15,7 @@ export const SERVER_ROUTES = {
   pairStart: "/api/pair/start",
   pairPoll: "/api/pair/poll",
   pairApprove: "/api/pair/approve",
+  pairCollect: "/api/pair/collect",
   machines: "/api/machines",
   signOut: "/api/auth/logout",
   currentUser: "/api/auth/me",

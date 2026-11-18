@@ -1,9 +1,11 @@
 import {
   BEARER_PREFIX,
+  ENV_KEYS,
   PAIR_POLL_INTERVAL_MS,
   SERVER_ROUTES,
   type Logger,
   type MachineCheckResponse,
+  type PairCollectResponse,
   type PairPollResponse,
   type PairStartResponse,
 } from "talos-shared";
@@ -34,10 +36,24 @@ export const fetchMachineName = async (serverOrigin: string, machineKey: string,
   return machineName;
 };
 
-// Shows a code for Joe to type into the page, then waits for him to approve
-// it. Starts over with a fresh code if this one runs out.
 type PairedMachine = { machineKey: string; machineName: string };
 
+// Whether the person who approved this machine is its owner. A talos running
+// in the background can't ask, so it accepts only the GitHub login set in
+// TALOS_PAIR_OWNER; one in a terminal asks.
+const confirmApprover = async (approvedBy: string, expectedOwner: string | undefined, log: Logger): Promise<boolean> => {
+  if (expectedOwner) return approvedBy.toLowerCase() === expectedOwner.trim().toLowerCase();
+  if (!process.stdin.isTTY) {
+    log.warn(`talos: can't ask whether ${approvedBy} is this machine's owner; set ${ENV_KEYS.pairOwner} to your GitHub login`);
+    return false;
+  }
+  const answer = prompt(`talos: the code was entered by ${approvedBy}. Is that you? [y/N]`);
+  return answer?.trim().toLowerCase() === "y";
+};
+
+// Shows a code for its owner to type into the page, waits for someone to
+// enter it, checks it was the owner, and only then collects the key. Starts
+// over with a fresh code if this one runs out.
 export const pairMachine = async (serverOrigin: string, machineName: string, log: Logger): Promise<PairedMachine> => {
   const { pairingId, userCode } = await postJson<PairStartResponse>(new URL(SERVER_ROUTES.pairStart, serverOrigin), {
     machineName,
@@ -47,20 +63,25 @@ export const pairMachine = async (serverOrigin: string, machineName: string, log
   log.event(`    ${userCode}\n`);
 
   const pollUrl = new URL(SERVER_ROUTES.pairPoll, serverOrigin);
-  const waitForApproval = async (): Promise<PairedMachine | null> => {
+  const waitForApproval = async (): Promise<string | null> => {
     await Bun.sleep(PAIR_POLL_INTERVAL_MS);
     const pollResult = await postJson<PairPollResponse>(pollUrl, { pairingId });
-    if (pollResult.status === "approved") {
-      log.event(`talos: paired as ${pollResult.machineName}; saving this machine's key`);
-      return { machineKey: pollResult.machineKey, machineName: pollResult.machineName };
-    }
+    if (pollResult.status === "approved") return pollResult.approvedBy;
     if (pollResult.status === "expired") return null;
     log.detail("talos: still waiting for the code to be entered");
     return waitForApproval();
   };
 
-  const pairedMachine = await waitForApproval();
-  if (pairedMachine) return pairedMachine;
-  log.event("talos: that code ran out; here's a new one.");
-  return pairMachine(serverOrigin, machineName, log);
+  const approvedBy = await waitForApproval();
+  if (!approvedBy) {
+    log.event("talos: that code ran out; here's a new one.");
+    return pairMachine(serverOrigin, machineName, log);
+  }
+  if (!(await confirmApprover(approvedBy, process.env[ENV_KEYS.pairOwner], log))) {
+    throw new Error(`talos: not pairing with ${approvedBy}. Someone else may have seen the code; start talos again for a new one`);
+  }
+
+  const collected = await postJson<PairCollectResponse>(new URL(SERVER_ROUTES.pairCollect, serverOrigin), { pairingId });
+  log.event(`talos: paired as ${collected.machineName} for ${approvedBy}; saving this machine's key`);
+  return collected;
 };

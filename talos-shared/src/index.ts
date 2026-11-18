@@ -5,6 +5,7 @@ export * from "./identifiers";
 export * from "./json";
 export * from "./local-status";
 export * from "./logger";
+export * from "./message-readers";
 export * from "./messages";
 export * from "./pairing";
 export * from "./server-url";

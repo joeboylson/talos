@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { SIGN_IN_CLOSED, SIGN_IN_RESULT_PARAM, buildPagePath, type CurrentUserResponse, type Logger } from "talos-shared";
 import type { ServerConfig } from "./config";
 import { COOKIE_NAMES, SESSION_LIFETIME_MS, SIGN_IN_STATE_LIFETIME_MS } from "./constants";
-import { buildGithubSignInUrl, fetchGithubLogin } from "./github";
+import { buildGithubSignInUrl, fetchGithubUser, type GithubUser } from "./github";
 import type { RequestChecks } from "./request-checks";
 import { createSessionToken, type SessionPerson } from "./session";
 import type { SettingsTable } from "./settings-table";
@@ -26,6 +26,7 @@ export const createAuthRoutes = (
   config: ServerConfig,
   checks: RequestChecks,
   { signInsTable, settingsTable }: AuthTables,
+  onSignedOut: (personId: string) => void,
   log: Logger,
 ) => {
   const isSecure = config.publicOrigin.startsWith("https:");
@@ -42,10 +43,10 @@ export const createAuthRoutes = (
     return redirectTo(signInUrl, [stateCookie]);
   };
 
-  // Finds the person behind a GitHub login, making a new person if this is
+  // Finds the person behind a GitHub account, making a new person if this is
   // their first visit and the switch lets them in. Null means turned away.
-  const findOrCreatePerson = async (githubLogin: string): Promise<SessionPerson | null> => {
-    const signInId = buildGithubSignInId(githubLogin);
+  const findOrCreatePerson = async ({ githubId, login: githubLogin }: GithubUser): Promise<SessionPerson | null> => {
+    const signInId = buildGithubSignInId(githubId);
     const existingSignIn = await signInsTable.findSignIn(signInId);
     const { allowNewPeople } = await settingsTable.readSettings();
     const decision = decideSignIn({
@@ -79,32 +80,37 @@ export const createAuthRoutes = (
     }
 
     log.detail("sign-in: GitHub sent someone back, asking GitHub who they are");
-    const githubLogin = await fetchGithubLogin(code, {
+    const githubUser = await fetchGithubUser(code, {
       clientId: config.githubClientId,
       clientSecret: config.githubClientSecret,
       redirectUri: config.signInCallbackUrl,
     });
-    const person = await findOrCreatePerson(githubLogin);
+    const person = await findOrCreatePerson(githubUser);
     if (!person) {
-      log.event(`turned away new person ${githubLogin}: new people are switched off`);
+      log.event(`turned away new person ${githubUser.login}: new people are switched off`);
       return redirectTo(`${HOME_PAGE_PATH}?${SIGN_IN_RESULT_PARAM}=${SIGN_IN_CLOSED}`, [clearStateCookie]);
     }
 
-    const sessionToken = createSessionToken(person, Date.now() + SESSION_LIFETIME_MS, config.sessionSecret);
+    const issuedAtMs = Date.now();
+    const sessionTimes = { issuedAtMs, expiresAtMs: issuedAtMs + SESSION_LIFETIME_MS };
+    const sessionToken = createSessionToken(person, sessionTimes, config.sessionSecret);
     const sessionCookie = buildCookie(COOKIE_NAMES.session, sessionToken, { maxAgeMs: SESSION_LIFETIME_MS, isSecure });
     return redirectTo(HOME_PAGE_PATH, [sessionCookie, clearStateCookie]);
   };
 
-  const signOut = (request: Request): Response => {
-    const person = checks.readTrustedPerson(request);
+  // Ends every session this sign-in has, everywhere, and closes its open pages.
+  const signOut = async (request: Request): Promise<Response> => {
+    const person = await checks.readTrustedPerson(request);
     if (!person) return textResponse("Not signed in", 401);
-    log.event(`signed out: ${person.displayName}`);
+    await signInsTable.endSessions(person.signInId, Date.now());
+    onSignedOut(person.personId);
+    log.event(`signed out everywhere: ${person.displayName}`);
     const headers = { "Set-Cookie": buildExpiredCookie(COOKIE_NAMES.session, isSecure) };
     return new Response(null, { status: 204, headers });
   };
 
-  const currentUser = (request: Request): Response => {
-    const person = checks.readSignedInPerson(request);
+  const currentUser = async (request: Request): Promise<Response> => {
+    const person = await checks.readSignedInPerson(request);
     if (!person) {
       log.detail("page opened by someone not signed in");
       return textResponse("Not signed in", 401);

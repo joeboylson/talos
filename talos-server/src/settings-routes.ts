@@ -10,12 +10,12 @@ export const createSettingsRoutes = (checks: RequestChecks, settingsTable: Setti
     person !== null && checks.isAdminSignIn(person.signInId);
 
   const read = async (request: Request): Promise<Response> => {
-    if (!isAdminRequest(checks.readSignedInPerson(request))) return textResponse("Admins only", 403);
+    if (!isAdminRequest(await checks.readSignedInPerson(request))) return textResponse("Admins only", 403);
     return Response.json(await settingsTable.readSettings());
   };
 
   const update = async (request: Request): Promise<Response> => {
-    const person = checks.readTrustedPerson(request);
+    const person = await checks.readTrustedPerson(request);
     if (!person || !checks.isAdminSignIn(person.signInId)) {
       log.warn(`${person?.displayName ?? "someone not signed in"} tried to change settings`);
       return textResponse("Admins only", 403);

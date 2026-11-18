@@ -16,6 +16,7 @@ export const CREDENTIALS_FOLDER_MODE = 0o700;
 // terminals, so sessions outlive talos restarts. talos and the hook script
 // reach it through this file socket, which only this user can open.
 export const HOST_SOCKET = join(CREDENTIALS_FOLDER, "host.sock");
+export const HOST_SOCKET_MODE = 0o600;
 export const HOST_LOG = join(CREDENTIALS_FOLDER, "host.log");
 export const HOST_SCRIPT = new URL("./host.ts", import.meta.url).pathname;
 export const HOOK_SCRIPT = new URL("./hook.ts", import.meta.url).pathname;

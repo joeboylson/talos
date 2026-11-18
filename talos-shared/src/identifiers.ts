@@ -32,6 +32,11 @@ export const toIdentifierName = (text: string): string => {
   return identifierName || FALLBACK_NAME;
 };
 
+// A name already in identifier form ("fix-login"), so it can't carry path
+// pieces like "../.." or anything else unexpected into a command or a path.
+export const isIdentifierName = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0 && toIdentifierName(value) === value;
+
 // Names are unique among siblings: a second "work-mac" becomes "work-mac-2".
 export const pickUniqueName = (wantedName: string, takenNames: string[]): string => {
   const takenNameSet = new Set(takenNames);

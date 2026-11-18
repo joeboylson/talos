@@ -1,3 +1,4 @@
+import { isIdentifierName } from "./identifiers";
 import { parseJsonOrNull } from "./json";
 
 // A session's state, as Claude Code's hooks report it.
@@ -51,8 +52,8 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
   const isSession = (item: unknown): item is SessionSummary =>
     typeof item === "object" &&
     item !== null &&
-    isTextUpTo(fieldOf(item, "sessionName"), MAX_NAME_TEXT_LENGTH) &&
-    isTextUpTo(fieldOf(item, "folderName"), MAX_NAME_TEXT_LENGTH) &&
+    isIdentifierName(fieldOf(item, "sessionName")) &&
+    isIdentifierName(fieldOf(item, "folderName")) &&
     isOneOf(SESSION_STATES, fieldOf(item, "state"));
   if (!value.every(isSession)) return null;
   return value.map(({ sessionName, folderName, state }) => ({ sessionName, folderName, state }));

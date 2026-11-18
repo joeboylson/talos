@@ -8,6 +8,7 @@ import {
   RECONNECT_DELAY_MS,
   createLogger,
   httpOriginFromServerUrl,
+  isSafeServerUrl,
   mergeSessionEntries,
   readLogsMode,
   requireEnv,
@@ -29,6 +30,9 @@ import { connectToServer, type SendToServer } from "./server-connection";
 // server, and stay connected.
 export const runConnect = async (): Promise<void> => {
   const serverUrl = requireEnv(ENV_KEYS.serverUrl);
+  if (!isSafeServerUrl(serverUrl)) {
+    throw new Error(`${ENV_KEYS.serverUrl} must start with wss:// (ws:// only works for a server on this computer)`);
+  }
   const serverOrigin = httpOriginFromServerUrl(serverUrl);
   const wantedMachineName = toIdentifierName(process.env[ENV_KEYS.machineName] || hostname());
   const log = createLogger(readLogsMode(process.env[ENV_KEYS.logsMode]));

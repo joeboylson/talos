@@ -8,6 +8,7 @@ import type { BunRequest, Subprocess } from "bun";
 import {
   ENV_KEYS,
   MAX_ENTRIES_KEPT,
+  isIdentifierName,
   MAX_SESSIONS,
   createLogger,
   mergeSessionEntries,
@@ -19,10 +20,12 @@ import {
   type SessionSummary,
 } from "talos-shared";
 import { trustFolder } from "./claude-trust";
+import { readFolders } from "./folders";
 import {
   CLAUDE_COMMAND,
   CREDENTIALS_FOLDER_MODE,
   HOOK_SCRIPT,
+  HOST_SOCKET_MODE,
   IMAGE_PASTE_SETTLE_MS,
   HOST_SOCKET,
   MAX_OUTPUT_BYTES,
@@ -338,8 +341,12 @@ const serveOptions = {
       GET: () => Response.json(listSessions()),
       POST: async (request: BunRequest) => {
         const { sessionName, folderName, path } = await readJson(request);
-        const isRequest = typeof sessionName === "string" && typeof folderName === "string" && typeof path === "string";
-        if (!isRequest) return new Response("expected sessionName, folderName and path", { status: 400 });
+        const isRequest = isIdentifierName(sessionName) && isIdentifierName(folderName) && typeof path === "string";
+        if (!isRequest) return new Response("expected plain sessionName and folderName, and a path", { status: 400 });
+        // The host checks the folder list itself, so nothing that reaches its
+        // socket can start Claude (and mark it trusted) in any other folder.
+        const isAllowedFolder = (await readFolders()).some((folder) => folder.folderName === folderName && folder.path === path);
+        if (!isAllowedFolder) return new Response(`${path} isn't one of this machine's folders`, { status: 403 });
         return startSession({ sessionName, folderName, path });
       },
     },
@@ -389,5 +396,6 @@ const serveOptions = {
   fetch: () => new Response("Not found", { status: 404 }),
 };
 Bun.serve(serveOptions as unknown as Parameters<typeof Bun.serve>[0]);
+await chmod(HOST_SOCKET, HOST_SOCKET_MODE);
 setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
 log.event(`host: listening on ${HOST_SOCKET}`);

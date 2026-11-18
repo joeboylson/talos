@@ -38,7 +38,13 @@ export const buildHookSettings = (hookCommand: string): string => {
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 export const ENTER_KEY = "\r";
-export const buildPastedText = (text: string): string => `${PASTE_START}${text}${PASTE_END}`;
+export const buildPastedText = (text: string): string => `${PASTE_START}${removeControlCharacters(text)}${PASTE_END}`;
+
+// Control characters would act as keys in Claude Code instead of text: one
+// escape sequence ends the paste early and the rest gets typed as keystrokes
+// (Enter, answers to permission prompts). Only line breaks and tabs stay.
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+export const removeControlCharacters = (text: string): string => text.replace(CONTROL_CHARACTERS, "");
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
 // only the fields talos reads.

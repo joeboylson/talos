@@ -71,7 +71,7 @@ export const createPairingRoutes = (
     const nowMs = Date.now();
     dropExpiredPairings(nowMs);
     if (waitingPairings.length >= MAX_WAITING_PAIRINGS) {
-      log.warn(`turned away a pairing request from "${machineName}": ${MAX_WAITING_PAIRINGS} machines are already waiting`);
+      log.warn(`turned away a pairing request from "${toIdentifierName(machineName)}": ${MAX_WAITING_PAIRINGS} machines are already waiting`);
       return textResponse("Too many machines waiting", 429);
     }
 
@@ -84,7 +84,7 @@ export const createPairingRoutes = (
     };
     waitingPairings = [...waitingPairings, pairing];
     // Never the code itself: anyone who can read the logs could use it.
-    log.event(`machine "${machineName}" asked to pair`);
+    log.event(`machine "${toIdentifierName(machineName)}" asked to pair`);
     const { pairingId, userCode, expiresAtMs } = pairing;
     return Response.json({ pairingId, userCode, expiresAtMs } satisfies PairStartResponse);
   };
@@ -127,7 +127,7 @@ export const createPairingRoutes = (
     waitingPairings = waitingPairings.map((waitingPairing) =>
       waitingPairing === pairing ? { ...waitingPairing, approvedBy } : waitingPairing,
     );
-    log.event(`${person.displayName} approved "${pairing.machineName}"; waiting for the machine to confirm`);
+    log.event(`${person.displayName} approved "${toIdentifierName(pairing.machineName)}"; waiting for the machine to confirm`);
     return Response.json({ machineName: toIdentifierName(pairing.machineName) } satisfies PairApproveResponse);
   };
 

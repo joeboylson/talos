@@ -1,6 +1,7 @@
 import type { Logger, Settings } from "talos-shared";
 import type { RequestChecks } from "./request-checks";
 import type { SessionPerson } from "./session";
+import { NO_STORE } from "./constants";
 import type { SettingsTable } from "./settings-table";
 import { readJsonBody, textResponse } from "./utils/request";
 
@@ -11,7 +12,7 @@ export const createSettingsRoutes = (checks: RequestChecks, settingsTable: Setti
 
   const read = async (request: Request): Promise<Response> => {
     if (!isAdminRequest(await checks.readSignedInPerson(request))) return textResponse("Admins only", 403);
-    return Response.json(await settingsTable.readSettings());
+    return Response.json(await settingsTable.readSettings(), NO_STORE);
   };
 
   const update = async (request: Request): Promise<Response> => {
@@ -27,7 +28,7 @@ export const createSettingsRoutes = (checks: RequestChecks, settingsTable: Setti
     const settings: Settings = { allowNewPeople };
     await settingsTable.saveSettings(settings);
     log.event(`${person.displayName} switched new people ${allowNewPeople ? "on: anyone can sign up" : "off: new people are turned away"}`);
-    return Response.json(settings);
+    return Response.json(settings, NO_STORE);
   };
 
   return { read, update };

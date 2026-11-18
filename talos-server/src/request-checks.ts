@@ -1,6 +1,10 @@
 import type { ServerConfig } from "./config";
 import { COOKIE_NAMES } from "./constants";
 import { readSessionClaim, type SessionClaim, type SessionPerson } from "./session";
+
+// A signed-in person plus when their session expires, so a live page socket
+// can be closed once the session would no longer be accepted.
+export type SignedInPerson = SessionPerson & { expiresAtMs: number };
 import { buildGithubSignInId, type SignInRecord, type SignInsTable } from "./sign-ins-table";
 import { readCookie } from "./utils/cookies";
 
@@ -12,18 +16,18 @@ export const isClaimStillValid = (claim: SessionClaim, signIn: SignInRecord | nu
 export const createRequestChecks = (config: ServerConfig, signInsTable: SignInsTable) => {
   const adminSignInId = buildGithubSignInId(config.adminGithubId);
 
-  const readSignedInPerson = async (request: Request): Promise<SessionPerson | null> => {
+  const readSignedInPerson = async (request: Request): Promise<SignedInPerson | null> => {
     const sessionToken = readCookie(request.headers.get("cookie"), COOKIE_NAMES.session);
     const claim = readSessionClaim(sessionToken, config.sessionSecret, Date.now());
     if (!claim) return null;
     if (!isClaimStillValid(claim, await signInsTable.findSignIn(claim.signInId))) return null;
-    const { personId, signInId, displayName } = claim;
-    return { personId, signInId, displayName };
+    const { personId, signInId, displayName, expiresAtMs } = claim;
+    return { personId, signInId, displayName, expiresAtMs };
   };
 
   // Anything that changes something needs a session AND a request sent by
   // Talos's own page, so another site can't use someone's cookie to act for them.
-  const readTrustedPerson = async (request: Request): Promise<SessionPerson | null> => {
+  const readTrustedPerson = async (request: Request): Promise<SignedInPerson | null> => {
     const isFromOwnPage = request.headers.get("origin") === config.publicOrigin;
     return isFromOwnPage ? readSignedInPerson(request) : null;
   };

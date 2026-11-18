@@ -12,7 +12,7 @@ const until = (expiresAtMs: number) => ({ issuedAtMs: ISSUED_MS, expiresAtMs });
 
 test("reads back the person from a fresh token", () => {
   const sessionToken = createSessionToken(JOE, until(LATER_MS), SECRET);
-  expect(readSessionClaim(sessionToken, SECRET, NOW_MS)).toEqual({ ...JOE, issuedAtMs: ISSUED_MS });
+  expect(readSessionClaim(sessionToken, SECRET, NOW_MS)).toEqual({ ...JOE, issuedAtMs: ISSUED_MS, expiresAtMs: LATER_MS });
 });
 
 test("rejects an expired token", () => {
@@ -58,7 +58,7 @@ test("a session made before the new identity, with no issue time, no longer work
 });
 
 describe("isClaimStillValid", () => {
-  const claim = { ...JOE, issuedAtMs: ISSUED_MS };
+  const claim = { ...JOE, issuedAtMs: ISSUED_MS, expiresAtMs: LATER_MS };
   const signIn = { signInId: JOE.signInId, personId: JOE.personId, displayName: "joeboylson", linkedAtMs: 0 };
 
   test("a session for a sign-in that still exists counts", () => {

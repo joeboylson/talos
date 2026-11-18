@@ -9,6 +9,9 @@ export const SERVER_ENV_KEYS = {
   awsEndpointUrl: "AWS_ENDPOINT_URL",
 } as const;
 
+// Sent on per-person JSON so a browser or shared cache never stores or replays it.
+export const NO_STORE = { headers: { "Cache-Control": "no-store" } } as const;
+
 export const DEFAULT_SERVER_PORT = 7070;
 export const MIN_SESSION_SECRET_LENGTH = 32;
 export const DEFAULT_TABLE_PREFIX = "talos-";
@@ -31,6 +34,7 @@ export const CLOSE_CODES = {
   machineReplaced: 4000,
   machineRemoved: 4001,
   signedOut: 4002,
+  sessionExpired: 4003,
 } as const;
 
 // AWS's load balancer drops a connection that's quiet for 60 seconds, so the

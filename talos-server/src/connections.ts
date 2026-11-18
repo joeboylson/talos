@@ -22,7 +22,7 @@ import type { MachineRecord, MachinesTable } from "./machines-table";
 
 export type SocketData =
   | { role: "machine"; machineId: string; machineName: string; ownerPersonId: string }
-  | { role: "page"; personId: string; displayName: string };
+  | { role: "page"; personId: string; displayName: string; expiresAtMs: number };
 type Socket = ServerWebSocket<SocketData>;
 type MachineData = Extract<SocketData, { role: "machine" }>;
 
@@ -126,8 +126,17 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
   };
 
   // Browsers and talos answer WebSocket pings on their own, so nothing here waits for a reply.
+  // Runs on the keep-alive timer. A page socket is authorized only at connect,
+  // so this is where an expired session is cut: open == trusted only until the
+  // cookie would have expired.
   const pingAllSockets = (): void => {
-    [...machineSockets.values(), ...pageSockets].forEach((socket) => socket.ping());
+    const nowMs = Date.now();
+    const expiredPages = [...pageSockets].filter((socket) => socket.data.role === "page" && socket.data.expiresAtMs <= nowMs);
+    expiredPages.forEach((socket) => socket.close(CLOSE_CODES.sessionExpired, "session expired"));
+    const isExpired = new Set(expiredPages);
+    [...machineSockets.values(), ...pageSockets].forEach((socket) => {
+      if (!isExpired.has(socket)) socket.ping();
+    });
   };
 
   // After someone signs out everywhere, their open pages stop getting updates.

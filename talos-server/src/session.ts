@@ -6,7 +6,7 @@ export type SessionPerson = { personId: string; signInId: string; displayName: s
 // What a session cookie says: who, and when it was made. The server checks
 // "when" against the person's last sign-out, so signing out ends every
 // session, even a copied cookie.
-export type SessionClaim = SessionPerson & { issuedAtMs: number };
+export type SessionClaim = SessionPerson & { issuedAtMs: number; expiresAtMs: number };
 
 type SessionTimes = { issuedAtMs: number; expiresAtMs: number };
 
@@ -29,11 +29,11 @@ export const readSessionClaim = (
   const payload = parseJsonOrNull(Buffer.from(payloadText, "base64url").toString());
   if (!isSessionPayload(payload)) return null;
   if (payload.expiresAtMs <= nowMs) return null;
-  const { personId, signInId, displayName, issuedAtMs } = payload;
-  return { personId, signInId, displayName, issuedAtMs };
+  const { personId, signInId, displayName, issuedAtMs, expiresAtMs } = payload;
+  return { personId, signInId, displayName, issuedAtMs, expiresAtMs };
 };
 
-type SessionPayload = SessionClaim & { expiresAtMs: number };
+type SessionPayload = SessionClaim;
 
 const isSessionPayload = (value: unknown): value is SessionPayload => {
   const isObject = typeof value === "object" && value !== null;

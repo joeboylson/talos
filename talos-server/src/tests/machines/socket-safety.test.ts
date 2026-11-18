@@ -17,7 +17,7 @@ const setUp = async () => {
   const connections = createConnections(machinesTable, quietLog);
   const handlers = connections.websocketHandlers as unknown as Record<string, (...args: unknown[]) => unknown>;
   const machine = fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe" });
-  const page = fakeSocket({ role: "page", personId: "joe", displayName: "joe" });
+  const page = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000 });
   handlers.open?.(machine);
   handlers.open?.(page);
   await Bun.sleep(0);

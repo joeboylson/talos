@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SIGN_IN_CLOSED, SIGN_IN_RESULT_PARAM, buildPagePath, type CurrentUserResponse, type Logger } from "talos-shared";
 import type { ServerConfig } from "./config";
-import { COOKIE_NAMES, SESSION_LIFETIME_MS, SIGN_IN_STATE_LIFETIME_MS } from "./constants";
+import { COOKIE_NAMES, NO_STORE, SESSION_LIFETIME_MS, SIGN_IN_STATE_LIFETIME_MS } from "./constants";
 import { buildGithubSignInUrl, fetchGithubUser, type GithubUser } from "./github";
 import type { RequestChecks } from "./request-checks";
 import { createSessionToken, type SessionPerson } from "./session";
@@ -117,7 +117,8 @@ export const createAuthRoutes = (
     }
     log.detail(`page opened by ${person.displayName}`);
     const isAdmin = checks.isAdminSignIn(person.signInId);
-    return Response.json({ displayName: person.displayName, isAdmin } satisfies CurrentUserResponse);
+    // Per-person data must never be cached or replayed by a shared cache.
+    return Response.json({ displayName: person.displayName, isAdmin } satisfies CurrentUserResponse, NO_STORE);
   };
 
   return { signIn, signInCallback, signOut, currentUser };

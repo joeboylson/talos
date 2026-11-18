@@ -103,8 +103,8 @@ const server = Bun.serve<SocketData>({
     if (requestPath === SERVER_ROUTES.pageSocket) {
       const person = await checks.readTrustedPerson(request);
       if (!person) return withHeaders(textResponse("Not signed in", 401), securityHeaders);
-      const { personId, displayName } = person;
-      return upgradeToSocket(request, server, { role: "page", personId, displayName });
+      const { personId, displayName, expiresAtMs } = person;
+      return upgradeToSocket(request, server, { role: "page", personId, displayName, expiresAtMs });
     }
 
     if (requestPath === SERVER_ROUTES.machineSocket) {

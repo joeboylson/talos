@@ -15,6 +15,12 @@ const serveLocalStatus = ({ allowedOrigin, readLocalStatus, log }: LocalStatusSe
     hostname: LOCAL_STATUS_HOST,
     port: LOCAL_STATUS_PORT,
     fetch(request) {
+      // A DNS-rebinding site reaches 127.0.0.1 under its own hostname; its Host
+      // header won't be loopback, so refuse anything that isn't.
+      const host = request.headers.get("host");
+      if (host !== `${LOCAL_STATUS_HOST}:${LOCAL_STATUS_PORT}` && host !== `localhost:${LOCAL_STATUS_PORT}`) {
+        return new Response("Forbidden", { status: 403 });
+      }
       const corsHeaders = buildCorsHeaders(request.headers.get("origin"), allowedOrigin);
       const isPreflight = request.method === "OPTIONS";
       if (isPreflight) return new Response(null, { status: 204, headers: corsHeaders });

@@ -4,7 +4,7 @@ import page from "../../talos-web/src/index.html";
 import { createAuthRoutes } from "./auth-routes";
 import { readServerConfig } from "./config";
 import { createConnections, type SocketData } from "./connections";
-import { HEALTH_ROUTE } from "./constants";
+import { HEALTH_ROUTE, KEEP_ALIVE_INTERVAL_MS } from "./constants";
 import { buildTableName, createDocumentClient, createEmulatorTables } from "./dynamo";
 import { createMachineRoutes } from "./machine-routes";
 import { createMachinesTable } from "./machines-table";
@@ -86,5 +86,7 @@ const server = Bun.serve<SocketData>({
 
   websocket: connections.websocketHandlers,
 });
+
+setInterval(connections.pingAllSockets, KEEP_ALIVE_INTERVAL_MS);
 
 log.event(`talos-server: http://localhost:${server.port} (logs: ${config.logsMode})`);

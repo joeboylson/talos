@@ -126,6 +126,11 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     return true;
   };
 
+  // Browsers and talos answer WebSocket pings on their own, so nothing here waits for a reply.
+  const pingAllSockets = (): void => {
+    [...machineSockets.values(), ...pageSockets].forEach((socket) => socket.ping());
+  };
+
   const disconnectMachine = (machineId: string): void => {
     machineSockets.get(machineId)?.close(CLOSE_CODES.machineRemoved, "removed from the page");
   };
@@ -286,7 +291,14 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     },
   };
 
-  return { websocketHandlers, sendMachineListToPages, disconnectMachine, renameConnectedMachine, sendFolderRename };
+  return {
+    websocketHandlers,
+    pingAllSockets,
+    sendMachineListToPages,
+    disconnectMachine,
+    renameConnectedMachine,
+    sendFolderRename,
+  };
 };
 
 export type Connections = ReturnType<typeof createConnections>;

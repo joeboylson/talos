@@ -21,6 +21,10 @@ export const CLOSE_CODES = {
   machineRemoved: 4001,
 } as const;
 
+// AWS's load balancer drops a connection that's quiet for 60 seconds, so the
+// server pings every open socket more often than that.
+export const KEEP_ALIVE_INTERVAL_MS = 30 * 1000;
+
 // Per session. Older exchanges stay in the session's own saved conversation.
 export const MAX_EXCHANGES_KEPT = 50;
 

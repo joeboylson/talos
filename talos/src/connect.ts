@@ -4,13 +4,16 @@ import { basename } from "node:path";
 import { hostname } from "node:os";
 import {
   ENV_KEYS,
+  MAX_ENTRIES_KEPT,
   RECONNECT_DELAY_MS,
   createLogger,
   httpOriginFromServerUrl,
+  mergeSessionEntries,
   readLogsMode,
   requireEnv,
   toIdentifierName,
   type ServerToMachine,
+  type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
 import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE } from "./constants";
@@ -31,11 +34,34 @@ export const runConnect = async (): Promise<void> => {
   const log = createLogger(readLogsMode(process.env[ENV_KEYS.logsMode]));
 
   // What talos changes as it runs: whether it's connected, the name the server
-  // gave it, and how to reach the server while connected.
+  // gave it, how to reach the server while connected, and the latest sessions
+  // and entries, sent again whenever it reconnects.
   let isConnected = false;
   let machineName = wantedMachineName;
   let sendToServer: SendToServer | null = null;
   let latestSessions: SessionSummary[] = [];
+  let entriesBySession: Record<string, SessionEntry[]> = {};
+
+  const keepLatest = (hostEvent: HostEvent) => {
+    if (hostEvent.type === "sessions") {
+      latestSessions = hostEvent.sessions;
+      const liveSessionNames = new Set(latestSessions.map(({ sessionName }) => sessionName));
+      entriesBySession = Object.fromEntries(
+        Object.entries(entriesBySession).filter(([sessionName]) => liveSessionNames.has(sessionName)),
+      );
+      return;
+    }
+    const keptEntries = entriesBySession[hostEvent.sessionName] ?? [];
+    const mergedEntries = mergeSessionEntries(keptEntries, hostEvent.entries, MAX_ENTRIES_KEPT);
+    entriesBySession = { ...entriesBySession, [hostEvent.sessionName]: mergedEntries };
+  };
+
+  const sendLatest = (send: SendToServer) => {
+    send({ type: "sessions", sessions: latestSessions });
+    Object.entries(entriesBySession).forEach(([sessionName, entries]) =>
+      send({ type: "session-entries", sessionName, entries }),
+    );
+  };
 
   const sendFolders = async () => {
     if (!sendToServer) return;
@@ -45,10 +71,10 @@ export const runConnect = async (): Promise<void> => {
   };
 
   const forwardHostEvent = (hostEvent: HostEvent) => {
-    if (hostEvent.type === "sessions") latestSessions = hostEvent.sessions;
+    keepLatest(hostEvent);
     if (!sendToServer) return;
     if (hostEvent.type === "sessions") return sendToServer({ type: "sessions", sessions: hostEvent.sessions });
-    sendToServer({ type: "exchange", sessionName: hostEvent.sessionName, exchange: hostEvent.exchange });
+    sendToServer({ type: "session-entries", sessionName: hostEvent.sessionName, entries: hostEvent.entries });
   };
 
   // Sessions run in the session host, which outlives talos. If the host goes
@@ -78,7 +104,11 @@ export const runConnect = async (): Promise<void> => {
   const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
     if (message.type === "start-session") return startSession(message.folderName, message.sessionName);
     if (message.type === "send-to-session") {
-      await postToHost(sessionRoute(message.sessionName, "send"), { text: message.text });
+      const response = await postToHost(sessionRoute(message.sessionName, "send"), {
+        text: message.text,
+        images: message.images,
+      });
+      if (!response.ok) log.warn(`talos: couldn't send to ${message.sessionName}: ${await response.text()}`);
       return;
     }
     if (message.type === "stop-session") {
@@ -130,7 +160,7 @@ export const runConnect = async (): Promise<void> => {
       onOpen: (send) => {
         sendToServer = send;
         void sendFolders();
-        send({ type: "sessions", sessions: latestSessions });
+        sendLatest(send);
       },
       onConnectionChange: (isNowConnected) => {
         isConnected = isNowConnected;

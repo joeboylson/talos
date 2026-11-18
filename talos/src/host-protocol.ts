@@ -1,10 +1,10 @@
-import { parseJsonOrNull, readExchange, readSessionList, type Exchange, type SessionSummary } from "talos-shared";
+import { parseJsonOrNull, readSessionEntries, readSessionList, type SessionEntry, type SessionSummary } from "talos-shared";
 
 // What the session host streams to talos: the session list whenever it
-// changes, and each finished exchange.
+// changes, and each session's entries as Claude Code saves them.
 export type HostEvent =
   | { type: "sessions"; sessions: SessionSummary[] }
-  | { type: "exchange"; sessionName: string; exchange: Exchange };
+  | { type: "session-entries"; sessionName: string; entries: SessionEntry[] };
 
 export type StartSessionRequest = { sessionName: string; folderName: string; path: string };
 
@@ -29,10 +29,10 @@ export const parseHostEvent = (line: string): HostEvent | null => {
     const sessions = readSessionList(Reflect.get(value, "sessions"));
     return sessions ? { type: "sessions", sessions } : null;
   }
-  if (eventType === "exchange") {
+  if (eventType === "session-entries") {
     const sessionName: unknown = Reflect.get(value, "sessionName");
-    const exchange = readExchange(Reflect.get(value, "exchange"));
-    return typeof sessionName === "string" && exchange ? { type: "exchange", sessionName, exchange } : null;
+    const entries = readSessionEntries(Reflect.get(value, "entries"));
+    return typeof sessionName === "string" && entries ? { type: "session-entries", sessionName, entries } : null;
   }
   return null;
 };

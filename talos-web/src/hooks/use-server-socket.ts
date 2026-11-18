@@ -1,24 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  MAX_ENTRIES_KEPT,
   RECONNECT_DELAY_MS,
   SERVER_ROUTES,
   decode,
   encode,
-  type Exchange,
+  mergeSessionEntries,
   type MachineSummary,
   type PageToServer,
   type ServerToPage,
+  type SessionEntry,
 } from "talos-shared";
-import { removeAnsweredPrompt, sessionKey } from "@/session-rows";
+import type { PreparedImage } from "@/images";
+import { removeAnsweredPrompt, sessionKey, type WaitingPrompt } from "@/session-rows";
 
 // The page's live line to the server: the person's machines as they connect
 // and disconnect, each machine's latest ping reply, and each session's
-// exchanges. Reconnects if it drops.
+// entries as they happen. Reconnects if it drops.
 export const useServerSocket = () => {
   const [machines, setMachines] = useState<MachineSummary[] | null>(null);
   const [roundTripMsByMachineId, setRoundTripMsByMachineId] = useState<Record<string, number>>({});
-  const [exchangesBySession, setExchangesBySession] = useState<Record<string, Exchange[]>>({});
-  const [waitingPromptsBySession, setWaitingPromptsBySession] = useState<Record<string, string[]>>({});
+  const [entriesBySession, setEntriesBySession] = useState<Record<string, SessionEntry[]>>({});
+  const [waitingPromptsBySession, setWaitingPromptsBySession] = useState<Record<string, WaitingPrompt[]>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
@@ -34,10 +37,14 @@ export const useServerSocket = () => {
         return setRoundTripMsByMachineId((current) => ({ ...current, [message.machineId]: message.roundTripMs }));
       }
       const key = sessionKey(message.machineId, message.sessionName);
-      setExchangesBySession((current) => ({ ...current, [key]: [...(current[key] ?? []), message.exchange] }));
+      const savedPrompts = message.entries.filter((entry) => entry.kind === "prompt");
+      setEntriesBySession((current) => ({
+        ...current,
+        [key]: mergeSessionEntries(current[key] ?? [], message.entries, MAX_ENTRIES_KEPT),
+      }));
       setWaitingPromptsBySession((current) => ({
         ...current,
-        [key]: removeAnsweredPrompt(current[key] ?? [], message.exchange.prompt),
+        [key]: savedPrompts.reduce(removeAnsweredPrompt, current[key] ?? []),
       }));
     };
 
@@ -46,8 +53,8 @@ export const useServerSocket = () => {
       const socket = new WebSocket(`${socketScheme}://${location.host}${SERVER_ROUTES.pageSocket}`);
       socketRef.current = socket;
       socket.onopen = () => {
-        // The server sends every kept exchange again on each new connection.
-        setExchangesBySession({});
+        // The server sends every kept entry again on each new connection.
+        setEntriesBySession({});
         setIsConnected(true);
       };
       socket.onmessage = (event) => {
@@ -82,10 +89,12 @@ export const useServerSocket = () => {
   );
 
   const sendToSession = useCallback(
-    (machineId: string, sessionName: string, text: string) => {
+    (machineId: string, sessionName: string, text: string, images: PreparedImage[]) => {
       const key = sessionKey(machineId, sessionName);
-      setWaitingPromptsBySession((current) => ({ ...current, [key]: [...(current[key] ?? []), text.trim()] }));
-      send({ type: "send-to-session", machineId, sessionName, text });
+      const waitingPrompt = { text: text.trim(), imagePreviewUrls: images.map(({ previewUrl }) => previewUrl) };
+      setWaitingPromptsBySession((current) => ({ ...current, [key]: [...(current[key] ?? []), waitingPrompt] }));
+      const sentImages = images.map(({ mediaType, dataBase64 }) => ({ mediaType, dataBase64 }));
+      send({ type: "send-to-session", machineId, sessionName, text, images: sentImages });
     },
     [send],
   );
@@ -98,7 +107,7 @@ export const useServerSocket = () => {
   return {
     machines,
     roundTripMsByMachineId,
-    exchangesBySession,
+    entriesBySession,
     waitingPromptsBySession,
     notice,
     setNotice,

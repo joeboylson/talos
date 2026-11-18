@@ -91,10 +91,11 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
           {isSessionOpen && (
             <SessionView
               sessionRow={openSessionRow}
-              exchanges={serverSocket.exchangesBySession[openSessionKey] ?? []}
+              entries={serverSocket.entriesBySession[openSessionKey] ?? []}
               waitingPrompts={serverSocket.waitingPromptsBySession[openSessionKey] ?? []}
-              onSend={(text) =>
-                openSessionRow && serverSocket.sendToSession(openSessionRow.machineId, openSessionRow.sessionName, text)
+              onSend={(text, images) =>
+                openSessionRow &&
+                serverSocket.sendToSession(openSessionRow.machineId, openSessionRow.sessionName, text, images)
               }
             />
           )}

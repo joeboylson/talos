@@ -1,7 +1,10 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const CREDENTIALS_FOLDER = join(homedir(), ".talos");
+// TALOS_HOME moves everything talos keeps on this machine, so a second talos
+// (like a test against a local server) doesn't share this one's key or host.
+export const TALOS_HOME_ENV_KEY = "TALOS_HOME";
+export const CREDENTIALS_FOLDER = process.env[TALOS_HOME_ENV_KEY] || join(homedir(), ".talos");
 export const CREDENTIALS_FILE = join(CREDENTIALS_FOLDER, "credentials.json");
 export const FOLDERS_FILE = join(CREDENTIALS_FOLDER, "folders.json");
 
@@ -36,9 +39,21 @@ export const READY_QUIET_MS = 1000;
 export const READY_LONGEST_WAIT_MS = 15_000;
 export const READY_CHECK_MS = 200;
 
-// Claude Code can run the Stop hook a moment before it saves its last
-// answer, so an empty reply is read again for up to this long.
-export const REPLY_SAVE_WAIT_MS = 3000;
+// How often the host looks for newly saved lines in each session's
+// conversation, so the page sees Claude's work as it happens.
+export const TRANSCRIPT_CHECK_MS = 300;
+export const NEWLINE_BYTE = 0x0a;
+export const MAX_TOOL_SUMMARY_LENGTH = 300;
+export const MAX_TOOL_NAME_LENGTH = 100;
+
+// Images sent from the page are saved here, one folder per session, and
+// deleted when the session ends. Claude Code reads them from their path.
+export const UPLOADS_FOLDER = join(CREDENTIALS_FOLDER, "uploads");
+export const UPLOAD_FILE_MODE = 0o600;
+
+// Claude Code takes a moment to load a pasted image; Enter pressed before
+// that is lost, and the message with it.
+export const IMAGE_PASTE_SETTLE_MS = 1000;
 
 // Ctrl-\ leaves an attached session without stopping it.
 export const DETACH_KEY = 0x1c;

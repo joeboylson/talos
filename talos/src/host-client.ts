@@ -50,8 +50,10 @@ export const ensureHostRunning = async (): Promise<void> => {
 };
 
 // Calls onEvent for each event until the host goes away; then resolves.
+// Bun gives up on a request after 5 quiet minutes; this stream is quiet
+// whenever nothing happens, so its limit is turned off.
 export const followHostEvents = async (onEvent: (hostEvent: HostEvent) => void): Promise<void> => {
-  const response = await hostFetch(HOST_ROUTES.events);
+  const response = await hostFetch(HOST_ROUTES.events, { timeout: false } as RequestInit);
   if (!response.body) return;
   const decoder = new TextDecoder();
   type LineReader = { read: () => Promise<{ done: boolean; value?: Uint8Array }> };

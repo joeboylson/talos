@@ -21,7 +21,8 @@ docs. Use these and no others.
 - **session**: a Claude Code conversation that `talos` runs in a folder. Its
   state is **starting**, **ready**, **working**, or **needs you** (Claude is
   asking something in its terminal; attach to answer).
-- **exchange**: one message and Claude's answer to it.
+- **entry**: one thing in a session's conversation: a message someone sent
+  (with any images), text Claude wrote, or a tool Claude ran.
 - **session host**: the background program on each machine that holds the
   sessions' terminals, so they outlive `talos` restarts.
 - **attach**: show a session's terminal in your own, to watch or type.

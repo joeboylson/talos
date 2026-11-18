@@ -1,4 +1,4 @@
-import type { MachineSummary, SessionState } from "talos-shared";
+import type { MachineSummary, SessionEntry, SessionState } from "talos-shared";
 
 export type SessionRow = {
   machineId: string;
@@ -24,9 +24,19 @@ export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
 export const findSessionRow = (machines: MachineSummary[], machineName: string, sessionName: string): SessionRow | null =>
   buildSessionRows(machines).find((row) => row.machineName === machineName && row.sessionName === sessionName) ?? null;
 
-// A message sent from the page shows as waiting until its exchange comes
-// back. The first waiting message that matches the finished prompt is done.
-export const removeAnsweredPrompt = (waitingPrompts: string[], answeredPrompt: string): string[] => {
-  const answeredIndex = waitingPrompts.indexOf(answeredPrompt.trim());
+// A message sent from the page, with previews of its images, shown as
+// waiting until Claude Code saves it.
+export type WaitingPrompt = { text: string; imagePreviewUrls: string[] };
+
+// The first waiting message with the same text and number of images is the
+// one Claude Code just saved.
+export const removeAnsweredPrompt = (
+  waitingPrompts: WaitingPrompt[],
+  answeredPrompt: Extract<SessionEntry, { kind: "prompt" }>,
+): WaitingPrompt[] => {
+  const answeredIndex = waitingPrompts.findIndex(
+    ({ text, imagePreviewUrls }) =>
+      text === answeredPrompt.text.trim() && imagePreviewUrls.length === answeredPrompt.imageCount,
+  );
   return answeredIndex === -1 ? waitingPrompts : waitingPrompts.filter((_, index) => index !== answeredIndex);
 };

@@ -3,9 +3,14 @@ import {
   appendOutput,
   buildSessionEnv,
   buildHookSettings,
-  buildTypedMessage,
+  buildMessageWithImages,
+  buildPastedText,
   nextSessionState,
-  readLastExchange,
+  readCommandPrompt,
+  readCompleteLines,
+  readTranscriptLine,
+  resolveTranscriptItems,
+  summarizeToolInput,
 } from "../../session-logic";
 
 describe("nextSessionState", () => {
@@ -30,39 +35,128 @@ test("buildHookSettings runs the hook command on every event", () => {
   expect(settings.hooks.Stop).toEqual([{ hooks: [{ type: "command", command: '"/bin/bun" "/talos/hook.ts"' }] }]);
 });
 
-test("buildTypedMessage pastes the whole text, then presses Enter", () => {
-  expect(buildTypedMessage("line one\nline two")).toBe("\x1b[200~line one\nline two\x1b[201~\r");
+test("buildPastedText pastes the whole text as one piece", () => {
+  expect(buildPastedText("line one\nline two")).toBe("\x1b[200~line one\nline two\x1b[201~");
 });
 
-describe("readLastExchange", () => {
-  const line = (entry: unknown) => JSON.stringify(entry);
-  const transcript = [
-    line({ type: "user", message: { role: "user", content: "first question" } }),
-    line({ type: "assistant", message: { content: [{ type: "text", text: "first answer" }] } }),
-    line({ type: "user", message: { role: "user", content: [{ type: "text", text: "fix the login" }] } }),
-    line({ type: "assistant", message: { content: [{ type: "text", text: "Looking." }, { type: "tool_use", name: "Read" }] } }),
-    line({ type: "user", message: { content: [{ type: "tool_result", content: "file text" }] } }),
-    line({ type: "user", isMeta: true, message: { content: "a note Claude Code added" } }),
-    line({ type: "assistant", message: { content: [{ type: "text", text: "Fixed it." }] } }),
-    "not json",
-    "",
-  ].join("\n");
+describe("readTranscriptLine", () => {
+  const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
 
-  test("finds the last message someone sent and all of Claude's text after it", () => {
-    expect(readLastExchange(transcript, 5)).toEqual({ prompt: "fix the login", reply: "Looking.\n\nFixed it.", finishedAtMs: 5 });
+  test("a typed message is a prompt", () => {
+    expect(readTranscriptLine(line({ type: "user", message: { content: "fix the login" } }))).toEqual([
+      { kind: "prompt", entryId: "u1", text: "fix the login", imageCount: 0 },
+    ]);
   });
 
-  test("an empty conversation has no exchange", () => {
-    expect(readLastExchange("", 5)).toBeNull();
+  test("a slash command shows the way it was typed", () => {
+    const content = "<command-message>s</command-message>\n<command-name>/s</command-name>\n<command-args>anything to commit?</command-args>";
+    expect(readTranscriptLine(line({ type: "user", message: { content } }))).toEqual([
+      { kind: "prompt", entryId: "u1", text: "/s anything to commit?", imageCount: 0 },
+    ]);
   });
 
-  test("a message with no answer yet has an empty reply", () => {
-    expect(readLastExchange(line({ type: "user", message: { content: "hi" } }), 5)).toEqual({
-      prompt: "hi",
-      reply: "",
-      finishedAtMs: 5,
+  test("attached images are counted, and their markers dropped", () => {
+    const content = [
+      { type: "text", text: "[Image #1]What's this?" },
+      { type: "image", source: { type: "base64", data: "AAAA" } },
+    ];
+    expect(readTranscriptLine(line({ type: "user", message: { content } }))).toEqual([
+      { kind: "prompt", entryId: "u1", text: "What's this?", imageCount: 1 },
+    ]);
+  });
+
+  test("Claude's text and tools are entries, one per block; thinking isn't", () => {
+    const content = [
+      { type: "thinking", thinking: "hmm" },
+      { type: "text", text: "Looking." },
+      { type: "tool_use", id: "t1", name: "Bash", input: { command: "git   status", description: "Show status" } },
+    ];
+    expect(readTranscriptLine(line({ type: "assistant", message: { content } }))).toEqual([
+      { kind: "text", entryId: "u1:1", text: "Looking." },
+      { kind: "tool", entryId: "t1", toolName: "Bash", summary: "Show status", outcome: "running" },
+    ]);
+  });
+
+  test("a tool's result says it ended", () => {
+    const content = [{ type: "tool_result", tool_use_id: "t1", is_error: true, content: "boom" }];
+    expect(readTranscriptLine(line({ type: "user", message: { content } }))).toEqual([
+      { kind: "tool-end", toolUseId: "t1", isFailed: true },
+    ]);
+  });
+
+  test("a built-in command's output is text", () => {
+    const content = "<local-command-stdout>Compacted</local-command-stdout>";
+    expect(readTranscriptLine(line({ type: "user", message: { content } }))).toEqual([
+      { kind: "text", entryId: "u1", text: "Compacted" },
+    ]);
+  });
+
+  test.each([
+    ["a skill's instructions", line({ type: "user", isMeta: true, message: { content: "Base directory for this skill" } })],
+    ["a sub-agent's work", line({ type: "assistant", isSidechain: true, message: { content: [{ type: "text", text: "hi" }] } })],
+    ["Claude Code's own notes", line({ type: "user", message: { content: "<local-command-caveat>Caveat</local-command-caveat>" } })],
+    ["other kinds of line", line({ type: "file-history-snapshot" })],
+    ["a line with no id", JSON.stringify({ type: "user", message: { content: "hi" } })],
+    ["not JSON", "not json"],
+  ])("skips %s", (_name, lineText) => {
+    expect(readTranscriptLine(lineText)).toEqual([]);
+  });
+});
+
+describe("resolveTranscriptItems", () => {
+  const running = { kind: "tool", entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" } as const;
+
+  test("a tool's end sends the tool again with how it went", () => {
+    const { entries, knownTools } = resolveTranscriptItems([{ kind: "tool-end", toolUseId: "t1", isFailed: false }], {
+      t1: running,
     });
+    expect(entries).toEqual([{ ...running, outcome: "done" }]);
+    expect(knownTools).toEqual({});
   });
+
+  test("a tool started and ended in the same read", () => {
+    const { entries } = resolveTranscriptItems([running, { kind: "tool-end", toolUseId: "t1", isFailed: true }], {});
+    expect(entries).toEqual([running, { ...running, outcome: "failed" }]);
+  });
+
+  test("an unknown tool's end is dropped", () => {
+    expect(resolveTranscriptItems([{ kind: "tool-end", toolUseId: "zz", isFailed: false }], {}).entries).toEqual([]);
+  });
+});
+
+describe("readCompleteLines", () => {
+  const bytesOf = (text: string) => new TextEncoder().encode(text);
+
+  test("leaves a line still being written for next time", () => {
+    expect(readCompleteLines(bytesOf('{"a":1}\n{"b":'))).toEqual({ lines: ['{"a":1}'], usedByteCount: 8 });
+  });
+
+  test("nothing complete yet", () => {
+    expect(readCompleteLines(bytesOf('{"a":'))).toEqual({ lines: [], usedByteCount: 0 });
+  });
+
+  test("counts bytes, not characters", () => {
+    expect(readCompleteLines(bytesOf("é\n")).usedByteCount).toBe(3);
+  });
+});
+
+test("readCommandPrompt is null for an ordinary message", () => {
+  expect(readCommandPrompt("hello")).toBeNull();
+});
+
+test.each([
+  [{ description: "Show status", command: "git status" }, "Show status"],
+  [{ file_path: "/a/b.ts" }, "/a/b.ts"],
+  [{ command: "a\n  b" }, "a b"],
+  [{ other: 1 }, ""],
+  [null, ""],
+])("summarizeToolInput %#", (input, summary) => {
+  expect(summarizeToolInput(input)).toBe(summary);
+});
+
+test("buildMessageWithImages puts each image's path after the text", () => {
+  expect(buildMessageWithImages(" look ", ["/u/a.png", "/u/b.png"])).toBe("look\n\n/u/a.png\n\n/u/b.png");
+  expect(buildMessageWithImages("", ["/u/a.png"])).toBe("/u/a.png");
 });
 
 test("buildSessionEnv drops Claude Code's own session marks and keeps everything else", () => {

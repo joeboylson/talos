@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { MachineSummary } from "talos-shared";
 import { buildSessionRows, findSessionRow, removeAnsweredPrompt } from "../../session-rows";
 
@@ -32,8 +32,23 @@ test("findSessionRow finds by machine and session name", () => {
   expect(findSessionRow(MACHINES, "spark", "web")).toBeNull();
 });
 
-test("removeAnsweredPrompt clears the first matching waiting message only", () => {
-  expect(removeAnsweredPrompt(["hi", "again", "hi"], "hi")).toEqual(["again", "hi"]);
-  expect(removeAnsweredPrompt(["hi"], "typed in the terminal")).toEqual(["hi"]);
-  expect(removeAnsweredPrompt([" hi "], " hi ")).toEqual([" hi "]);
+describe("removeAnsweredPrompt", () => {
+  const waiting = (text: string, imageCount = 0) => ({ text, imagePreviewUrls: Array.from({ length: imageCount }, () => "blob:x") });
+  const saved = (text: string, imageCount = 0) => ({ kind: "prompt", entryId: "e", text, imageCount }) as const;
+
+  test("clears the first matching waiting message only", () => {
+    expect(removeAnsweredPrompt([waiting("hi"), waiting("again"), waiting("hi")], saved("hi"))).toEqual([
+      waiting("again"),
+      waiting("hi"),
+    ]);
+  });
+
+  test("leaves waiting messages alone for one typed in the terminal", () => {
+    expect(removeAnsweredPrompt([waiting("hi")], saved("typed in the terminal"))).toEqual([waiting("hi")]);
+  });
+
+  test("matches the number of images too", () => {
+    expect(removeAnsweredPrompt([waiting("look", 1), waiting("look", 2)], saved("look", 2))).toEqual([waiting("look", 1)]);
+    expect(removeAnsweredPrompt([waiting("", 1)], saved("", 1))).toEqual([]);
+  });
 });

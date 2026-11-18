@@ -1,14 +1,16 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import {
-  MAX_EXCHANGE_TEXT_LENGTH,
+  MAX_ENTRIES_KEPT,
+  MAX_ENTRY_TEXT_LENGTH,
   decode,
   encode,
+  mergeSessionEntries,
   pickUniqueName,
-  readExchange,
   readFolderList,
+  readSentImages,
+  readSessionEntries,
   readSessionList,
   toIdentifierName,
-  type Exchange,
   type Folder,
   type Logger,
   type MachineSummary,
@@ -16,9 +18,10 @@ import {
   type PageToServer,
   type ServerToMachine,
   type ServerToPage,
+  type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CLOSE_CODES, MAX_EXCHANGES_KEPT, NO_MACHINES_MESSAGE } from "./constants";
+import { CLOSE_CODES, NO_MACHINES_MESSAGE } from "./constants";
 import type { MachineRecord, MachinesTable } from "./machines-table";
 
 export type SocketData =
@@ -63,15 +66,15 @@ export const chooseMachinesToPing = (ownConnectedMachineIds: string[], requested
 export const chooseSessionName = (typedName: string | undefined, folderName: string, takenNames: string[]): string =>
   pickUniqueName(toIdentifierName(typedName?.trim() || folderName), takenNames);
 
-const exchangeKey = (machineId: string, sessionName: string) => `${machineId}:${sessionName}`;
+const entriesKey = (machineId: string, sessionName: string) => `${machineId}:${sessionName}`;
 
 export const createConnections = (machinesTable: MachinesTable, log: Logger) => {
   // The server's only changing state: who's connected, what each connected
-  // machine reported, each session's recent exchanges, and when each
+  // machine reported, each session's recent entries, and when each
   // unanswered ping went out.
   const machineSockets = new Map<string, Socket>();
   const reportsByMachineId = new Map<string, MachineReport>();
-  const exchangesBySession = new Map<string, Exchange[]>();
+  const entriesBySession = new Map<string, SessionEntry[]>();
   const pageSockets = new Set<Socket>();
   const pingSentAtById = new Map<string, number>();
 
@@ -96,15 +99,15 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) => sendMachineList(pageSocket, machines));
   };
 
-  // A page that just opened gets every kept exchange of the person's sessions.
-  const sendKeptExchanges = (pageSocket: Socket, personId: string) => {
+  // A page that just opened gets every kept entry of the person's sessions.
+  const sendKeptEntries = (pageSocket: Socket, personId: string) => {
     findOwnedSockets(machineSockets.values(), personId).forEach((machineSocket) => {
       if (machineSocket.data.role !== "machine") return;
       const { machineId } = machineSocket.data;
       reportsByMachineId.get(machineId)?.sessions.forEach(({ sessionName }) => {
-        (exchangesBySession.get(exchangeKey(machineId, sessionName)) ?? []).forEach((exchange) =>
-          pageSocket.send(encode<ServerToPage>({ type: "exchange", machineId, sessionName, exchange })),
-        );
+        const entries = entriesBySession.get(entriesKey(machineId, sessionName)) ?? [];
+        if (entries.length === 0) return;
+        pageSocket.send(encode<ServerToPage>({ type: "session-entries", machineId, sessionName, entries }));
       });
     });
   };
@@ -185,9 +188,13 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     }
 
     const text = typeof message.text === "string" ? message.text.trim() : "";
-    if (!text || text.length > MAX_EXCHANGE_TEXT_LENGTH) return sendProblem("That message can't be sent");
+    const images = readSentImages(message.images);
+    const isEmpty = !text && images?.length === 0;
+    if (!images || isEmpty || text.length > MAX_ENTRY_TEXT_LENGTH) return sendProblem("That message can't be sent");
     log.detail(`${displayName} sent a message to session "${message.sessionName}" on "${machineName}"`);
-    machineSocket.send(encode<ServerToMachine>({ type: "send-to-session", sessionName: message.sessionName, text }));
+    machineSocket.send(
+      encode<ServerToMachine>({ type: "send-to-session", sessionName: message.sessionName, text, images }),
+    );
   };
 
   const handlePageMessage = (pageSocket: Socket, personId: string, displayName: string, rawMessage: string | Buffer) => {
@@ -207,25 +214,24 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
   const handleSessions = (machine: MachineData, value: unknown) => {
     const sessions = readSessionList(value);
     if (!sessions) return log.warn(`"${machine.machineName}" sent a session list the server can't read`);
-    // A session that's gone takes its kept exchanges with it.
-    const liveKeys = new Set(sessions.map(({ sessionName }) => exchangeKey(machine.machineId, sessionName)));
-    [...exchangesBySession.keys()]
+    // A session that's gone takes its kept entries with it.
+    const liveKeys = new Set(sessions.map(({ sessionName }) => entriesKey(machine.machineId, sessionName)));
+    [...entriesBySession.keys()]
       .filter((key) => key.startsWith(`${machine.machineId}:`) && !liveKeys.has(key))
-      .forEach((key) => exchangesBySession.delete(key));
+      .forEach((key) => entriesBySession.delete(key));
     log.detail(`"${machine.machineName}" has ${sessions.length} session(s)`);
     updateReport(machine, { sessions });
   };
 
-  const handleExchange = (machine: MachineData, sessionName: unknown, value: unknown) => {
-    const exchange = readExchange(value);
-    if (typeof sessionName !== "string" || !exchange) {
-      return log.warn(`"${machine.machineName}" sent an exchange the server can't read`);
+  const handleSessionEntries = (machine: MachineData, sessionName: unknown, value: unknown) => {
+    const entries = readSessionEntries(value);
+    if (typeof sessionName !== "string" || !entries) {
+      return log.warn(`"${machine.machineName}" sent session entries the server can't read`);
     }
-    const key = exchangeKey(machine.machineId, sessionName);
-    const keptExchanges = [...(exchangesBySession.get(key) ?? []), exchange].slice(-MAX_EXCHANGES_KEPT);
-    exchangesBySession.set(key, keptExchanges);
-    log.detail(`session "${sessionName}" on "${machine.machineName}" answered`);
-    sendToOwnerPages(machine.ownerPersonId, { type: "exchange", machineId: machine.machineId, sessionName, exchange });
+    const key = entriesKey(machine.machineId, sessionName);
+    entriesBySession.set(key, mergeSessionEntries(entriesBySession.get(key) ?? [], entries, MAX_ENTRIES_KEPT));
+    log.detail(`session "${sessionName}" on "${machine.machineName}" has ${entries.length} new or changed entries`);
+    sendToOwnerPages(machine.ownerPersonId, { type: "session-entries", machineId: machine.machineId, sessionName, entries });
   };
 
   const handlePong = (machine: MachineData, pingId: string) => {
@@ -248,7 +254,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       return updateReport(machine, { folders });
     }
     if (message?.type === "sessions") return handleSessions(machine, message.sessions);
-    if (message?.type === "exchange") return handleExchange(machine, message.sessionName, message.exchange);
+    if (message?.type === "session-entries") return handleSessionEntries(machine, message.sessionName, message.entries);
   };
 
   const websocketHandlers: WebSocketHandler<SocketData> = {
@@ -257,7 +263,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
         pageSockets.add(socket);
         log.detail(`${socket.data.displayName} connected to the live updates`);
         sendMachineList(socket, await machinesTable.listMachines());
-        sendKeptExchanges(socket, socket.data.personId);
+        sendKeptEntries(socket, socket.data.personId);
         return;
       }
       const { machineId, machineName, ownerPersonId } = socket.data;

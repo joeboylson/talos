@@ -1,5 +1,5 @@
 import { parseJsonOrNull } from "./json";
-import type { Exchange, SessionSummary } from "./sessions";
+import type { SentImage, SessionEntry, SessionSummary } from "./sessions";
 
 // A folder a machine allows sessions in. The name is its identifier part
 // (talos:machines:work-mac:folders:<folderName>).
@@ -14,14 +14,14 @@ export type ServerToMachine =
   | { type: "machine-name"; machineName: string }
   | { type: "rename-folder"; folderName: string; newFolderName: string }
   | { type: "start-session"; folderName: string; sessionName: string }
-  | { type: "send-to-session"; sessionName: string; text: string }
+  | { type: "send-to-session"; sessionName: string; text: string; images: SentImage[] }
   | { type: "stop-session"; sessionName: string };
 
 export type MachineToServer =
   | { type: "pong"; id: string }
   | { type: "folders"; folders: Folder[] }
   | { type: "sessions"; sessions: SessionSummary[] }
-  | { type: "exchange"; sessionName: string; exchange: Exchange };
+  | { type: "session-entries"; sessionName: string; entries: SessionEntry[] };
 
 export type CurrentUserResponse = { displayName: string; isAdmin: boolean };
 export type Settings = { allowNewPeople: boolean };
@@ -43,13 +43,13 @@ export type MachineSummary = {
 export type PageToServer =
   | { type: "ping"; machineId?: string }
   | { type: "start-session"; machineId: string; folderName: string; sessionName?: string }
-  | { type: "send-to-session"; machineId: string; sessionName: string; text: string }
+  | { type: "send-to-session"; machineId: string; sessionName: string; text: string; images?: SentImage[] }
   | { type: "stop-session"; machineId: string; sessionName: string };
 
 export type ServerToPage =
   | { type: "machines"; machines: MachineSummary[] }
   | { type: "pong"; machineId: string; machineName: string; roundTripMs: number }
-  | { type: "exchange"; machineId: string; sessionName: string; exchange: Exchange }
+  | { type: "session-entries"; machineId: string; sessionName: string; entries: SessionEntry[] }
   | { type: "error"; message: string };
 
 export type Message = ServerToMachine | MachineToServer | PageToServer | ServerToPage;

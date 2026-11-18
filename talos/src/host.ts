@@ -2,43 +2,64 @@
 // terminals it holds, so they keep running when talos restarts. talos starts
 // it (see host-client.ts) and talks to it through a file socket only this
 // user can open. `talos host stop` ends it and every session it holds.
-import { rm } from "node:fs/promises";
+import { chmod, mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import type { BunRequest, Subprocess } from "bun";
 import {
   ENV_KEYS,
+  MAX_ENTRIES_KEPT,
   MAX_SESSIONS,
   createLogger,
+  mergeSessionEntries,
   readLogsMode,
-  type Exchange,
+  readSentImages,
+  type SentImage,
+  type SessionEntry,
   type SessionState,
   type SessionSummary,
 } from "talos-shared";
 import { trustFolder } from "./claude-trust";
 import {
   CLAUDE_COMMAND,
+  CREDENTIALS_FOLDER_MODE,
   HOOK_SCRIPT,
+  IMAGE_PASTE_SETTLE_MS,
   HOST_SOCKET,
   MAX_OUTPUT_BYTES,
   READY_CHECK_MS,
   READY_LONGEST_WAIT_MS,
   READY_QUIET_MS,
-  REPLY_SAVE_WAIT_MS,
   SESSION_ENV_KEYS,
   TERMINAL_SIZE,
+  TRANSCRIPT_CHECK_MS,
+  UPLOAD_FILE_MODE,
+  UPLOADS_FOLDER,
 } from "./constants";
 import { HOST_ROUTES, encodeHostEvent, type HostEvent, type StartSessionRequest } from "./host-protocol";
 import {
   appendOutput,
   buildHookSettings,
+  buildMessageWithImages,
   buildSessionEnv,
-  buildTypedMessage,
+  buildPastedText,
+  ENTER_KEY,
   nextSessionState,
-  readLastExchange,
+  readCompleteLines,
+  readTranscriptLine,
+  resolveTranscriptItems,
 } from "./session-logic";
 
 const log = createLogger(readLogsMode(process.env[ENV_KEYS.logsMode]));
 
 type Terminal = { write: (data: string | Uint8Array) => void; resize: (cols: number, rows: number) => void };
+
+type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
+
+type TypedMessage = { text: string; hasImages: boolean };
+
+// Where a session's conversation is saved, how much of it has been read, and
+// the tools seen there that haven't ended yet.
+type Transcript = { path: string; readByteCount: number; runningTools: Record<string, ToolEntry> };
 
 type HeldSession = {
   summary: SessionSummary;
@@ -46,7 +67,9 @@ type HeldSession = {
   child: Subprocess;
   terminal: Terminal;
   // Messages sent before Claude Code finished starting; typed once it's ready.
-  queuedTexts: string[];
+  queuedMessages: TypedMessage[];
+  transcript: Transcript | null;
+  entries: SessionEntry[];
 };
 
 // The host's state: the sessions it holds, each one's recent terminal output,
@@ -56,6 +79,7 @@ const outputBySession = new Map<string, Uint8Array>();
 const lastOutputAtBySession = new Map<string, number>();
 const outputListeners = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>();
 const eventListeners = new Set<ReadableStreamDefaultController<string>>();
+const sessionsBeingRead = new Set<string>();
 
 const listSessions = (): SessionSummary[] => [...heldSessions.values()].map((session) => session.summary);
 
@@ -74,7 +98,11 @@ const setSessionState = (sessionName: string, state: SessionState) => {
   broadcastSessions();
 };
 
-const typeIntoSession = (session: HeldSession, text: string) => session.terminal.write(buildTypedMessage(text));
+const typeIntoSession = async (session: HeldSession, { text, hasImages }: TypedMessage): Promise<void> => {
+  session.terminal.write(buildPastedText(text));
+  if (hasImages) await Bun.sleep(IMAGE_PASTE_SETTLE_MS);
+  session.terminal.write(ENTER_KEY);
+};
 
 const handleOutput = (sessionName: string, chunk: Uint8Array) => {
   outputBySession.set(
@@ -91,6 +119,7 @@ const forgetSession = (sessionName: string) => {
   lastOutputAtBySession.delete(sessionName);
   outputListeners.get(sessionName)?.forEach((listener) => listener.close());
   outputListeners.delete(sessionName);
+  void rm(join(UPLOADS_FOLDER, sessionName), { recursive: true, force: true });
   log.event(`host: session ${sessionName} ended`);
   broadcastSessions();
 };
@@ -120,7 +149,9 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
     path,
     child,
     terminal,
-    queuedTexts: [],
+    queuedMessages: [],
+    transcript: null,
+    entries: [],
   });
   child.exited.then(() => forgetSession(sessionName));
   log.event(`host: started session ${sessionName} in ${path}`);
@@ -128,14 +159,37 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
   return new Response(null, { status: 201 });
 };
 
-// Reads the finished exchange, waiting a moment if Claude Code hasn't saved
-// its answer yet.
-const readFinishedExchange = async (transcriptPath: string, giveUpAtMs: number): Promise<Exchange | null> => {
-  const exchange = readLastExchange(await Bun.file(transcriptPath).text(), Date.now());
-  if (!exchange || exchange.reply || Date.now() > giveUpAtMs) return exchange;
-  await Bun.sleep(READY_CHECK_MS);
-  return readFinishedExchange(transcriptPath, giveUpAtMs);
+const readNewEntries = async (sessionName: string): Promise<void> => {
+  const transcript = heldSessions.get(sessionName)?.transcript;
+  if (!transcript) return;
+  const transcriptFile = Bun.file(transcript.path);
+  if (!(await transcriptFile.exists()) || transcriptFile.size <= transcript.readByteCount) return;
+
+  const newBytes = new Uint8Array(await transcriptFile.slice(transcript.readByteCount).arrayBuffer());
+  const { lines, usedByteCount } = readCompleteLines(newBytes);
+  if (usedByteCount === 0) return;
+  const { entries, knownTools } = resolveTranscriptItems(lines.flatMap(readTranscriptLine), transcript.runningTools);
+
+  const session = heldSessions.get(sessionName);
+  if (!session || session.transcript?.path !== transcript.path) return;
+  heldSessions.set(sessionName, {
+    ...session,
+    transcript: { ...transcript, readByteCount: transcript.readByteCount + usedByteCount, runningTools: knownTools },
+    entries: mergeSessionEntries(session.entries, entries, MAX_ENTRIES_KEPT),
+  });
+  if (entries.length > 0) broadcast({ type: "session-entries", sessionName, entries });
 };
+
+// One read at a time per session, so the same lines are never read twice.
+const readAllNewEntries = () =>
+  [...heldSessions.keys()]
+    .filter((sessionName) => !sessionsBeingRead.has(sessionName))
+    .forEach((sessionName) => {
+      sessionsBeingRead.add(sessionName);
+      readNewEntries(sessionName)
+        .catch((error: unknown) => log.warn(`host: couldn't read ${sessionName}'s conversation: ${error}`))
+        .finally(() => sessionsBeingRead.delete(sessionName));
+    });
 
 // Once Claude Code's screen settles after it starts, the session is ready:
 // type anything sent while it was starting.
@@ -147,9 +201,9 @@ const becomeReadyWhenQuiet = async (sessionName: string, giveUpAtMs: number): Pr
   }
   const session = heldSessions.get(sessionName);
   if (!session) return;
-  heldSessions.set(sessionName, { ...session, queuedTexts: [] });
+  heldSessions.set(sessionName, { ...session, queuedMessages: [] });
   setSessionState(sessionName, "idle");
-  session.queuedTexts.forEach((text) => typeIntoSession(session, text));
+  for (const message of session.queuedMessages) await typeIntoSession(session, message);
 };
 
 const handleHook = async (sessionName: string, hookDetailsText: string) => {
@@ -161,23 +215,46 @@ const handleHook = async (sessionName: string, hookDetailsText: string) => {
 
   if (hookEvent === "SessionStart") void becomeReadyWhenQuiet(sessionName, Date.now() + READY_LONGEST_WAIT_MS);
 
-  if (hookEvent === "Stop") {
-    const transcriptPath = Reflect.get(hookDetails as object, "transcript_path");
-    if (typeof transcriptPath === "string") {
-      const exchange = await readFinishedExchange(transcriptPath, Date.now() + REPLY_SAVE_WAIT_MS);
-      if (exchange) broadcast({ type: "exchange", sessionName, exchange });
-    }
+  // Claude Code can start a new conversation file (like after /clear), so
+  // a new path starts over from its beginning.
+  const transcriptPath = Reflect.get(hookDetails as object, "transcript_path");
+  const isNewTranscript = typeof transcriptPath === "string" && transcriptPath !== session.transcript?.path;
+  if (isNewTranscript) {
+    heldSessions.set(sessionName, { ...session, transcript: { path: transcriptPath, readByteCount: 0, runningTools: {} } });
   }
   if (nextState) setSessionState(sessionName, nextState);
 };
 
-const sendToSession = (sessionName: string, text: string): Response => {
+const IMAGE_FILE_EXTENSIONS: Record<SentImage["mediaType"], string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
+const saveImages = async (sessionName: string, images: SentImage[]): Promise<string[]> => {
+  if (images.length === 0) return [];
+  const sessionUploadsFolder = join(UPLOADS_FOLDER, sessionName);
+  await mkdir(sessionUploadsFolder, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
+  return Promise.all(
+    images.map(async ({ mediaType, dataBase64 }) => {
+      const imagePath = join(sessionUploadsFolder, `${crypto.randomUUID()}.${IMAGE_FILE_EXTENSIONS[mediaType]}`);
+      await Bun.write(imagePath, Buffer.from(dataBase64, "base64"));
+      await chmod(imagePath, UPLOAD_FILE_MODE);
+      return imagePath;
+    }),
+  );
+};
+
+const sendToSession = async (sessionName: string, text: string, images: SentImage[]): Promise<Response> => {
+  if (!heldSessions.has(sessionName)) return new Response(`no session ${sessionName}`, { status: 404 });
+  const message = { text: buildMessageWithImages(text, await saveImages(sessionName, images)), hasImages: images.length > 0 };
   const session = heldSessions.get(sessionName);
   if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
   if (session.summary.state === "starting") {
-    heldSessions.set(sessionName, { ...session, queuedTexts: [...session.queuedTexts, text] });
+    heldSessions.set(sessionName, { ...session, queuedMessages: [...session.queuedMessages, message] });
   } else {
-    typeIntoSession(session, text);
+    await typeIntoSession(session, message);
   }
   return new Response(null, { status: 204 });
 };
@@ -213,10 +290,15 @@ const streamOutput = (sessionName: string): Response => {
   return new Response(stream);
 };
 
+// Starts with the session list and every kept entry, so a talos that just
+// (re)started has the whole picture.
 const streamEvents = (): Response => {
   const stream = streamOf<string>(
     (controller) => {
       controller.enqueue(encodeHostEvent({ type: "sessions", sessions: listSessions() }));
+      heldSessions.forEach(({ entries }, sessionName) =>
+        controller.enqueue(encodeHostEvent({ type: "session-entries", sessionName, entries })),
+      );
       eventListeners.add(controller);
     },
     (controller) => eventListeners.delete(controller),
@@ -263,9 +345,13 @@ const serveOptions = {
     },
     [`${HOST_ROUTES.sessions}/:sessionName/send`]: {
       POST: async (request: BunRequest) => {
-        const { text } = await readJson(request);
-        if (typeof text !== "string" || !text) return new Response("expected text", { status: 400 });
-        return sendToSession(sessionNameOf(request), text);
+        const body = await readJson(request);
+        const text = typeof body.text === "string" ? body.text : "";
+        const images = readSentImages(body.images);
+        if (!images || (!text.trim() && images.length === 0)) {
+          return new Response("expected text or images", { status: 400 });
+        }
+        return sendToSession(sessionNameOf(request), text, images);
       },
     },
     [`${HOST_ROUTES.sessions}/:sessionName/stop`]: {
@@ -303,4 +389,5 @@ const serveOptions = {
   fetch: () => new Response("Not found", { status: 404 }),
 };
 Bun.serve(serveOptions as unknown as Parameters<typeof Bun.serve>[0]);
+setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
 log.event(`host: listening on ${HOST_SOCKET}`);

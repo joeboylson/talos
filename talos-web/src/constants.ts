@@ -10,3 +10,8 @@ export const VIEWS: Record<PageKind, { title: string }> = {
 };
 
 export type View = PageKind;
+
+// Images are shrunk to fit this many pixels on their longest side before
+// sending: Claude scales big images down anyway, and smaller ones send fast.
+export const MAX_IMAGE_SIDE_PX = 1600;
+export const JPEG_QUALITY = 0.85;

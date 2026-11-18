@@ -28,15 +28,15 @@ const pairMachine = async (machineName: string): Promise<string> => {
 };
 
 type MadeUpSession = { sessionName: string; folderName: string; state: string };
-type MadeUpExchange = { sessionName: string; prompt: string; reply: string };
+type MadeUpEntries = { sessionName: string; entries: unknown[] };
 
-// Connects like talos: reports its folders and sessions, sends finished
-// exchanges, and answers pings.
+// Connects like talos: reports its folders and sessions, sends session
+// entries, and answers pings.
 const connectMachine = (
   machineKey: string,
   folders: { folderName: string; path: string }[],
   sessions: MadeUpSession[] = [],
-  exchanges: MadeUpExchange[] = [],
+  sessionEntries: MadeUpEntries[] = [],
 ) =>
   new Promise<WebSocket>((resolve) => {
     const socket = new WebSocket(`${SOCKET_SERVER}/api/sockets/machine`, {
@@ -49,8 +49,8 @@ const connectMachine = (
     socket.onopen = () => {
       socket.send(JSON.stringify({ type: "folders", folders }));
       socket.send(JSON.stringify({ type: "sessions", sessions }));
-      exchanges.forEach(({ sessionName, prompt, reply }, index) =>
-        socket.send(JSON.stringify({ type: "exchange", sessionName, exchange: { prompt, reply, finishedAtMs: index + 1 } })),
+      sessionEntries.forEach(({ sessionName, entries }) =>
+        socket.send(JSON.stringify({ type: "session-entries", sessionName, entries })),
       );
       resolve(socket);
     };
@@ -106,11 +106,21 @@ const atlas = await connectMachine(
   [
     {
       sessionName: "fix-login",
-      prompt: "Why does sign-in fail after the session expires?",
-      reply:
-        "The page keeps the old session cookie, so /api/auth/me returns 401 and the page sends you to GitHub, but the callback finds no sign-in state cookie.\n\nI changed the sign-in route to set a fresh state cookie every time. Want me to add a test for it?",
+      entries: [
+        { kind: "prompt", entryId: "p1", text: "Why does sign-in fail after the session expires?", imageCount: 0 },
+        { kind: "tool", entryId: "t1", toolName: "Read", summary: "talos-server/src/auth-routes.ts", outcome: "done" },
+        { kind: "tool", entryId: "t2", toolName: "Grep", summary: "signInState", outcome: "done" },
+        {
+          kind: "text",
+          entryId: "x1",
+          text: "The page keeps the **old session cookie**, so `/api/auth/me` returns 401 and the page sends you to GitHub, but the callback finds no sign-in state cookie.\n\nI changed the sign-in route to set a fresh state cookie every time. Want me to add a test for it?",
+        },
+        { kind: "prompt", entryId: "p2", text: "/tdd add the test", imageCount: 1 },
+        { kind: "tool", entryId: "t3", toolName: "Edit", summary: "talos-server/src/tests/auth/session.test.ts", outcome: "done" },
+        { kind: "tool", entryId: "t4", toolName: "Bash", summary: "Run the server tests", outcome: "failed" },
+        { kind: "tool", entryId: "t5", toolName: "Bash", summary: "Run the server tests again", outcome: "running" },
+      ],
     },
-    { sessionName: "fix-login", prompt: "Yes, add the test.", reply: "Added tests/auth/session.test.ts → \"an expired session starts a fresh sign-in\". All 58 tests pass." },
   ],
 );
 

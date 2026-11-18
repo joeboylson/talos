@@ -1,7 +1,8 @@
-import { parseJsonOrNull, type Exchange, type SessionState } from "talos-shared";
+import { MAX_ENTRY_TEXT_LENGTH, parseJsonOrNull, type SessionEntry, type SessionState } from "talos-shared";
+import { MAX_TOOL_NAME_LENGTH, MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE } from "./constants";
 
-// Claude Code's hook events that move a session between states. Stop is
-// also when the finished exchange is read and sent to the page.
+// Claude Code's hook events that move a session between states. They also
+// carry where the session's conversation is saved.
 export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PostToolUse", "Notification", "Stop"] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
@@ -36,42 +37,142 @@ export const buildHookSettings = (hookCommand: string): string => {
 // line breaks, instead of sending at the first one. Enter then sends it.
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
-const ENTER = "\r";
-export const buildTypedMessage = (text: string): string => `${PASTE_START}${text}${PASTE_END}${ENTER}`;
+export const ENTER_KEY = "\r";
+export const buildPastedText = (text: string): string => `${PASTE_START}${text}${PASTE_END}`;
 
-type TranscriptEntry = { type?: unknown; isMeta?: unknown; message?: { content?: unknown } };
+// One line of Claude Code's saved conversation (its .jsonl transcript), with
+// only the fields talos reads.
+type TranscriptLine = {
+  type?: unknown;
+  uuid?: unknown;
+  isMeta?: unknown;
+  isSidechain?: unknown;
+  message?: { content?: unknown };
+};
+type ContentBlock = { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; is_error?: unknown };
+type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
 
-const readTextBlocks = (content: unknown): string[] => {
-  if (typeof content === "string") return [content];
+// What one transcript line holds: entries, and tools that ended (their
+// results are saved as separate lines, after the tool's own line).
+export type TranscriptItem = SessionEntry | { kind: "tool-end"; toolUseId: string; isFailed: boolean };
+
+const IMAGE_MARKER = /\[Image #\d+\]/g;
+const COMMAND_NAME = /<command-name>([\s\S]*?)<\/command-name>/;
+const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
+const COMMAND_OUTPUT = /^<local-command-stdout>([\s\S]*)<\/local-command-stdout>$/;
+// Claude Code's own notes, saved as messages, that nobody typed.
+const NOTE_PREFIXES = ["<local-command-caveat>", "<system-reminder>", "<bash-stdout>", "<bash-stderr>"];
+
+const truncate = (text: string, maxLength: number): string => (text.length > maxLength ? text.slice(0, maxLength) : text);
+
+const contentBlocksOf = (content: unknown): ContentBlock[] => {
+  if (typeof content === "string") return [{ type: "text", text: content }];
   if (!Array.isArray(content)) return [];
-  return content.flatMap((block) =>
-    typeof block === "object" && block !== null && block.type === "text" && typeof block.text === "string" ? [block.text] : [],
+  return content.filter((block): block is ContentBlock => typeof block === "object" && block !== null);
+};
+
+// A slash command or skill is saved as tags; show it the way it was typed.
+export const readCommandPrompt = (text: string): string | null => {
+  const commandName = COMMAND_NAME.exec(text)?.[1]?.trim();
+  if (!commandName) return null;
+  const commandArgs = COMMAND_ARGS.exec(text)?.[1]?.trim() ?? "";
+  return `${commandName} ${commandArgs}`.trim();
+};
+
+const TOOL_SUMMARY_FIELDS = ["description", "command", "file_path", "path", "pattern", "url", "query", "skill", "prompt"];
+
+// One line saying what a tool is doing, from its most telling input.
+export const summarizeToolInput = (input: unknown): string => {
+  if (typeof input !== "object" || input === null) return "";
+  const firstTellingValue = TOOL_SUMMARY_FIELDS.map((field) => Reflect.get(input, field)).find(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
   );
+  return truncate((firstTellingValue ?? "").replace(/\s+/g, " ").trim(), MAX_TOOL_SUMMARY_LENGTH);
 };
 
-// A message someone sent, as opposed to tool results Claude Code also files
-// under "user", or notes it adds itself.
-const isPrompt = (entry: TranscriptEntry): boolean =>
-  entry.type === "user" && entry.isMeta !== true && readTextBlocks(entry.message?.content).length > 0;
+const readPromptLine = (entryId: string, blocks: ContentBlock[]): SessionEntry[] => {
+  const typedText = blocks.flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : [])).join("\n");
+  const imageCount = blocks.filter((block) => block.type === "image").length;
+  const isNote = NOTE_PREFIXES.some((prefix) => typedText.trimStart().startsWith(prefix));
+  if (isNote) return [];
 
-// The last message in a saved conversation (Claude Code's .jsonl transcript)
-// and everything Claude wrote after it.
-export const readLastExchange = (transcriptText: string, finishedAtMs: number): Exchange | null => {
-  const entries = transcriptText
-    .split("\n")
-    .map((line) => parseJsonOrNull(line))
-    .filter((entry): entry is TranscriptEntry => typeof entry === "object" && entry !== null);
-  const lastPromptIndex = entries.findLastIndex(isPrompt);
-  if (lastPromptIndex === -1) return null;
+  const commandOutput = COMMAND_OUTPUT.exec(typedText.trim())?.[1]?.trim();
+  if (commandOutput !== undefined) {
+    return commandOutput ? [{ kind: "text", entryId, text: truncate(commandOutput, MAX_ENTRY_TEXT_LENGTH) }] : [];
+  }
 
-  const prompt = readTextBlocks(entries[lastPromptIndex]?.message?.content).join("\n");
-  const reply = entries
-    .slice(lastPromptIndex + 1)
-    .filter((entry) => entry.type === "assistant")
-    .flatMap((entry) => readTextBlocks(entry.message?.content))
-    .join("\n\n");
-  return { prompt, reply, finishedAtMs };
+  const promptText = (readCommandPrompt(typedText) ?? typedText.replace(IMAGE_MARKER, "")).trim();
+  if (!promptText && imageCount === 0) return [];
+  return [{ kind: "prompt", entryId, text: truncate(promptText, MAX_ENTRY_TEXT_LENGTH), imageCount }];
 };
+
+const readToolEnds = (blocks: ContentBlock[]): TranscriptItem[] =>
+  blocks.flatMap((block) =>
+    block.type === "tool_result" && typeof block.tool_use_id === "string"
+      ? [{ kind: "tool-end" as const, toolUseId: block.tool_use_id, isFailed: block.is_error === true }]
+      : [],
+  );
+
+const readAssistantLine = (lineId: string, blocks: ContentBlock[]): SessionEntry[] =>
+  blocks.flatMap((block, blockIndex): SessionEntry[] => {
+    if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+      return [{ kind: "text", entryId: `${lineId}:${blockIndex}`, text: truncate(block.text, MAX_ENTRY_TEXT_LENGTH) }];
+    }
+    if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+      const toolName = truncate(block.name, MAX_TOOL_NAME_LENGTH);
+      return [{ kind: "tool", entryId: block.id, toolName, summary: summarizeToolInput(block.input), outcome: "running" }];
+    }
+    return [];
+  });
+
+// Skips Claude's thinking, notes Claude Code adds itself (like a skill's
+// instructions), and sub-agents' own conversations.
+export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
+  const line: unknown = parseJsonOrNull(lineText);
+  if (typeof line !== "object" || line === null) return [];
+  const { type, uuid, isMeta, isSidechain, message } = line as TranscriptLine;
+  if (typeof uuid !== "string" || isMeta === true || isSidechain === true) return [];
+  const blocks = contentBlocksOf(message?.content);
+  if (type === "assistant") return readAssistantLine(uuid, blocks);
+  if (type !== "user") return [];
+  const toolEnds = readToolEnds(blocks);
+  return toolEnds.length > 0 ? toolEnds : readPromptLine(uuid, blocks);
+};
+
+// Turns tool ends into the ended tool's entry, using the tools seen so far.
+// Returns the entries to send and the tools still known.
+export const resolveTranscriptItems = (
+  items: TranscriptItem[],
+  knownTools: Record<string, ToolEntry>,
+): { entries: SessionEntry[]; knownTools: Record<string, ToolEntry> } =>
+  items.reduce(
+    (result, item) => {
+      if (item.kind === "tool") {
+        return { entries: [...result.entries, item], knownTools: { ...result.knownTools, [item.entryId]: item } };
+      }
+      if (item.kind !== "tool-end") return { ...result, entries: [...result.entries, item] };
+      const endedTool = result.knownTools[item.toolUseId];
+      if (!endedTool) return result;
+      const { [item.toolUseId]: _endedTool, ...stillRunning } = result.knownTools;
+      const outcome = item.isFailed ? "failed" : "done";
+      return { entries: [...result.entries, { ...endedTool, outcome }], knownTools: stillRunning };
+    },
+    { entries: [] as SessionEntry[], knownTools },
+  );
+
+// A line Claude Code is still writing has no newline yet, so it waits for
+// the next read.
+export const readCompleteLines = (newBytes: Uint8Array): { lines: string[]; usedByteCount: number } => {
+  const lastNewlineIndex = newBytes.lastIndexOf(NEWLINE_BYTE);
+  if (lastNewlineIndex === -1) return { lines: [], usedByteCount: 0 };
+  const completeText = new TextDecoder().decode(newBytes.subarray(0, lastNewlineIndex));
+  return { lines: completeText.split("\n").filter((line) => line.trim()), usedByteCount: lastNewlineIndex + 1 };
+};
+
+// The message typed into Claude Code: the text, then each image's saved path.
+// Claude Code turns a pasted image path into an attached image.
+export const buildMessageWithImages = (text: string, imagePaths: string[]): string =>
+  [text.trim(), ...imagePaths].filter(Boolean).join("\n\n");
 
 // Claude Code marks the sessions it runs, and a session started with these
 // marks thinks it's a sub-session: it stops saving its conversation (which

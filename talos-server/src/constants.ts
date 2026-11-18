@@ -25,9 +25,6 @@ export const CLOSE_CODES = {
 // server pings every open socket more often than that.
 export const KEEP_ALIVE_INTERVAL_MS = 30 * 1000;
 
-// Per session. Older exchanges stay in the session's own saved conversation.
-export const MAX_EXCHANGES_KEPT = 50;
-
 export const NO_MACHINES_MESSAGE = "No machines connected";
 
 export const COOKIE_NAMES = {

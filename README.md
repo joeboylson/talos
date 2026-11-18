@@ -102,6 +102,15 @@ In this repo, run any of them with `make talos <command>`, like
 | `make typecheck`       | Type-checks every folder.                                                                             |
 | `make install`         | Installs packages (other commands do this when needed).                                               |
 
+## Publishing
+
+Every push to `main` that changes the server publishes it. AWS CodeBuild
+(`talos-server-deploy` in us-east-2) runs `deploy/buildspec.yml`: it checks
+the code, builds the image, and switches the live server to it. Results show
+in the AWS console under CodeBuild. Changes to docs, `talos/` or
+`talos-desktop/` alone don't publish.
+
 ## Status
 
-A ping and pong on one machine. No AWS yet.
+Live on AWS (ECS Express Mode in us-east-2). Machines and sessions driven
+from the page.

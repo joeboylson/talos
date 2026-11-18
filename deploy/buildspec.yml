@@ -1,0 +1,60 @@
+# What AWS CodeBuild runs on every push to main that touches the server
+# (the project is `talos-server-deploy` in us-east-2): check the code, build
+# the server image, then point the live service at it and wait for the result.
+#
+# GitHub sign-in links (OIDC) are blocked on this AWS project, so AWS pulls
+# from GitHub instead of GitHub Actions pushing to AWS.
+
+version: 0.2
+
+env:
+  variables:
+    BUN_VERSION: "1.4.4"
+    SERVICE_ARN: arn:aws:ecs:us-east-2:135977257766:service/default/talos-server
+    REPOSITORY: talos-server
+
+phases:
+  install:
+    commands:
+      - curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}"
+      - export PATH="$HOME/.bun/bin:$PATH"
+      - command -v jq || dnf install -y jq
+      # Express Mode is newer than some build images' AWS CLI.
+      - |
+        if ! aws ecs update-express-gateway-service help >/dev/null 2>&1; then
+          curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip -o /tmp/awscli.zip
+          unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install --update
+        fi
+      - bun install --frozen-lockfile
+
+  pre_build:
+    commands:
+      - bun run typecheck
+      # The desktop app's tests need Rust and don't go into the server image.
+      - for folder in talos talos-server talos-shared talos-web; do (cd "$folder" && bun test) || exit 1; done
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+      - IMAGE="${REGISTRY}/${REPOSITORY}:${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
+      - aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+
+  build:
+    commands:
+      # Tags can't be reused, so a rerun of the same commit skips the build.
+      - |
+        if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="${IMAGE##*:}" >/dev/null 2>&1; then
+          echo "Image $IMAGE is already uploaded."
+        else
+          docker build -f talos-server/Dockerfile -t "$IMAGE" . && docker push "$IMAGE"
+        fi
+
+  post_build:
+    commands:
+      - test "$CODEBUILD_BUILD_SUCCEEDING" = 1
+      # Send the current container settings back with only the image swapped,
+      # so settings and secrets are never dropped.
+      - |
+        aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" \
+          --query 'service.activeConfigurations[0].primaryContainer' --output json \
+          | jq --arg image "$IMAGE" '.image = $image' > /tmp/container.json
+      - aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container file:///tmp/container.json >/dev/null
+      - sh deploy/wait-for-deploy.sh "$SERVICE_ARN"

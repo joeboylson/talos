@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 talos-desktop/src-tauri/target/
 talos-desktop/src-tauri/gen/
+
+# Local scripts and notes, not part of the repo.
+ref/

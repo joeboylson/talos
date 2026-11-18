@@ -10,13 +10,18 @@ version: 0.2
 env:
   variables:
     BUN_VERSION: "1.4.4"
+    # Bun's own published checksum for bun-linux-aarch64.zip at that version.
+    # The build stops if the download doesn't match it.
+    BUN_ZIP_SHA256: "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e"
     SERVICE_ARN: arn:aws:ecs:us-east-2:135977257766:service/default/talos-server
     REPOSITORY: talos-server
 
 phases:
   install:
     commands:
-      - curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}"
+      - curl -fsSL -o /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-aarch64.zip"
+      - echo "${BUN_ZIP_SHA256}  /tmp/bun.zip" | sha256sum -c -
+      - unzip -q /tmp/bun.zip -d /tmp && mkdir -p "$HOME/.bun/bin" && mv /tmp/bun-linux-aarch64/bun "$HOME/.bun/bin/bun"
       - export PATH="$HOME/.bun/bin:$PATH"
       - command -v jq || dnf install -y jq
       # Express Mode is newer than some build images' AWS CLI.
@@ -40,11 +45,15 @@ phases:
   build:
     commands:
       # Tags can't be reused, so a rerun of the same commit skips the build.
+      # The security checks run between building and uploading: if one fails,
+      # nothing is uploaded and nothing is published.
       - |
         if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="${IMAGE##*:}" >/dev/null 2>&1; then
           echo "Image $IMAGE is already uploaded."
         else
-          docker build -f talos-server/Dockerfile -t "$IMAGE" . && docker push "$IMAGE"
+          docker build --provenance=false -f talos-server/Dockerfile -t "$IMAGE" . &&
+            sh dev/security/check.sh "$IMAGE" &&
+            docker push "$IMAGE"
         fi
 
   post_build:

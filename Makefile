@@ -1,4 +1,4 @@
-.PHONY: dev down logs desktop talos screenshots server-image install typecheck test
+.PHONY: dev down logs desktop talos screenshots server-image security install typecheck test
 
 # AWS Graviton (arm64) is cheaper than x86 and matches Apple silicon.
 SERVER_PLATFORM ?= linux/arm64
@@ -42,11 +42,16 @@ endif
 screenshots: node_modules
 	@trap 'docker compose -p talos-screenshots down -v >/dev/null 2>&1' EXIT; \
 	docker compose -p talos-screenshots -f docker-compose.yml -f dev/screenshots/compose.override.yml up --build --detach --wait >/dev/null && \
-	bun dev/screenshots/take-screenshots.ts
+	AWS_ENDPOINT_URL=https://localhost:9497 AWS_REGION=us-east-1 NODE_TLS_REJECT_UNAUTHORIZED=0 bun dev/screenshots/take-screenshots.ts
 
 # Builds the container that goes on AWS.
 server-image:
-	docker build --platform $(SERVER_PLATFORM) -f talos-server/Dockerfile -t talos-server .
+	docker build --provenance=false --platform $(SERVER_PLATFORM) -f talos-server/Dockerfile -t talos-server .
+
+# The security checks GitHub and the AWS publish run (dev/security/check.sh),
+# on the repo and a freshly built server image.
+security: node_modules server-image
+	sh dev/security/check.sh talos-server
 
 install:
 	bun install

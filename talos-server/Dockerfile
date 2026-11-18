@@ -6,7 +6,11 @@
 # the list; on AWS, TALOS_GITHUB_CLIENT_SECRET and TALOS_SESSION_SECRET come
 # from Secrets Manager, and the AWS_* emulator settings are left out.
 
-FROM oven/bun:1.4.4-slim
+# Pinned to the exact image, so a changed tag can't change what runs.
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
+# The pinned image is the starting point; Debian's security fixes released
+# since then go on top at each build (make security checks the result).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production
 

@@ -1,9 +1,19 @@
-import { MAX_ENTRY_TEXT_LENGTH, parseJsonOrNull, type SessionEntry, type SessionState } from "talos-shared";
-import { MAX_TOOL_NAME_LENGTH, MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE } from "./constants";
+import {
+  MAX_ENTRY_TEXT_LENGTH,
+  MAX_STATUS_NOTE_LENGTH,
+  REPORTED_STATUSES,
+  parseJsonOrNull,
+  type ReportedStatus,
+  type SessionEntry,
+  type SessionState,
+} from "talos-shared";
+import { MAX_TOOL_NAME_LENGTH, MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE, STATUS_TOOL_NAME } from "./constants";
 
 // Claude Code's hook events that move a session between states. They also
 // carry where the session's conversation is saved.
-export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PostToolUse", "Notification", "Stop"] as const;
+// PreToolUse and Stop also carry a decision back (the status lane: force the
+// report_status call, and keep a status turn to that one tool).
+export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 // Claude Code sends this notification after a minute of waiting for a message.
@@ -212,4 +222,50 @@ export const appendOutput = (output: Uint8Array, chunk: Uint8Array, maxBytes: nu
   combined.set(output);
   combined.set(chunk, output.length);
   return combined.length > maxBytes ? combined.slice(combined.length - maxBytes) : combined;
+};
+
+
+// What the host asks a session to do for a status update. The session answers
+// by calling report_status (the PreToolUse hook forces it to be the only tool).
+export const STATUS_REQUEST_PROMPT =
+  "Give a status update on this session by calling report_status once, with your state and one short line. Do not do anything else.";
+
+// The tool a PreToolUse hook is about to run, from its payload.
+export const readHookToolName = (hookPayload: unknown): string =>
+  typeof hookPayload === "object" && hookPayload !== null ? String(Reflect.get(hookPayload, "tool_name") ?? "") : "";
+
+// Whether a Stop hook is itself a continuation forced by an earlier Stop block,
+// so the host doesn't force the report_status call forever.
+export const isStopContinuation = (hookPayload: unknown): boolean =>
+  typeof hookPayload === "object" && hookPayload !== null && Reflect.get(hookPayload, "stop_hook_active") === true;
+
+// A PreToolUse decision Claude Code honors: allow runs the tool with no prompt,
+// deny blocks it and tells the model why. Returned as the hook's stdout.
+export const allowToolDecision = (): string =>
+  JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } });
+export const denyToolDecision = (reason: string): string =>
+  JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
+
+// A Stop decision: block keeps the turn going with a reason, so the session
+// can't finish until it has reported.
+export const blockStopDecision = (reason: string): string => JSON.stringify({ decision: "block", reason });
+
+type ReportedStatusUpdate = { state: ReportedStatus; note: string };
+
+// The report_status call in one transcript line, if any: the state and note the
+// session reported. Read from the saved conversation, so the shape isn't trusted.
+export const readStatusReport = (lineText: string): ReportedStatusUpdate | null => {
+  const line: unknown = parseJsonOrNull(lineText);
+  if (typeof line !== "object" || line === null || Reflect.get(line, "type") !== "assistant") return null;
+  const content = (line as { message?: { content?: unknown } }).message?.content;
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    const isCall = typeof block === "object" && block !== null && block.type === "tool_use" && block.name === STATUS_TOOL_NAME;
+    const input: unknown = isCall ? block.input : null;
+    const state = typeof input === "object" && input !== null ? Reflect.get(input, "state") : null;
+    const note = typeof input === "object" && input !== null ? Reflect.get(input, "note") : null;
+    const isValid = REPORTED_STATUSES.some((s) => s === state) && typeof note === "string" && note.length <= MAX_STATUS_NOTE_LENGTH;
+    if (isValid) return { state: state as ReportedStatus, note: note as string };
+  }
+  return null;
 };

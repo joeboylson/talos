@@ -24,6 +24,10 @@ docs. Use these and no others.
   asking something in its terminal; attach to answer).
 - **entry**: one thing in a session's conversation: a message someone sent
   (with any images), text Claude wrote, or a tool Claude ran.
+- **status**: a session's structured state (working, waiting, done, stuck) plus
+  a one-line note, filled in when someone presses "ask for an update". The
+  session reports it by calling the report_status tool; hooks force that call and
+  keep it out of ordinary chat.
 - **session host**: the background program on each machine that holds the
   sessions' terminals, so they outlive `talos` restarts.
 - **attach**: show a session's terminal in your own, to watch or type.

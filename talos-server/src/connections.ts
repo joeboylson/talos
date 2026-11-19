@@ -202,6 +202,11 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       return machineSocket.send(encode<ServerToMachine>({ type: "stop-session", sessionName: message.sessionName }));
     }
 
+    if (message.type === "ask-for-update") {
+      log.detail(`${displayName} asked session "${message.sessionName}" on "${machineName}" for a status update`);
+      return machineSocket.send(encode<ServerToMachine>({ type: "ask-for-update", sessionName: message.sessionName }));
+    }
+
     const text = message.text.trim();
     const images = message.images ?? [];
     if (!text && images.length === 0) return sendProblem("That message can't be sent");

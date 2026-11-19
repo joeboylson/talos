@@ -16,7 +16,7 @@ export const HOST_ROUTES = {
   hooks: "/hooks/:sessionName",
 } as const;
 
-export const sessionRoute = (sessionName: string, action: "send" | "stop" | "output" | "input" | "resize") =>
+export const sessionRoute = (sessionName: string, action: "send" | "stop" | "ask-update" | "output" | "input" | "resize") =>
   `${HOST_ROUTES.sessions}/${encodeURIComponent(sessionName)}/${action}`;
 
 // One event per line, so a stream can be read line by line.

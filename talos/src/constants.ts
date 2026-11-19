@@ -25,6 +25,20 @@ export const HOST_SOCKET_MODE = 0o600;
 export const HOST_LOG = join(CREDENTIALS_FOLDER, "host.log");
 export const HOST_SCRIPT = new URL("./host.ts", import.meta.url).pathname;
 export const HOOK_SCRIPT = new URL("./hook.ts", import.meta.url).pathname;
+
+// The report_status MCP server (see status-tool.ts), passed to every session
+// with --mcp-config. The server key is "talosstatus", so Claude Code names the
+// tool mcp__talosstatus__report_status.
+export const STATUS_TOOL_SCRIPT = new URL("./status-tool.ts", import.meta.url).pathname;
+export const STATUS_MCP_SERVER_KEY = "talosstatus";
+export const STATUS_TOOL_BARE_NAME = "report_status";
+export const STATUS_TOOL_NAME = `mcp__${STATUS_MCP_SERVER_KEY}__${STATUS_TOOL_BARE_NAME}`;
+export const MCP_CONFIG_FILE = join(CREDENTIALS_FOLDER, "mcp-config.json");
+
+// A status request that goes unanswered this long becomes "no response".
+export const STATUS_TIMEOUT_MS = 60_000;
+// How often the host checks for status requests that have timed out.
+export const STATUS_CHECK_MS = 5_000;
 export const HOST_START_TIMEOUT_MS = 5000;
 export const HOST_START_CHECK_MS = 100;
 

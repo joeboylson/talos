@@ -11,7 +11,7 @@ const machine = (machineName: string, sessions: MachineSummary["sessions"]): Mac
 });
 
 const MACHINES = [
-  machine("spark", [{ sessionName: "fix-login", folderName: "talos", state: "working" }]),
+  machine("spark", [{ sessionName: "fix-login", folderName: "talos", state: "working", status: { state: "stuck", note: "blocked on the API", atMs: 1 } }]),
   machine("atlas", [
     { sessionName: "web", folderName: "website", state: "idle" },
     { sessionName: "api", folderName: "talos", state: "needs-you" },
@@ -52,3 +52,12 @@ describe("removeAnsweredPrompt", () => {
     expect(removeAnsweredPrompt([waiting("", 1)], saved("", 1))).toEqual([]);
   });
 });
+
+test("buildSessionRows carries a session's reported status", () => {
+  const rows = buildSessionRows(MACHINES);
+  const fix = rows.find((r) => r.sessionName === "fix-login");
+  expect(fix?.status).toEqual({ state: "stuck", note: "blocked on the API", atMs: 1 });
+  const other = rows.find((r) => r.sessionName === "new-homepage");
+  expect(other?.status).toBeUndefined();
+});
+

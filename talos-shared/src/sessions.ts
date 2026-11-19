@@ -8,7 +8,17 @@ import { parseJsonOrNull } from "./json";
 export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
 
-export type SessionSummary = { sessionName: string; folderName: string; state: SessionState };
+export type SessionSummary = { sessionName: string; folderName: string; state: SessionState; status?: SessionStatus };
+
+// A session's structured status, filled in when someone asks for an update.
+// The session itself picks one of REPORTED_STATUSES via the report_status tool;
+// the host adds "pending" (asked, waiting) and "no-response" (didn't report).
+export const REPORTED_STATUSES = ["working", "waiting", "done", "stuck"] as const;
+export type ReportedStatus = (typeof REPORTED_STATUSES)[number];
+export const SESSION_STATUS_STATES = [...REPORTED_STATUSES, "pending", "no-response"] as const;
+export type SessionStatusState = (typeof SESSION_STATUS_STATES)[number];
+export type SessionStatus = { state: SessionStatusState; note: string; atMs: number };
+export const MAX_STATUS_NOTE_LENGTH = 280;
 
 // One thing in a session's conversation, read from Claude Code's saved
 // conversation as it grows: a message someone sent, text Claude wrote, or a
@@ -46,17 +56,35 @@ const isOneOf = <T extends string>(choices: readonly T[], value: unknown): value
 
 const fieldOf = (item: object, field: string): unknown => Reflect.get(item, field);
 
+// A reported status, or null for anything that isn't one. Both sides read it
+// from messages, so neither trusts the shape.
+export const readSessionStatus = (value: unknown): SessionStatus | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const state = fieldOf(value, "state");
+  const note = fieldOf(value, "note");
+  const atMs = fieldOf(value, "atMs");
+  const isStatus = isOneOf(SESSION_STATUS_STATES, state) && isTextUpTo(note, MAX_STATUS_NOTE_LENGTH) && typeof atMs === "number";
+  return isStatus ? { state: state as SessionStatusState, note: note as string, atMs: atMs as number } : null;
+};
+
+const isValidOptionalStatus = (value: unknown): boolean => value === undefined || readSessionStatus(value) !== null;
+
 // Both sides read these from messages, so neither trusts the shape.
 export const readSessionList = (value: unknown): SessionSummary[] | null => {
   if (!Array.isArray(value) || value.length > MAX_SESSIONS) return null;
-  const isSession = (item: unknown): item is SessionSummary =>
+  const isSession = (item: unknown): boolean =>
     typeof item === "object" &&
     item !== null &&
     isIdentifierName(fieldOf(item, "sessionName")) &&
     isIdentifierName(fieldOf(item, "folderName")) &&
-    isOneOf(SESSION_STATES, fieldOf(item, "state"));
+    isOneOf(SESSION_STATES, fieldOf(item, "state")) &&
+    isValidOptionalStatus(fieldOf(item, "status"));
   if (!value.every(isSession)) return null;
-  return value.map(({ sessionName, folderName, state }) => ({ sessionName, folderName, state }));
+  return value.map((item) => {
+    const { sessionName, folderName, state } = item as SessionSummary;
+    const status = readSessionStatus(fieldOf(item as object, "status"));
+    return status ? { sessionName, folderName, state, status } : { sessionName, folderName, state };
+  });
 };
 
 const readSessionEntry = (item: unknown): SessionEntry | null => {

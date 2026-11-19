@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   MAX_ENTRIES_KEPT,
+  readSessionStatus,
   MAX_ENTRY_TEXT_LENGTH,
   MAX_IMAGE_BASE64_LENGTH,
   MAX_IMAGES_PER_MESSAGE,
@@ -23,6 +24,35 @@ describe("readSessionList", () => {
     [[{ sessionName: 1, folderName: "talos", state: "idle" }]],
   ])("rejects %#", (value) => {
     expect(readSessionList(value)).toBeNull();
+  });
+});
+
+describe("readSessionStatus / list status", () => {
+  const ok = { state: "working" as const, note: "running the tests", atMs: 5 };
+
+  test("keeps a good status", () => {
+    expect(readSessionStatus(ok)).toEqual(ok);
+    expect(readSessionStatus({ state: "no-response", note: "", atMs: 9 })).toEqual({ state: "no-response", note: "", atMs: 9 });
+  });
+
+  test.each([
+    [{ state: "nope", note: "x", atMs: 1 }],
+    [{ state: "working", note: 5, atMs: 1 }],
+    [{ state: "working", note: "x" }],
+    [null],
+    ["working"],
+  ])("rejects a bad status %#", (value) => {
+    expect(readSessionStatus(value)).toBeNull();
+  });
+
+  test("readSessionList keeps a valid status, drops a session with an invalid one", () => {
+    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", status: ok }])).toEqual([
+      { sessionName: "fix", folderName: "talos", state: "idle", status: ok },
+    ]);
+    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle" }])).toEqual([
+      { sessionName: "fix", folderName: "talos", state: "idle" },
+    ]);
+    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", status: { state: "bad" } }])).toBeNull();
   });
 });
 

@@ -22,6 +22,7 @@ describe("readPageToServer", () => {
     [{ type: "start-session", machineId: "m1", folderName: "talos", sessionName: "Fix the Login" }],
     [{ type: "send-to-session", machineId: "m1", sessionName: "fix", text: "hi", images: [] }],
     [{ type: "stop-session", machineId: "m1", sessionName: "fix" }],
+    [{ type: "ask-for-update", machineId: "m1", sessionName: "fix" }],
   ])("keeps a good message %#", (message) => {
     expect(readPageToServer(message) as unknown).toEqual(message);
   });
@@ -59,6 +60,7 @@ describe("readServerToMachine", () => {
     [{ type: "start-session", folderName: "talos", sessionName: "fix" }],
     [{ type: "send-to-session", sessionName: "fix", text: "hi", images: [] }],
     [{ type: "stop-session", sessionName: "fix" }],
+    [{ type: "ask-for-update", sessionName: "fix" }],
   ])("keeps a good message %#", (message) => {
     expect(readServerToMachine(message) as unknown).toEqual(message);
   });

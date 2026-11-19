@@ -45,6 +45,7 @@ export const readPageToServer = (value: unknown): PageToServer | null => {
   const sessionName = fieldOf(message, "sessionName");
   if (!isIdentifierName(sessionName)) return null;
   if (type === "stop-session") return { type, machineId, sessionName };
+  if (type === "ask-for-update") return { type, machineId, sessionName };
   if (type !== "send-to-session") return null;
   const text = readText(fieldOf(message, "text"));
   const images = readSentImages(fieldOf(message, "images"));
@@ -74,6 +75,7 @@ export const readServerToMachine = (value: unknown): ServerToMachine | null => {
   const sessionName = fieldOf(message, "sessionName");
   if (!isIdentifierName(sessionName)) return null;
   if (type === "stop-session") return { type, sessionName };
+  if (type === "ask-for-update") return { type, sessionName };
   if (type === "start-session") {
     const folderName = fieldOf(message, "folderName");
     return isIdentifierName(folderName) ? { type, folderName, sessionName } : null;

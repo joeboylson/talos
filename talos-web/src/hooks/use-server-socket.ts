@@ -104,6 +104,11 @@ export const useServerSocket = () => {
     [send],
   );
 
+  const askForUpdate = useCallback(
+    (machineId: string, sessionName: string) => send({ type: "ask-for-update", machineId, sessionName }),
+    [send],
+  );
+
   return {
     machines,
     roundTripMsByMachineId,
@@ -116,6 +121,7 @@ export const useServerSocket = () => {
     startSession,
     sendToSession,
     stopSession,
+    askForUpdate,
   };
 };
 

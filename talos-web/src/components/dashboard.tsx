@@ -86,6 +86,7 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
               onStart={serverSocket.startSession}
               onOpen={openSession}
               onStop={({ machineId, sessionName }) => serverSocket.stopSession(machineId, sessionName)}
+              onAskUpdate={({ machineId, sessionName }) => serverSocket.askForUpdate(machineId, sessionName)}
             />
           )}
           {isSessionOpen && (

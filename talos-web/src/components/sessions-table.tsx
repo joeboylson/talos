@@ -1,7 +1,8 @@
-import { MessageSquareIcon, SquareIcon } from "lucide-react";
+import { MessageSquareIcon, RefreshCwIcon, SquareIcon } from "lucide-react";
 import type { MachineSummary } from "talos-shared";
 import { IconButton } from "@/components/icon-button";
 import { SessionStateBadge } from "@/components/session-state-badge";
+import { SessionStatusBadge } from "@/components/session-status-badge";
 import { StartSessionDialog } from "@/components/start-session-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { buildSessionRows, type SessionRow } from "@/session-rows";
@@ -12,9 +13,10 @@ type SessionsTableProps = {
   onStart: (machineId: string, folderName: string, sessionName?: string) => void;
   onOpen: (sessionRow: SessionRow) => void;
   onStop: (sessionRow: SessionRow) => void;
+  onAskUpdate: (sessionRow: SessionRow) => void;
 };
 
-export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop }: SessionsTableProps) => {
+export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop, onAskUpdate }: SessionsTableProps) => {
   const sessionRows = buildSessionRows(machines);
 
   return (
@@ -31,13 +33,14 @@ export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop }: Ses
               <TableHead>Machine</TableHead>
               <TableHead>Folder</TableHead>
               <TableHead>State</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead className="w-0" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {sessionRows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   No sessions
                 </TableCell>
               </TableRow>
@@ -54,8 +57,16 @@ export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop }: Ses
                 <TableCell>
                   <SessionStateBadge state={sessionRow.state} />
                 </TableCell>
+                <TableCell className="max-w-xs">
+                  {sessionRow.status && <SessionStatusBadge status={sessionRow.status} />}
+                </TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
+                    <IconButton
+                      label={`Ask ${sessionRow.sessionName} for an update`}
+                      icon={<RefreshCwIcon />}
+                      onClick={() => onAskUpdate(sessionRow)}
+                    />
                     <IconButton
                       label={`Open ${sessionRow.sessionName}`}
                       icon={<MessageSquareIcon />}

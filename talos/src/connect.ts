@@ -119,6 +119,10 @@ export const runConnect = async (): Promise<void> => {
       await postToHost(sessionRoute(message.sessionName, "stop"), {});
       return;
     }
+    if (message.type === "ask-for-update") {
+      await postToHost(sessionRoute(message.sessionName, "ask-update"), {});
+      return;
+    }
     if (message.type === "machine-name") {
       machineName = message.machineName;
       const savedCredentials = await readCredentials(serverUrl);

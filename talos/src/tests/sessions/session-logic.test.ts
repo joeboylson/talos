@@ -12,6 +12,10 @@ import {
   readTranscriptLine,
   resolveTranscriptItems,
   summarizeToolInput,
+  readStatusReport,
+  readHookToolName,
+  isStopContinuation,
+  denyToolDecision,
 } from "../../session-logic";
 
 describe("nextSessionState", () => {
@@ -32,7 +36,7 @@ describe("nextSessionState", () => {
 
 test("buildHookSettings runs the hook command on every event", () => {
   const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"'));
-  expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PostToolUse", "Notification", "Stop"]);
+  expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"]);
   expect(settings.hooks.Stop).toEqual([{ hooks: [{ type: "command", command: '"/bin/bun" "/talos/hook.ts"' }] }]);
 });
 
@@ -183,4 +187,42 @@ test("a message can't end the paste early and type keystrokes", () => {
 
 test("removeControlCharacters keeps line breaks and tabs only", () => {
   expect(removeControlCharacters("a\nb\tc\x00d\x07e\x9bf\x7fg")).toBe("a\nb\tcdefg");
+});
+
+
+import { STATUS_TOOL_NAME } from "../../constants";
+
+describe("readStatusReport", () => {
+  const line = (content: unknown) => JSON.stringify({ type: "assistant", message: { content } });
+
+  test("reads the state and note from a report_status call", () => {
+    const content = [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "working", note: "running tests" } }];
+    expect(readStatusReport(line(content))).toEqual({ state: "working", note: "running tests" });
+  });
+
+  test.each([
+    ["a different tool", [{ type: "tool_use", name: "Bash", input: { state: "working", note: "x" } }]],
+    ["a bad state", [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "nope", note: "x" } }]],
+    ["a non-string note", [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "done", note: 5 } }]],
+    ["plain text", [{ type: "text", text: "working on it" }]],
+  ])("ignores %s", (_name, content) => {
+    expect(readStatusReport(line(content))).toBeNull();
+  });
+
+  test("ignores a non-assistant line", () => {
+    expect(readStatusReport(JSON.stringify({ type: "user", message: { content: [] } }))).toBeNull();
+  });
+});
+
+test("readHookToolName + isStopContinuation read the hook payload", () => {
+  expect(readHookToolName({ tool_name: "Bash" })).toBe("Bash");
+  expect(readHookToolName({})).toBe("");
+  expect(isStopContinuation({ stop_hook_active: true })).toBe(true);
+  expect(isStopContinuation({})).toBe(false);
+});
+
+test("denyToolDecision is a PreToolUse deny Claude Code honors", () => {
+  expect(JSON.parse(denyToolDecision("no"))).toEqual({
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "no" },
+  });
 });

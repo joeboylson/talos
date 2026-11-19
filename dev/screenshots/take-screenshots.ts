@@ -32,7 +32,7 @@ const pairMachine = async (machineName: string): Promise<string> => {
   return (await postJson("/api/pair/collect", { pairingId })).machineKey;
 };
 
-type MadeUpSession = { sessionName: string; folderName: string; state: string };
+type MadeUpSession = { sessionName: string; folderName: string; state: string; status?: { state: string; note: string; atMs: number } };
 type MadeUpEntries = { sessionName: string; entries: unknown[] };
 
 // Connects like talos: reports its folders and sessions, sends session
@@ -104,8 +104,8 @@ const atlas = await connectMachine(
     { folderName: "website", path: "/Users/joe/code/website" },
   ],
   [
-    { sessionName: "fix-login", folderName: "talos", state: "idle" },
-    { sessionName: "new-homepage", folderName: "website", state: "working" },
+    { sessionName: "fix-login", folderName: "talos", state: "idle", status: { state: "done", note: "Fixed sign-in; tests pass.", atMs: 1 } },
+    { sessionName: "new-homepage", folderName: "website", state: "working", status: { state: "working", note: "Laying out the hero section.", atMs: 1 } },
     { sessionName: "deploy", folderName: "talos", state: "needs-you" },
   ],
   [

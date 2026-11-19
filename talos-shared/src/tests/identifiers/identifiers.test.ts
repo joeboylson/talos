@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildIdentifier, buildPagePath, parseIdentifier, pickUniqueName, toIdentifierName } from "../../identifiers";
+import { buildIdentifier, buildPagePath, isIdentifierName, parseIdentifier, pickUniqueName, toIdentifierName } from "../../identifiers";
+import { LIMITS } from "../../limits";
 
 describe("identifiers", () => {
   test("build and parse are opposites", () => {
@@ -58,4 +59,13 @@ describe("pickUniqueName", () => {
     expect(pickUniqueName("work-mac", ["work-mac", "work-mac-2"])).toBe("work-mac-3");
     expect(pickUniqueName("work-mac", ["work-mac", "work-mac-3"])).toBe("work-mac-2");
   });
+});
+
+test("pickUniqueName keeps a numbered name within the identifier limit", () => {
+  const longest = "a".repeat(LIMITS.maxIdentifierLength);
+  const numbered = pickUniqueName(longest, [longest]);
+  expect(numbered.length).toBe(LIMITS.maxIdentifierLength);
+  expect(numbered.endsWith("-2")).toBe(true);
+  expect(isIdentifierName(numbered)).toBe(true);
+  expect(pickUniqueName(longest, [longest, numbered])).toBe(`${"a".repeat(LIMITS.maxIdentifierLength - 2)}-3`);
 });

@@ -37,12 +37,20 @@ export const toIdentifierName = (text: string): string => {
 export const isIdentifierName = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0 && toIdentifierName(value) === value;
 
+// The name shortened to leave room for its number, so a name already at the
+// longest an identifier may be is still one with the number on.
+const numberedName = (wantedName: string, number: number): string => {
+  const suffix = `-${number}`;
+  const base = wantedName.slice(0, LIMITS.maxIdentifierLength - suffix.length).replace(/-+$/, "");
+  return `${base}${suffix}`;
+};
+
 // Names are unique among siblings: a second "work-mac" becomes "work-mac-2".
 export const pickUniqueName = (wantedName: string, takenNames: string[]): string => {
   const takenNameSet = new Set(takenNames);
   if (!takenNameSet.has(wantedName)) return wantedName;
   const firstFreeNumber = Array.from({ length: takenNames.length + 1 }, (_, index) => index + 2).find(
-    (number) => !takenNameSet.has(`${wantedName}-${number}`),
+    (number) => !takenNameSet.has(numberedName(wantedName, number)),
   );
-  return `${wantedName}-${firstFreeNumber}`;
+  return numberedName(wantedName, firstFreeNumber ?? takenNames.length + 2);
 };

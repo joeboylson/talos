@@ -16,5 +16,10 @@ export const SERVER_LIMITS = {
   pairStart: { windowMs: 10 * MINUTE_MS, maxAttempts: 10 },
   pairApprove: { windowMs: 10 * MINUTE_MS, maxAttempts: 10 },
   maxMachinesPerPerson: 20,
+  // Machines send a few messages per session per second; this is well above that.
+  maxSocketMessagesPerWindow: 1000,
+  // Waiting pairings one address may hold, so a few addresses can't fill the
+  // server's whole queue and lock pairing for everyone.
+  maxWaitingPairingsPerAddress: 2,
   maxMachineNameLength: 64,
 } as const;

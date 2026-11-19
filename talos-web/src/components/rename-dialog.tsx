@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { IconButton } from "@/components/icon-button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { LIMITS } from "talos-shared";
 
 type RenameDialogProps = {
   title: string;
@@ -41,6 +42,7 @@ export const RenameDialog = ({ title, currentName, onClose, onRename }: RenameDi
           <div className="flex gap-2">
             <Input
               value={typedName}
+              maxLength={LIMITS.maxNameTextLength}
               onChange={(event) => setTypedName(event.target.value)}
               autoComplete="off"
               autoFocus

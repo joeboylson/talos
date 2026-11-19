@@ -1,5 +1,5 @@
 import type { BunRequest } from "bun";
-import { pickUniqueName, toIdentifierName, type Logger, type MachineCheckResponse } from "talos-shared";
+import { LIMITS, pickUniqueName, toIdentifierName, type Logger, type MachineCheckResponse } from "talos-shared";
 import type { Connections } from "./connections";
 import { parseMachineKey } from "./machine-keys";
 import type { MachineRecord, MachinesTable } from "./machines-table";
@@ -67,6 +67,8 @@ export const createMachineRoutes = (
     if (!machine || machine.ownerPersonId !== person.personId) return { response: textResponse("No such machine", 404) };
     const typedName = readStringField(await readJsonBody(request), "name");
     if (!typedName) return { response: textResponse("Missing name", 400) };
+    // talos turns down a longer folder name, so say so here rather than accept it.
+    if (typedName.length > LIMITS.maxNameTextLength) return { response: textResponse("That name is too long", 400) };
     return { person, machine, typedName };
   };
 

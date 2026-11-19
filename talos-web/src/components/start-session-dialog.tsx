@@ -1,6 +1,6 @@
 import { ArrowRightIcon, PlusIcon } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import type { MachineSummary } from "talos-shared";
+import { LIMITS, type MachineSummary } from "talos-shared";
 import { IconButton } from "@/components/icon-button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -71,6 +71,7 @@ export const StartSessionDialog = ({ machines, onStart }: StartSessionDialogProp
             <div className="flex gap-2">
               <Input
                 value={sessionName}
+                maxLength={LIMITS.maxNameTextLength}
                 onChange={(event) => setSessionName(event.target.value)}
                 placeholder="Name"
                 aria-label="Session name"

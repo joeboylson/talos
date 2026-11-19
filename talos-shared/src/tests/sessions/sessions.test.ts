@@ -129,6 +129,16 @@ describe("mergeSessionEntries", () => {
   const running = { kind: "tool", entryId: "t", toolName: "Bash", summary: "ls", outcome: "running" } as const;
   const text = { kind: "text", entryId: "x", text: "hi" } as const;
 
+  test("keeps the newest entries within the kept text budget, dropping the oldest", () => {
+    const big = (entryId: string) => ({ kind: "text" as const, entryId, text: "x".repeat(LIMITS.maxEntryTextLength) });
+    const count = LIMITS.maxKeptEntryTextLength / LIMITS.maxEntryTextLength + 3;
+    const entries = Array.from({ length: count }, (_unused, i) => big(`e${i}`));
+    const kept = mergeSessionEntries([], entries, LIMITS.maxEntriesKept);
+    expect(kept.length).toBe(LIMITS.maxKeptEntryTextLength / LIMITS.maxEntryTextLength);
+    expect(kept.at(-1)?.entryId).toBe(`e${count - 1}`);
+    expect(kept[0]?.entryId).toBe("e3");
+  });
+
   // talos's reconnect resend relies on this to send only what changed.
   test("an entry that didn't change keeps the same object", () => {
     const [kept] = mergeSessionEntries([text, running], [{ ...running, outcome: "done" }], 10);

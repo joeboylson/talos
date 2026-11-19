@@ -162,6 +162,21 @@ export const readSentImages = (value: unknown): SentImage[] | null => {
 // copy replaces the older one in place, and new ones go on the end.
 const hasEntryId = (entry: SessionEntry): boolean => typeof entry?.entryId === "string";
 
+const entryTextLength = (entry: SessionEntry): number =>
+  entry.kind === "tool" ? entry.toolName.length + entry.summary.length : entry.text.length;
+
+// The newest entries whose text fits the kept budget. Entries keep their
+// objects (talos's resend relies on an unchanged entry staying the same object).
+const keepNewestWithinTextBudget = (entries: SessionEntry[]): SessionEntry[] => {
+  let keptText = 0;
+  let firstKeptIndex = entries.length;
+  while (firstKeptIndex > 0 && keptText + entryTextLength(entries[firstKeptIndex - 1]) <= LIMITS.maxKeptEntryTextLength) {
+    firstKeptIndex -= 1;
+    keptText += entryTextLength(entries[firstKeptIndex]);
+  }
+  return firstKeptIndex === 0 ? entries : entries.slice(firstKeptIndex);
+};
+
 export const mergeSessionEntries = (
   keptEntries: SessionEntry[],
   newEntries: SessionEntry[],
@@ -171,5 +186,5 @@ export const mergeSessionEntries = (
   const keptIds = new Set(keptEntries.map((entry) => entry.entryId));
   const updatedEntries = keptEntries.map((entry) => newEntryById.get(entry.entryId) ?? entry);
   const addedEntries = [...newEntryById.values()].filter((entry) => !keptIds.has(entry.entryId));
-  return [...updatedEntries, ...addedEntries].slice(-maxKept);
+  return keepNewestWithinTextBudget([...updatedEntries, ...addedEntries].slice(-maxKept));
 };

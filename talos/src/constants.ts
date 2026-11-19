@@ -1,6 +1,5 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SOCKET_INGRESS_MAX_BYTES, SOCKET_INGRESS_WINDOW_MS } from "talos-shared";
 
 // TALOS_HOME moves everything talos keeps on this machine, so a second talos
 // (like a test against a local server) doesn't share this one's key or host.
@@ -36,19 +35,10 @@ export const STATUS_TOOL_BARE_NAME = "report_status";
 export const STATUS_TOOL_NAME = `mcp__${STATUS_MCP_SERVER_KEY}__${STATUS_TOOL_BARE_NAME}`;
 export const MCP_CONFIG_FILE = join(CREDENTIALS_FOLDER, "mcp-config.json");
 
-// A status request that goes unanswered this long becomes "no response".
-export const STATUS_TIMEOUT_MS = 60_000;
-// An ask queued behind a busy session waits this long for it to go idle: long
-// enough for real work, short enough that a session stuck waiting on the person
-// doesn't block asks for good.
-export const QUEUED_STATUS_TIMEOUT_MS = 30 * 60_000;
 // How often the host checks for status requests that have timed out.
 export const STATUS_CHECK_MS = 5_000;
 export const HOST_START_TIMEOUT_MS = 5000;
 export const HOST_START_CHECK_MS = 100;
-
-// The hook script must never hold Claude up.
-export const HOOK_TIMEOUT_MS = 2000;
 
 export const SESSION_ENV_KEYS = { sessionName: "TALOS_SESSION_NAME", hostSocket: "TALOS_HOST_SOCKET", hookToken: "TALOS_HOOK_TOKEN" } as const;
 
@@ -60,38 +50,18 @@ export const CLAUDE_COMMAND = "claude";
 export const CLAUDE_CONFIG_FILE = join(homedir(), ".claude.json");
 export const TERMINAL_SIZE = { cols: 120, rows: 40 } as const;
 
-// Enough recent output to redraw Claude Code's screen for someone attaching.
-export const MAX_OUTPUT_BYTES = 256 * 1024;
-
 // Claude Code is ready for typing once its screen has been still this long
-// after it starts; past the longest wait, talos types anyway.
+// after it starts (see TALOS_LIMITS.readyLongestWaitMs for the longest wait).
 export const READY_QUIET_MS = 1000;
-export const READY_LONGEST_WAIT_MS = 15_000;
 export const READY_CHECK_MS = 200;
 
 // How often the host looks for newly saved lines in each session's
 // conversation, so the page sees Claude's work as it happens.
 export const TRANSCRIPT_CHECK_MS = 300;
 export const NEWLINE_BYTE = 0x0a;
-// Most a single transcript poll reads and parses at once, so one session's large
-// transcript is drained over several polls instead of blocking the host in one go.
-export const MAX_TRANSCRIPT_READ_BYTES = 4 * 1024 * 1024;
-// Rapid session state/status changes collapse into one roster broadcast per this
-// window, so a session flapping its state can't flood the host→server uplink.
-export const SESSIONS_BROADCAST_COALESCE_MS = 100;
-// A hook POST body is parsed synchronously on the host's one thread, so cap it:
-// a session can't send a huge body that JSON.parse blocks on for seconds (which
-// would make every other session's hook time out and fail open). Real hook bodies
-// are small; this leaves generous room for a large tool input.
-export const HOOK_MAX_BODY_BYTES = 4 * 1024 * 1024;
 // How much of a tool's input shows as its one-line summary; shorter than the
 // most an entry may carry.
-export const MAX_TOOL_SUMMARY_LENGTH = 300;
-
-// A reconnect sends each session's kept entries again, at most this many bytes
-// per millisecond: half the server's per-socket budget, so live traffic still
-// fits and the server drops nothing.
-export const RESEND_BYTES_PER_MS = SOCKET_INGRESS_MAX_BYTES / SOCKET_INGRESS_WINDOW_MS / 2;
+export const TOOL_SUMMARY_SHOWN_LENGTH = 300;
 
 // Images sent from the page are saved here, one folder per session, and
 // deleted when the session ends. Claude Code reads them from their path.

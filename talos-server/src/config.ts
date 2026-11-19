@@ -1,5 +1,6 @@
 import { ENV_KEYS, readLogsMode, requireEnv, type LogsMode } from "talos-shared";
-import { DEFAULT_SERVER_PORT, DEFAULT_TABLE_PREFIX, MIN_SESSION_SECRET_LENGTH, SERVER_ENV_KEYS } from "./constants";
+import { DEFAULT_SERVER_PORT, DEFAULT_TABLE_PREFIX, SERVER_ENV_KEYS } from "./constants";
+import { SERVER_LIMITS } from "./limits";
 
 export type ServerConfig = {
   serverPort: number;
@@ -28,8 +29,8 @@ const readAdminGithubId = (text: string): number => {
 
 // A short secret could be guessed, and with it anyone could sign in as anyone.
 const readSessionSecret = (text: string): string => {
-  if (text.length < MIN_SESSION_SECRET_LENGTH) {
-    throw new Error(`${SERVER_ENV_KEYS.sessionSecret} must be at least ${MIN_SESSION_SECRET_LENGTH} characters`);
+  if (text.length < SERVER_LIMITS.minSessionSecretLength) {
+    throw new Error(`${SERVER_ENV_KEYS.sessionSecret} must be at least ${SERVER_LIMITS.minSessionSecretLength} characters`);
   }
   return text;
 };

@@ -1,13 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { basename } from "node:path";
-import {
-  MAX_FOLDERS,
-  parseJsonOrNull,
-  pickUniqueName,
-  readFolderList,
-  toIdentifierName,
-  type Folder,
-} from "talos-shared";
+import { LIMITS, parseJsonOrNull, pickUniqueName, readFolderList, toIdentifierName, type Folder } from "talos-shared";
 import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE } from "./constants";
 
 type FolderChange = { folders: Folder[]; folder: Folder } | { problem: string };
@@ -18,7 +11,7 @@ type FolderChange = { folders: Folder[]; folder: Folder } | { problem: string };
 export const addFolder = (folders: Folder[], absolutePath: string): FolderChange => {
   const existingFolder = folders.find((folder) => folder.path === absolutePath);
   if (existingFolder) return { problem: `${absolutePath} is already a folder here (${existingFolder.folderName})` };
-  if (folders.length >= MAX_FOLDERS) return { problem: `this machine already has ${MAX_FOLDERS} folders` };
+  if (folders.length >= LIMITS.maxFolders) return { problem: `this machine already has ${LIMITS.maxFolders} folders` };
 
   const takenNames = folders.map((folder) => folder.folderName);
   const folderName = pickUniqueName(toIdentifierName(basename(absolutePath)), takenNames);

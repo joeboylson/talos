@@ -1,5 +1,5 @@
 import type { BunRequest, Server } from "bun";
-import { MAX_SOCKET_MESSAGE_BYTES, PAGE_KINDS, SERVER_ROUTES, buildPagePath, createLogger } from "talos-shared";
+import { LIMITS, PAGE_KINDS, SERVER_ROUTES, buildPagePath, createLogger } from "talos-shared";
 import page from "../../talos-web/src/index.html";
 
 const PAGE_ENTRY_PATH = new URL("../../talos-web/src/index.html", import.meta.url).pathname;
@@ -10,7 +10,6 @@ import {
   ASSET_CACHE_CONTROL,
   HEALTH_ROUTE,
   KEEP_ALIVE_INTERVAL_MS,
-  MAX_REQUEST_BODY_BYTES,
   PAGE_ASSETS_ROUTE,
 } from "./constants";
 import { buildTableName, createDocumentClient, createEmulatorTables } from "./dynamo";
@@ -25,6 +24,7 @@ import { createSettingsTable } from "./settings-table";
 import { createSignInsTable } from "./sign-ins-table";
 import { readClientAddress } from "./utils/rate-limit";
 import { textResponse } from "./utils/request";
+import { SERVER_LIMITS } from "./limits";
 
 const config = readServerConfig(process.env, SERVER_ROUTES.signInCallback);
 const log = createLogger(config.logsMode);
@@ -72,7 +72,7 @@ const assetRoute = secure((request) => {
 const server = Bun.serve<SocketData>({
   port: config.serverPort,
   development: !config.isProduction,
-  maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+  maxRequestBodySize: SERVER_LIMITS.maxRequestBodyBytes,
 
   // The page itself holds nothing secret: it shows a sign-in button until
   // someone signs in. Every route with data checks the session.
@@ -125,7 +125,7 @@ const server = Bun.serve<SocketData>({
     return withHeaders(textResponse("Something went wrong", 500), securityHeaders);
   },
 
-  websocket: { ...connections.websocketHandlers, maxPayloadLength: MAX_SOCKET_MESSAGE_BYTES },
+  websocket: { ...connections.websocketHandlers, maxPayloadLength: LIMITS.maxSocketMessageBytes },
 });
 
 setInterval(connections.pingAllSockets, KEEP_ALIVE_INTERVAL_MS);

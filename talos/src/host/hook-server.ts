@@ -1,6 +1,6 @@
 // The hooks socket: the only routes a session can reach, its own Claude Code hooks.
 import type { BunRequest } from "bun";
-import { HOOK_MAX_BODY_BYTES, HOOK_TOKEN_HEADER, HOST_HOOKS_SOCKET, READY_LONGEST_WAIT_MS } from "../constants";
+import { HOOK_TOKEN_HEADER, HOST_HOOKS_SOCKET } from "../constants";
 import { HOST_ROUTES, sessionNameOf } from "../host-protocol";
 import { hookTokenAuthorized, nextSessionState } from "../session-hooks";
 import { readStatusLaneEvent } from "../status-lane";
@@ -9,6 +9,7 @@ import { becomeReadyWhenQuiet } from "./lifecycle";
 import { log } from "./log";
 import { applyStatusLaneEvent, setSessionState } from "./session-state";
 import { heldSessions, updateHeldSession } from "./store";
+import { TALOS_LIMITS } from "../limits";
 
 const handleHook = (sessionName: string, hookDetailsText: string): string => {
   const session = heldSessions.get(sessionName);
@@ -23,7 +24,7 @@ const handleHook = (sessionName: string, hookDetailsText: string): string => {
   // events can't pile up uncancelled loops and exhaust the host's memory.
   if (hookEvent === "SessionStart" && !session.isBecomingReady) {
     updateHeldSession(sessionName, session.hookToken, { isBecomingReady: true });
-    void becomeReadyWhenQuiet(sessionName, session.hookToken, Date.now() + READY_LONGEST_WAIT_MS)
+    void becomeReadyWhenQuiet(sessionName, session.hookToken, Date.now() + TALOS_LIMITS.readyLongestWaitMs)
       .catch((error: unknown) => log.warn(`host: couldn't finish starting ${sessionName}: ${error}`))
       .finally(() => updateHeldSession(sessionName, session.hookToken, { isBecomingReady: false }));
   }
@@ -51,7 +52,7 @@ export const hookServeOptions = {
   unix: HOST_HOOKS_SOCKET,
   // Bounded so a session can't POST a huge body that blocks the host's one thread
   // in JSON.parse long enough for other sessions' hooks to time out and fail open.
-  maxRequestBodySize: HOOK_MAX_BODY_BYTES,
+  maxRequestBodySize: TALOS_LIMITS.maxHookBodyBytes,
   routes: {
     [HOST_ROUTES.health]: new Response("ok"),
     [HOST_ROUTES.hooks]: {

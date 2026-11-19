@@ -12,6 +12,7 @@ import { startSession } from "./lifecycle";
 import { log } from "./log";
 import { sendToSession } from "./messages";
 import { applyStatusLaneEvent, askForStatus } from "./session-state";
+import { TALOS_LIMITS } from "../limits";
 import { eventListeners, heldSessions, listSessions } from "./store";
 
 const streamOf = <T>(
@@ -87,6 +88,7 @@ const stopHost = () => {
 export const controlServeOptions = {
   unix: HOST_SOCKET,
   idleTimeout: 0,
+  maxRequestBodySize: TALOS_LIMITS.maxControlBodyBytes,
   routes: {
     [HOST_ROUTES.health]: new Response("ok"),
     [HOST_ROUTES.events]: { GET: streamEvents },

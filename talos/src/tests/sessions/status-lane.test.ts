@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_STATUS_NOTE_LENGTH } from "talos-shared";
-import { QUEUED_STATUS_TIMEOUT_MS, STATUS_TIMEOUT_MS, STATUS_TOOL_NAME } from "../../constants";
+import { STATUS_TOOL_NAME } from "../../constants";
 import {
   NO_STATUS_LANE,
   hookReplyWhenHostUnreachable,
@@ -9,6 +8,8 @@ import {
   type StatusLane,
   type StatusLaneEvent,
 } from "../../status-lane";
+import { LIMITS } from "talos-shared";
+import { TALOS_LIMITS } from "../../limits";
 
 const NOW = 1_000_000;
 const queued: StatusLane = { kind: "queued", askedAtMs: NOW };
@@ -124,25 +125,25 @@ describe("5. a bad or missing report fails safe", () => {
   test.each([
     ["an unknown state", { state: "great", note: "x" }],
     ["a note that isn't text", { state: "done", note: 5 }],
-    ["a note too long", { state: "done", note: "x".repeat(MAX_STATUS_NOTE_LENGTH + 1) }],
+    ["a note too long", { state: "done", note: "x".repeat(LIMITS.maxStatusNoteLength + 1) }],
     ["no input", null],
   ])("%s is denied and records nothing", (_name, toolInput) => {
     expect(step(asking, toolCall(STATUS_TOOL_NAME, toolInput))).toEqual(unchanged(asking, "deny"));
   });
   test("an unanswered turn becomes no-response at the timeout", () => {
-    expect(step(asking, { type: "tick" }, NOW + STATUS_TIMEOUT_MS + 1)).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
+    expect(step(asking, { type: "tick" }, NOW + TALOS_LIMITS.statusTimeoutMs + 1)).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
   test("a queued ask waits for long work to finish", () => {
-    expect(step(queued, { type: "tick" }, NOW + QUEUED_STATUS_TIMEOUT_MS)).toEqual(unchanged(queued));
+    expect(step(queued, { type: "tick" }, NOW + TALOS_LIMITS.queuedStatusTimeoutMs)).toEqual(unchanged(queued));
   });
   test("a queued ask that never starts becomes no-response", () => {
-    expect(step(queued, { type: "tick" }, NOW + QUEUED_STATUS_TIMEOUT_MS + 1)).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
+    expect(step(queued, { type: "tick" }, NOW + TALOS_LIMITS.queuedStatusTimeoutMs + 1)).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
   test("a reported turn that never stopped ends at the timeout and keeps its status", () => {
-    expect(step(reported, { type: "tick" }, NOW + STATUS_TIMEOUT_MS + 1)).toEqual(unchanged(NO_STATUS_LANE));
+    expect(step(reported, { type: "tick" }, NOW + TALOS_LIMITS.statusTimeoutMs + 1)).toEqual(unchanged(NO_STATUS_LANE));
   });
   test("nothing times out early", () => {
-    expect(step(asking, { type: "tick" }, NOW + STATUS_TIMEOUT_MS)).toEqual(unchanged(asking));
+    expect(step(asking, { type: "tick" }, NOW + TALOS_LIMITS.statusTimeoutMs)).toEqual(unchanged(asking));
   });
 });
 

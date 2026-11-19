@@ -1,13 +1,11 @@
 // Starting a session, holding its terminal, and ending it.
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { MAX_SESSIONS } from "talos-shared";
 import { trustFolder } from "../claude-trust";
 import {
   CLAUDE_COMMAND,
   HOOK_SCRIPT,
   HOST_HOOKS_SOCKET,
-  MAX_OUTPUT_BYTES,
   MCP_CONFIG_FILE,
   READY_CHECK_MS,
   READY_QUIET_MS,
@@ -24,11 +22,13 @@ import { log } from "./log";
 import { typeIntoSession } from "./messages";
 import { applyStatusLaneEvent, setSessionState } from "./session-state";
 import { broadcastSessions, heldSessions, updateHeldSession, type Terminal } from "./store";
+import { LIMITS } from "talos-shared";
+import { TALOS_LIMITS } from "../limits";
 
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
   const session = heldSessions.get(sessionName);
   if (session?.hookToken !== token) return;
-  updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, MAX_OUTPUT_BYTES), lastOutputAtMs: Date.now() });
+  updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, TALOS_LIMITS.maxOutputBytes), lastOutputAtMs: Date.now() });
   session.outputListeners.forEach((listener) => listener.enqueue(chunk));
 };
 
@@ -46,7 +46,7 @@ const forgetSession = (sessionName: string, token: string) => {
 
 const refuseNewSession = (sessionName: string): Response | null => {
   if (heldSessions.has(sessionName)) return new Response(`${sessionName} is already running`, { status: 409 });
-  if (heldSessions.size >= MAX_SESSIONS) return new Response("too many sessions", { status: 429 });
+  if (heldSessions.size >= LIMITS.maxSessions) return new Response("too many sessions", { status: 429 });
   return null;
 };
 

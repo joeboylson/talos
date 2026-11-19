@@ -1,8 +1,9 @@
-import { MAX_ENTRIES_KEPT, type SessionEntry } from "./sessions";
+import { type SessionEntry } from "./sessions";
+import { LIMITS } from "./limits";
 
 // A session's entries split into batches whose JSON stays under maxBytes, each
 // with its size, so no socket message goes over the server's limit. A batch
-// also holds at most MAX_ENTRIES_KEPT entries, the most a list may carry. Entries
+// also holds at most LIMITS.maxEntriesKept entries, the most a list may carry. Entries
 // keep their order. One entry is never split, so an entry bigger than maxBytes
 // gets a batch to itself (an entry's text is capped far below any batch size).
 export type EntriesBatch = { entries: SessionEntry[]; byteCount: number };
@@ -19,7 +20,7 @@ export const batchEntriesBySize = (entries: SessionEntry[], maxBytes: number): E
     const entryBytes = byteCountOf(entry);
     const lastBatch = batches.at(-1);
     const fitsInLastBatch =
-      lastBatch !== undefined && lastBatch.byteCount + entryBytes <= maxBytes && lastBatch.entries.length < MAX_ENTRIES_KEPT;
+      lastBatch !== undefined && lastBatch.byteCount + entryBytes <= maxBytes && lastBatch.entries.length < LIMITS.maxEntriesKept;
     if (fitsInLastBatch) {
       lastBatch.entries.push(entry);
       lastBatch.byteCount += entryBytes;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MAX_ENTRIES_KEPT,
+  LIMITS,
   RECONNECT_DELAY_MS,
   SERVER_ROUTES,
   decode,
@@ -40,7 +40,7 @@ export const useServerSocket = () => {
       const savedPrompts = message.entries.filter((entry) => entry.kind === "prompt");
       setEntriesBySession((current) => ({
         ...current,
-        [key]: mergeSessionEntries(current[key] ?? [], message.entries, MAX_ENTRIES_KEPT),
+        [key]: mergeSessionEntries(current[key] ?? [], message.entries, LIMITS.maxEntriesKept),
       }));
       setWaitingPromptsBySession((current) => ({
         ...current,

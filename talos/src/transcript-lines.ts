@@ -1,12 +1,6 @@
 import { dirname } from "node:path";
-import {
-  MAX_ENTRY_TEXT_LENGTH,
-  MAX_NAME_TEXT_LENGTH,
-  parseJsonOrNull,
-  readSessionEntry,
-  type SessionEntry,
-} from "talos-shared";
-import { MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE } from "./constants";
+import { LIMITS, parseJsonOrNull, readSessionEntry, type SessionEntry } from "talos-shared";
+import { TOOL_SUMMARY_SHOWN_LENGTH, NEWLINE_BYTE } from "./constants";
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
 // only the fields talos reads.
@@ -55,7 +49,7 @@ export const summarizeToolInput = (input: unknown): string => {
   const firstTellingValue = TOOL_SUMMARY_FIELDS.map((field) => Reflect.get(input, field)).find(
     (value): value is string => typeof value === "string" && value.trim() !== "",
   );
-  return truncate((firstTellingValue ?? "").replace(/\s+/g, " ").trim(), MAX_TOOL_SUMMARY_LENGTH);
+  return truncate((firstTellingValue ?? "").replace(/\s+/g, " ").trim(), TOOL_SUMMARY_SHOWN_LENGTH);
 };
 
 const readPromptLine = (entryId: string, blocks: ContentBlock[]): SessionEntry[] => {
@@ -66,12 +60,12 @@ const readPromptLine = (entryId: string, blocks: ContentBlock[]): SessionEntry[]
 
   const commandOutput = COMMAND_OUTPUT.exec(typedText.trim())?.[1]?.trim();
   if (commandOutput !== undefined) {
-    return commandOutput ? [{ kind: "text", entryId, text: truncate(commandOutput, MAX_ENTRY_TEXT_LENGTH) }] : [];
+    return commandOutput ? [{ kind: "text", entryId, text: truncate(commandOutput, LIMITS.maxEntryTextLength) }] : [];
   }
 
   const promptText = (readCommandPrompt(typedText) ?? typedText.replace(IMAGE_MARKER, "")).trim();
   if (!promptText && imageCount === 0) return [];
-  return [{ kind: "prompt", entryId, text: truncate(promptText, MAX_ENTRY_TEXT_LENGTH), imageCount }];
+  return [{ kind: "prompt", entryId, text: truncate(promptText, LIMITS.maxEntryTextLength), imageCount }];
 };
 
 const readToolEnds = (blocks: ContentBlock[]): TranscriptItem[] =>
@@ -84,10 +78,10 @@ const readToolEnds = (blocks: ContentBlock[]): TranscriptItem[] =>
 const readAssistantLine = (lineId: string, blocks: ContentBlock[]): SessionEntry[] =>
   blocks.flatMap((block, blockIndex): SessionEntry[] => {
     if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
-      return [{ kind: "text", entryId: `${lineId}:${blockIndex}`, text: truncate(block.text, MAX_ENTRY_TEXT_LENGTH) }];
+      return [{ kind: "text", entryId: `${lineId}:${blockIndex}`, text: truncate(block.text, LIMITS.maxEntryTextLength) }];
     }
     if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
-      const toolName = truncate(block.name, MAX_NAME_TEXT_LENGTH);
+      const toolName = truncate(block.name, LIMITS.maxNameTextLength);
       return [{ kind: "tool", entryId: block.id, toolName, summary: summarizeToolInput(block.input), outcome: "running" }];
     }
     return [];

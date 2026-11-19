@@ -1,9 +1,9 @@
 import { ImagePlusIcon, SendIcon, XIcon } from "lucide-react";
 import { useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
-import { MAX_IMAGES_PER_MESSAGE } from "talos-shared";
 import { IconButton } from "@/components/icon-button";
 import { Textarea } from "@/components/ui/textarea";
 import { prepareImage, type PreparedImage } from "@/images";
+import { LIMITS } from "talos-shared";
 
 type MessageComposerProps = { onSend: (text: string, images: PreparedImage[]) => void };
 
@@ -17,16 +17,16 @@ export const MessageComposer = ({ onSend }: MessageComposerProps) => {
   const [problem, setProblem] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const canAddImages = images.length < MAX_IMAGES_PER_MESSAGE;
+  const canAddImages = images.length < LIMITS.maxImagesPerMessage;
   const canSend = typedText.trim() !== "" || images.length > 0;
 
   const addImages = async (files: File[]) => {
-    const roomLeft = MAX_IMAGES_PER_MESSAGE - images.length;
+    const roomLeft = LIMITS.maxImagesPerMessage - images.length;
     const prepared = await Promise.all(files.slice(0, roomLeft).map(prepareImage)).catch((error: unknown) => {
       setProblem(error instanceof Error ? error.message : "Couldn't add that image");
       return [];
     });
-    setImages((current) => [...current, ...prepared].slice(0, MAX_IMAGES_PER_MESSAGE));
+    setImages((current) => [...current, ...prepared].slice(0, LIMITS.maxImagesPerMessage));
   };
 
   const removeImage = (previewUrl: string) => {

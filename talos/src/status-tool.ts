@@ -3,7 +3,7 @@
 // session calls to report its own status. The schema makes the reply typed;
 // the host takes the report from the call's PreToolUse hook, so this server
 // never calls back into the host (no new host-socket surface).
-import { REPORTED_STATUSES } from "talos-shared";
+import { LIMITS, REPORTED_STATUSES } from "talos-shared";
 import { STATUS_TOOL_BARE_NAME } from "./constants";
 import { readStatusReport } from "./status-lane";
 
@@ -18,7 +18,7 @@ const tool = {
     type: "object",
     properties: {
       state: { type: "string", enum: [...REPORTED_STATUSES] },
-      note: { type: "string", description: "one short line, at most ~280 characters" },
+      note: { type: "string", description: `one short line, at most ${LIMITS.maxStatusNoteLength} characters` },
     },
     required: ["state", "note"],
   },

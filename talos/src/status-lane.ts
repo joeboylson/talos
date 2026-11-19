@@ -4,7 +4,7 @@
 // rules live in one place and are tested as a table. The host only applies the
 // step it returns.
 import { MAX_STATUS_NOTE_LENGTH, REPORTED_STATUSES, type ReportedStatus, type SessionStatus } from "talos-shared";
-import { STATUS_TIMEOUT_MS, STATUS_TOOL_NAME } from "./constants";
+import { QUEUED_STATUS_TIMEOUT_MS, STATUS_TIMEOUT_MS, STATUS_TOOL_NAME } from "./constants";
 import { removeControlCharacters } from "./session-logic";
 
 // none: no ask. queued: asked while busy, starts when the session goes idle.
@@ -126,8 +126,8 @@ const stepStop = (lane: StatusLane): StatusLaneStep => {
   return stay({ ...lane, hasForcedStop: true }, blockStopDecision(FORCE_REPORT_REASON));
 };
 
-// An unanswered turn becomes "no response"; a reported one keeps its status.
-const endStatusTurn = (lane: StatusLane, nowMs: number): StatusLaneStep => {
+// An unanswered ask becomes "no response"; a reported one keeps its status.
+const endStatusAsk = (lane: StatusLane, nowMs: number): StatusLaneStep => {
   const noResponse: SessionStatus = { state: "no-response", note: "", atMs: nowMs };
   return { lane: NO_STATUS_LANE, hookReply: "", statusChange: lane.kind === "reported" ? null : noResponse, shouldTypeRequest: false };
 };
@@ -135,18 +135,20 @@ const endStatusTurn = (lane: StatusLane, nowMs: number): StatusLaneStep => {
 const isStatusTurnRunning = (lane: StatusLane): lane is Extract<StatusLane, { kind: "asking" | "reported" }> =>
   lane.kind === "asking" || lane.kind === "reported";
 
-// The backstop for a turn that never ends on its own. A queued ask doesn't time
-// out: it waits for the session to go idle, however long its work takes.
+// The backstop for an ask that never ends on its own. A queued ask gets far
+// longer, since it waits for the session's own work to finish first.
 const stepTick = (lane: StatusLane, nowMs: number): StatusLaneStep => {
-  if (!isStatusTurnRunning(lane) || nowMs - lane.askedAtMs <= STATUS_TIMEOUT_MS) return stay(lane);
-  return endStatusTurn(lane, nowMs);
+  if (lane.kind === "none") return stay(lane);
+  const timeoutMs = lane.kind === "queued" ? QUEUED_STATUS_TIMEOUT_MS : STATUS_TIMEOUT_MS;
+  return nowMs - lane.askedAtMs > timeoutMs ? endStatusAsk(lane, nowMs) : stay(lane);
 };
 
-// The person typing is the next turn, so it ends a status turn, even one the
-// session left unanswered. Only the control socket sends this, so a session
+// The person typing ends any ask. Otherwise a queued ask is typed in at the next
+// Stop and pulls their message into a status turn, and an Esc (which sends no
+// Stop) leaves it pending. Only the control socket sends this, so a session
 // can't forge it the way it can forge a Stop.
 const stepPersonTyped = (lane: StatusLane, nowMs: number): StatusLaneStep =>
-  isStatusTurnRunning(lane) ? endStatusTurn(lane, nowMs) : stay(lane);
+  lane.kind === "none" ? stay(lane) : endStatusAsk(lane, nowMs);
 
 export const stepStatusLane = (lane: StatusLane, event: StatusLaneEvent, nowMs: number): StatusLaneStep => {
   if (event.type === "ask") return stepAsk(lane, event.isIdle, nowMs);

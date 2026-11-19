@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_STATUS_NOTE_LENGTH } from "talos-shared";
-import { STATUS_TIMEOUT_MS, STATUS_TOOL_NAME } from "../../constants";
+import { QUEUED_STATUS_TIMEOUT_MS, STATUS_TIMEOUT_MS, STATUS_TOOL_NAME } from "../../constants";
 import {
   NO_STATUS_LANE,
   hookReplyWhenHostUnreachable,
@@ -81,8 +81,8 @@ describe("3. nothing but a report or the timeout ends a status turn", () => {
   test("the person typing after a report keeps the report", () => {
     expect(step(reported, { type: "person-typed" })).toEqual(unchanged(NO_STATUS_LANE));
   });
-  test("the person typing leaves a queued ask queued", () => {
-    expect(step(queued, { type: "person-typed" })).toEqual(unchanged(queued));
+  test("the person typing ends a queued ask, so their message isn't taken into a status turn", () => {
+    expect(step(queued, { type: "person-typed" })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
   test("a Stop after the report ends the turn", () => {
     expect(step(reported, { type: "stop" })).toEqual(unchanged(NO_STATUS_LANE));
@@ -117,8 +117,11 @@ describe("5. a bad or missing report fails safe", () => {
   test("an unanswered turn becomes no-response at the timeout", () => {
     expect(step(asking, { type: "tick" }, NOW + STATUS_TIMEOUT_MS + 1)).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
-  test("a queued ask waits for idle however long the work takes", () => {
-    expect(step(queued, { type: "tick" }, NOW + 10 * STATUS_TIMEOUT_MS)).toEqual(unchanged(queued));
+  test("a queued ask waits for long work to finish", () => {
+    expect(step(queued, { type: "tick" }, NOW + QUEUED_STATUS_TIMEOUT_MS)).toEqual(unchanged(queued));
+  });
+  test("a queued ask that never starts becomes no-response", () => {
+    expect(step(queued, { type: "tick" }, NOW + QUEUED_STATUS_TIMEOUT_MS + 1)).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
   test("a reported turn that never stopped ends at the timeout and keeps its status", () => {
     expect(step(reported, { type: "tick" }, NOW + STATUS_TIMEOUT_MS + 1)).toEqual(unchanged(NO_STATUS_LANE));

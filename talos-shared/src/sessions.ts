@@ -44,7 +44,7 @@ export const MAX_ENTRY_TEXT_LENGTH = 100_000;
 // Each side keeps this many of a session's latest entries, and sends at most
 // this many at once.
 export const MAX_ENTRIES_KEPT = 500;
-const MAX_NAME_TEXT_LENGTH = 100;
+export const MAX_NAME_TEXT_LENGTH = 100;
 const MAX_ID_TEXT_LENGTH = 200;
 const MAX_TOOL_SUMMARY_LENGTH = 1000;
 
@@ -87,7 +87,9 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
   });
 };
 
-const readSessionEntry = (item: unknown): SessionEntry | null => {
+// One entry, or null if it isn't a valid one. Whoever makes entries checks each
+// with this, since readSessionEntries turns down a whole list for one bad entry.
+export const readSessionEntry = (item: unknown): SessionEntry | null => {
   if (typeof item !== "object" || item === null) return null;
   const entryId = fieldOf(item, "entryId");
   const kind = fieldOf(item, "kind");

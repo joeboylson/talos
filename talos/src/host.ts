@@ -80,7 +80,7 @@ type TypedMessage = { text: string; hasImages: boolean };
 
 // Where a session's conversation is saved, how much of it has been read, and
 // the tools seen there that haven't ended yet.
-type Transcript = { path: string; readByteCount: number; runningTools: Record<string, ToolEntry> };
+type Transcript = { path: string; readByteCount: number; runningTools: Map<string, ToolEntry> };
 
 type HeldSession = {
   summary: SessionSummary;
@@ -316,7 +316,12 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
     transcript: { ...transcript, readByteCount: transcript.readByteCount + usedByteCount, runningTools: knownTools },
     entries: mergeSessionEntries(session.entries, entries, MAX_ENTRIES_KEPT),
   });
-  if (entries.length > 0) broadcast({ type: "session-entries", sessionName, entries });
+  // One read can make more entries than a list may hold (a resumed session's
+  // whole file), and an over-long list is turned down whole. Cut it the way the
+  // kept list is cut, after a tool's end replaces its start, so talos gets every
+  // entry the host keeps.
+  const sentEntries = mergeSessionEntries([], entries, MAX_ENTRIES_KEPT);
+  if (sentEntries.length > 0) broadcast({ type: "session-entries", sessionName, entries: sentEntries });
 };
 
 // One read at a time per session, so the same lines are never read twice.
@@ -381,7 +386,7 @@ const handleHook = (sessionName: string, hookDetailsText: string): string => {
     transcriptPath !== current.transcript?.path &&
     allowTranscriptSwitch(transcriptPath, current.transcript?.path ?? null);
   if (isNewTranscript && current) {
-    heldSessions.set(sessionName, { ...current, transcript: { path: transcriptPath, readByteCount: 0, runningTools: {} } });
+    heldSessions.set(sessionName, { ...current, transcript: { path: transcriptPath, readByteCount: 0, runningTools: new Map() } });
   }
   // A Stop the lane blocked keeps the turn going, so the session isn't idle.
   const blockedStop = hookEvent === "Stop" && decision !== "";

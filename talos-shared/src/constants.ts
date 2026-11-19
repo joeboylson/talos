@@ -61,3 +61,7 @@ export const MAX_SOCKET_MESSAGE_BYTES = 16 * 1024 * 1024;
 // above legit traffic (an image message is ~12MB, an entry burst ~13MB/s).
 export const SOCKET_INGRESS_WINDOW_MS = 1000;
 export const SOCKET_INGRESS_MAX_BYTES = 32 * 1024 * 1024;
+
+// Entry lists go in batches of at most this size, well under the message limit,
+// so a session's whole kept history never makes one oversized message.
+export const MAX_ENTRIES_BATCH_BYTES = MAX_SOCKET_MESSAGE_BYTES / 4;

@@ -1,6 +1,8 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import {
+  MAX_ENTRIES_BATCH_BYTES,
   MAX_ENTRIES_KEPT,
+  batchEntriesBySize,
   SOCKET_INGRESS_MAX_BYTES,
   SOCKET_INGRESS_WINDOW_MS,
   encode,
@@ -128,9 +130,12 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       if (machineSocket.data.role !== "machine") return;
       const { machineId } = machineSocket.data;
       reportsByMachineId.get(machineId)?.sessions.forEach(({ sessionName }) => {
+        // In batches: a session's whole kept history can be tens of MB, and one
+        // message that big can be dropped, hiding the session from the page.
         const entries = entriesBySession.get(entriesKey(machineId, sessionName)) ?? [];
-        if (entries.length === 0) return;
-        pageSocket.send(encode<ServerToPage>({ type: "session-entries", machineId, sessionName, entries }));
+        batchEntriesBySize(entries, MAX_ENTRIES_BATCH_BYTES).forEach((batch) =>
+          pageSocket.send(encode<ServerToPage>({ type: "session-entries", machineId, sessionName, entries: batch.entries })),
+        );
       });
     });
   };

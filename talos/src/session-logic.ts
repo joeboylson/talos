@@ -1,6 +1,13 @@
-import { MAX_ENTRY_TEXT_LENGTH, parseJsonOrNull, type SessionEntry, type SessionState } from "talos-shared";
+import {
+  MAX_ENTRY_TEXT_LENGTH,
+  MAX_NAME_TEXT_LENGTH,
+  parseJsonOrNull,
+  readSessionEntry,
+  type SessionEntry,
+  type SessionState,
+} from "talos-shared";
 import { dirname } from "node:path";
-import { MAX_TOOL_NAME_LENGTH, MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE } from "./constants";
+import { MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE } from "./constants";
 
 // Claude Code's hook events that move a session between states. They also
 // carry where the session's conversation is saved.
@@ -204,7 +211,7 @@ const readAssistantLine = (lineId: string, blocks: ContentBlock[]): SessionEntry
       return [{ kind: "text", entryId: `${lineId}:${blockIndex}`, text: truncate(block.text, MAX_ENTRY_TEXT_LENGTH) }];
     }
     if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
-      const toolName = truncate(block.name, MAX_TOOL_NAME_LENGTH);
+      const toolName = truncate(block.name, MAX_NAME_TEXT_LENGTH);
       return [{ kind: "tool", entryId: block.id, toolName, summary: summarizeToolInput(block.input), outcome: "running" }];
     }
     return [];
@@ -229,26 +236,31 @@ export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
 // mutating local copies rather than spreading the accumulator each item: the
 // spread version was O(n^2), so one large transcript read (e.g. a resumed
 // session's whole file) could block the single-threaded host for seconds.
+// Tools are kept in a Map: a tool id comes from the transcript, and one named
+// like an object's own property (toString, __proto__) would break a plain object.
+// Only entries the shared reader accepts are returned, since one bad entry makes
+// the reader turn down the whole list it arrives in, hiding the conversation.
 export const resolveTranscriptItems = (
   items: TranscriptItem[],
-  knownTools: Record<string, ToolEntry>,
-): { entries: SessionEntry[]; knownTools: Record<string, ToolEntry> } => {
+  knownTools: ReadonlyMap<string, ToolEntry>,
+): { entries: SessionEntry[]; knownTools: Map<string, ToolEntry> } => {
   const entries: SessionEntry[] = [];
-  const stillRunning: Record<string, ToolEntry> = { ...knownTools };
+  const stillRunning = new Map(knownTools);
   for (const item of items) {
     if (item.kind === "tool") {
       entries.push(item);
-      stillRunning[item.entryId] = item;
+      stillRunning.set(item.entryId, item);
     } else if (item.kind !== "tool-end") {
       entries.push(item);
     } else {
-      const endedTool = stillRunning[item.toolUseId];
+      const endedTool = stillRunning.get(item.toolUseId);
       if (!endedTool) continue;
-      delete stillRunning[item.toolUseId];
+      stillRunning.delete(item.toolUseId);
       entries.push({ ...endedTool, outcome: item.isFailed ? "failed" : "done" });
     }
   }
-  return { entries, knownTools: stillRunning };
+  const validEntries = entries.filter((entry) => readSessionEntry(entry) !== null);
+  return { entries: validEntries, knownTools: stillRunning };
 };
 
 // A line Claude Code is still writing has no newline yet, so it waits for

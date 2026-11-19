@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { MAX_SOCKET_MESSAGE_BYTES, SOCKET_INGRESS_MAX_BYTES, SOCKET_INGRESS_WINDOW_MS } from "talos-shared";
+import { SOCKET_INGRESS_MAX_BYTES, SOCKET_INGRESS_WINDOW_MS } from "talos-shared";
 
 // TALOS_HOME moves everything talos keeps on this machine, so a second talos
 // (like a test against a local server) doesn't share this one's key or host.
@@ -84,14 +84,13 @@ export const SESSIONS_BROADCAST_COALESCE_MS = 100;
 // would make every other session's hook time out and fail open). Real hook bodies
 // are small; this leaves generous room for a large tool input.
 export const HOOK_MAX_BODY_BYTES = 4 * 1024 * 1024;
+// How much of a tool's input shows as its one-line summary; shorter than the
+// most an entry may carry.
 export const MAX_TOOL_SUMMARY_LENGTH = 300;
-export const MAX_TOOL_NAME_LENGTH = 100;
 
-// A reconnect sends each session's kept entries again. They go in batches of at
-// most this size, well under the server's socket message limit, and at most
-// this many bytes per millisecond: half the server's per-socket budget, so live
-// traffic still fits and the server drops nothing.
-export const MAX_ENTRIES_BATCH_BYTES = MAX_SOCKET_MESSAGE_BYTES / 4;
+// A reconnect sends each session's kept entries again, at most this many bytes
+// per millisecond: half the server's per-socket budget, so live traffic still
+// fits and the server drops nothing.
 export const RESEND_BYTES_PER_MS = SOCKET_INGRESS_MAX_BYTES / SOCKET_INGRESS_WINDOW_MS / 2;
 
 // Images sent from the page are saved here, one folder per session, and

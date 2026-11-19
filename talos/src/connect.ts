@@ -4,7 +4,9 @@ import { basename } from "node:path";
 import { hostname } from "node:os";
 import {
   ENV_KEYS,
+  MAX_ENTRIES_BATCH_BYTES,
   MAX_ENTRIES_KEPT,
+  batchEntriesBySize,
   RECONNECT_DELAY_MS,
   createLogger,
   httpOriginFromServerUrl,
@@ -17,8 +19,7 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, MAX_ENTRIES_BATCH_BYTES, RESEND_BYTES_PER_MS } from "./constants";
-import { batchEntriesBySize } from "./entry-batches";
+import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RESEND_BYTES_PER_MS } from "./constants";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
 import { readFolders, renameFolder, saveFolders } from "./folders";
 import { ensureHostRunning, followHostEvents, postToHost } from "./host-client";

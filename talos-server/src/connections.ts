@@ -17,7 +17,15 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CLOSE_CODES, MACHINE_LIST_RELAY_COALESCE_MS, NO_MACHINES_MESSAGE, PING_ANSWER_WAIT_MS } from "./constants";
+import {
+  CLOSE_CODES,
+  MACHINE_LIST_RELAY_COALESCE_MS,
+  NO_MACHINES_MESSAGE,
+  PING_ANSWER_WAIT_MS,
+  SOCKET_INGRESS_MAX_BYTES,
+  SOCKET_INGRESS_WINDOW_MS,
+} from "./constants";
+import { allowBytes, type ByteWindow } from "./utils/rate-limit";
 import type { MachineRecord, MachinesTable } from "./machines-table";
 
 export type SocketData =
@@ -70,6 +78,9 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
   // unanswered ping went out.
   const machineSockets = new Map<string, Socket>();
   const reportsByMachineId = new Map<string, MachineReport>();
+  // Per-socket ingress byte budget, so one connection can't flood large frames
+  // and starve the shared server thread's synchronous JSON.parse for all owners.
+  const socketByteWindows = new Map<Socket, ByteWindow>();
   const entriesBySession = new Map<string, SessionEntry[]>();
   const pageSockets = new Set<Socket>();
   const pingSentAtById = new Map<string, number>();
@@ -332,6 +343,14 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     },
 
     message(socket, rawMessage) {
+      // Drop before parsing if this socket is over its byte budget, so a flood of
+      // large frames can't block the single server thread for every other owner.
+      const { isAllowed, window } = allowBytes(socketByteWindows.get(socket), Date.now(), rawMessage.length, {
+        windowMs: SOCKET_INGRESS_WINDOW_MS,
+        maxBytes: SOCKET_INGRESS_MAX_BYTES,
+      });
+      socketByteWindows.set(socket, window);
+      if (!isAllowed) return;
       try {
         if (socket.data.role === "page") {
           return handlePageMessage(socket, socket.data.personId, socket.data.displayName, rawMessage);
@@ -343,6 +362,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     },
 
     close(socket) {
+      socketByteWindows.delete(socket);
       closeSocket(socket).catch((error: unknown) => reportSocketError(socket, error));
     },
   };

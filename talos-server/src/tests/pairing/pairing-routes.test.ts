@@ -4,7 +4,7 @@ import { MAX_MACHINES_PER_PERSON, PAIR_START_LIMIT } from "../../constants";
 import type { MachineRecord, MachinesTable } from "../../machines-table";
 import { createPairingRoutes } from "../../pairing-routes";
 import type { RequestChecks } from "../../request-checks";
-import { allowAttempt, readClientAddress } from "../../utils/rate-limit";
+import { allowAttempt, allowBytes, readClientAddress } from "../../utils/rate-limit";
 
 const ORIGIN = "https://talos.test";
 const people = { joe: { personId: "joe", signInId: "github-id:1", displayName: "joe" }, eve: { personId: "eve", signInId: "github-id:2", displayName: "eve" } };
@@ -108,6 +108,20 @@ describe("allowAttempt", () => {
   });
   test("old attempts fall out of the window", () => {
     expect(allowAttempt([0, 10], 1500, limit)).toEqual({ isAllowed: true, timesMs: [1500] });
+  });
+});
+
+describe("allowBytes", () => {
+  const limit = { windowMs: 1000, maxBytes: 100 };
+  test("allows up to the byte budget in the window, then drops", () => {
+    expect(allowBytes(undefined, 0, 60, limit)).toEqual({ isAllowed: true, window: { startMs: 0, bytes: 60 } });
+    // A message over the remaining budget is dropped and NOT counted (it wasn't parsed)...
+    expect(allowBytes({ startMs: 0, bytes: 60 }, 10, 60, limit)).toEqual({ isAllowed: false, window: { startMs: 0, bytes: 60 } });
+    // ...so a small one still fits.
+    expect(allowBytes({ startMs: 0, bytes: 60 }, 10, 40, limit)).toEqual({ isAllowed: true, window: { startMs: 0, bytes: 100 } });
+  });
+  test("the budget resets after the window", () => {
+    expect(allowBytes({ startMs: 0, bytes: 100 }, 1500, 80, limit)).toEqual({ isAllowed: true, window: { startMs: 1500, bytes: 80 } });
   });
 });
 

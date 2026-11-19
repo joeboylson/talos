@@ -10,6 +10,26 @@ export const allowAttempt = (
   return { isAllowed, timesMs: isAllowed ? [...recentTimesMs, nowMs] : recentTimesMs };
 };
 
+// Whether this many more message bytes fit in a socket's per-window budget, and
+// the new window. Each accepted message is parsed synchronously on the single
+// server thread, so this caps how much parse work one connection can force per
+// window — a flood of large frames is dropped before it starves other owners.
+// A dropped message isn't counted (it was never parsed), so small messages still
+// trickle through once a flood has filled the budget with large ones.
+export type ByteWindow = { startMs: number; bytes: number };
+export const allowBytes = (
+  previous: ByteWindow | undefined,
+  nowMs: number,
+  size: number,
+  { windowMs, maxBytes }: { windowMs: number; maxBytes: number },
+): { isAllowed: boolean; window: ByteWindow } => {
+  const stillInWindow = previous !== undefined && nowMs - previous.startMs < windowMs;
+  const startMs = stillInWindow ? previous.startMs : nowMs;
+  const usedBytes = stillInWindow ? previous.bytes : 0;
+  const isAllowed = usedBytes + size <= maxBytes;
+  return { isAllowed, window: { startMs, bytes: isAllowed ? usedBytes + size : usedBytes } };
+};
+
 // The address a request came from. Behind AWS's load balancer every request
 // arrives from the balancer, which adds the real address to the end of
 // X-Forwarded-For; anything earlier in that header the caller could have

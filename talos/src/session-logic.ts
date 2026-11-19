@@ -161,25 +161,31 @@ export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
 };
 
 // Turns tool ends into the ended tool's entry, using the tools seen so far.
-// Returns the entries to send and the tools still known.
+// Returns the entries to send and the tools still known. Builds its result by
+// mutating local copies rather than spreading the accumulator each item: the
+// spread version was O(n^2), so one large transcript read (e.g. a resumed
+// session's whole file) could block the single-threaded host for seconds.
 export const resolveTranscriptItems = (
   items: TranscriptItem[],
   knownTools: Record<string, ToolEntry>,
-): { entries: SessionEntry[]; knownTools: Record<string, ToolEntry> } =>
-  items.reduce(
-    (result, item) => {
-      if (item.kind === "tool") {
-        return { entries: [...result.entries, item], knownTools: { ...result.knownTools, [item.entryId]: item } };
-      }
-      if (item.kind !== "tool-end") return { ...result, entries: [...result.entries, item] };
-      const endedTool = result.knownTools[item.toolUseId];
-      if (!endedTool) return result;
-      const { [item.toolUseId]: _endedTool, ...stillRunning } = result.knownTools;
-      const outcome = item.isFailed ? "failed" : "done";
-      return { entries: [...result.entries, { ...endedTool, outcome }], knownTools: stillRunning };
-    },
-    { entries: [] as SessionEntry[], knownTools },
-  );
+): { entries: SessionEntry[]; knownTools: Record<string, ToolEntry> } => {
+  const entries: SessionEntry[] = [];
+  const stillRunning: Record<string, ToolEntry> = { ...knownTools };
+  for (const item of items) {
+    if (item.kind === "tool") {
+      entries.push(item);
+      stillRunning[item.entryId] = item;
+    } else if (item.kind !== "tool-end") {
+      entries.push(item);
+    } else {
+      const endedTool = stillRunning[item.toolUseId];
+      if (!endedTool) continue;
+      delete stillRunning[item.toolUseId];
+      entries.push({ ...endedTool, outcome: item.isFailed ? "failed" : "done" });
+    }
+  }
+  return { entries, knownTools: stillRunning };
+};
 
 // A line Claude Code is still writing has no newline yet, so it waits for
 // the next read.

@@ -68,6 +68,9 @@ export const READY_CHECK_MS = 200;
 // conversation, so the page sees Claude's work as it happens.
 export const TRANSCRIPT_CHECK_MS = 300;
 export const NEWLINE_BYTE = 0x0a;
+// Most a single transcript poll reads and parses at once, so one session's large
+// transcript is drained over several polls instead of blocking the host in one go.
+export const MAX_TRANSCRIPT_READ_BYTES = 4 * 1024 * 1024;
 export const MAX_TOOL_SUMMARY_LENGTH = 300;
 export const MAX_TOOL_NAME_LENGTH = 100;
 

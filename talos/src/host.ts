@@ -33,6 +33,8 @@ import {
   HOST_SOCKET_MODE,
   IMAGE_PASTE_SETTLE_MS,
   MAX_OUTPUT_BYTES,
+  MAX_TRANSCRIPT_READ_BYTES,
+  NEWLINE_BYTE,
   READY_CHECK_MS,
   READY_LONGEST_WAIT_MS,
   READY_QUIET_MS,
@@ -249,7 +251,19 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
   const transcriptFile = Bun.file(transcript.path);
   if (!(await transcriptFile.exists()) || transcriptFile.size <= transcript.readByteCount) return;
 
-  const newBytes = new Uint8Array(await transcriptFile.slice(transcript.readByteCount).arrayBuffer());
+  // Read at most a bounded chunk per poll, so a session can't make one read
+  // allocate and parse its whole (possibly huge) transcript at once and stall the
+  // host. A big backlog drains over several polls. The fallback covers the rare
+  // case of a single line longer than the cap, which would otherwise never find a
+  // newline and stall: read the whole remainder for that one line.
+  const remaining = transcriptFile.size - transcript.readByteCount;
+  const chunkEnd = transcript.readByteCount + Math.min(remaining, MAX_TRANSCRIPT_READ_BYTES);
+  const cappedBytes = new Uint8Array(await transcriptFile.slice(transcript.readByteCount, chunkEnd).arrayBuffer());
+  const hasCompleteLine = cappedBytes.lastIndexOf(NEWLINE_BYTE) !== -1;
+  const newBytes =
+    hasCompleteLine || chunkEnd >= transcriptFile.size
+      ? cappedBytes
+      : new Uint8Array(await transcriptFile.slice(transcript.readByteCount).arrayBuffer());
   const { lines, usedByteCount } = readCompleteLines(newBytes);
   if (usedByteCount === 0) return;
   const { entries, knownTools } = resolveTranscriptItems(lines.flatMap(readTranscriptLine), transcript.runningTools);

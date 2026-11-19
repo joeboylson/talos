@@ -132,6 +132,20 @@ describe("resolveTranscriptItems", () => {
   test("an unknown tool's end is dropped", () => {
     expect(resolveTranscriptItems([{ kind: "tool-end", toolUseId: "zz", isFailed: false }], {}).entries).toEqual([]);
   });
+
+  test("doesn't mutate the knownTools it was given", () => {
+    const knownTools = { t1: running };
+    resolveTranscriptItems([{ kind: "tool-end", toolUseId: "t1", isFailed: false }], knownTools);
+    expect(knownTools).toEqual({ t1: running });
+  });
+
+  test("stays linear on a large read (would be seconds if quadratic)", () => {
+    const items = Array.from({ length: 50_000 }, (_unused, i) => ({ kind: "text" as const, entryId: `e${i}`, text: "x" }));
+    const startMs = Date.now();
+    const { entries } = resolveTranscriptItems(items, {});
+    expect(entries.length).toBe(50_000);
+    expect(Date.now() - startMs).toBeLessThan(500);
+  });
 });
 
 describe("readCompleteLines", () => {

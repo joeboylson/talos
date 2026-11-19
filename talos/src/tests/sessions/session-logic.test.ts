@@ -15,8 +15,8 @@ import {
   readStatusReport,
   readStatusReportsInSlice,
   readHookToolName,
-  isStopContinuation,
   denyToolDecision,
+  decideStatusStop,
   hookTokenAuthorized,
   allowTranscriptSwitch,
 } from "../../session-logic";
@@ -280,11 +280,24 @@ describe("readStatusReportsInSlice", () => {
   });
 });
 
-test("readHookToolName + isStopContinuation read the hook payload", () => {
+test("readHookToolName reads the hook payload", () => {
   expect(readHookToolName({ tool_name: "Bash" })).toBe("Bash");
   expect(readHookToolName({})).toBe("");
-  expect(isStopContinuation({ stop_hook_active: true })).toBe(true);
-  expect(isStopContinuation({})).toBe(false);
+});
+
+describe("decideStatusStop", () => {
+  // A Stop only ends the status turn ("reported"); it never clears active while
+  // unreported, so a forged Stop can't end the turn early. There is no hook-body
+  // input, so stop_hook_active can't be forged into the decision.
+  test("a harvested report ends the turn", () => {
+    expect(decideStatusStop({ reported: true, forcedStop: false })).toBe("reported");
+  });
+  test("the first unanswered Stop forces the report", () => {
+    expect(decideStatusStop({ reported: false, forcedStop: false })).toBe("force");
+  });
+  test("a later unanswered Stop waits (no re-block, no clear)", () => {
+    expect(decideStatusStop({ reported: false, forcedStop: true })).toBe("wait");
+  });
 });
 
 test("denyToolDecision is a PreToolUse deny Claude Code honors", () => {

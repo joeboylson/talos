@@ -245,11 +245,6 @@ export const STATUS_REQUEST_PROMPT =
 export const readHookToolName = (hookPayload: unknown): string =>
   typeof hookPayload === "object" && hookPayload !== null ? String(Reflect.get(hookPayload, "tool_name") ?? "") : "";
 
-// Whether a Stop hook is itself a continuation forced by an earlier Stop block,
-// so the host doesn't force the report_status call forever.
-export const isStopContinuation = (hookPayload: unknown): boolean =>
-  typeof hookPayload === "object" && hookPayload !== null && Reflect.get(hookPayload, "stop_hook_active") === true;
-
 // A PreToolUse decision Claude Code honors: allow runs the tool with no prompt,
 // deny blocks it and tells the model why. Returned as the hook's stdout.
 export const allowToolDecision = (): string =>
@@ -267,6 +262,16 @@ export const blockStopDecision = (reason: string): string => JSON.stringify({ de
 // session's hooks by naming it in the path.
 export const hookTokenAuthorized = (provided: string | null, expected: string | undefined): boolean =>
   typeof provided === "string" && provided.length > 0 && provided === expected;
+
+// What a Stop during an active status turn should do, decided only from the
+// host's own lane state — never from the hook body's stop_hook_active, which a
+// session can forge over its own token. "reported" is the only outcome that ends
+// the turn (clears active); a Stop never clears active while unreported, so a
+// forged Stop can't end a status turn early and let a forbidden tool run. An
+// unanswered turn is ended by the no-response timeout instead.
+export type StatusStopOutcome = "reported" | "force" | "wait";
+export const decideStatusStop = (lane: { reported: boolean; forcedStop: boolean }): StatusStopOutcome =>
+  lane.reported ? "reported" : lane.forcedStop ? "wait" : "force";
 
 // A session's transcript only legitimately rotates within its own project folder
 // (a /clear or compaction starts a new file there). Following a switch anywhere

@@ -55,13 +55,13 @@ import {
   allowToolDecision,
   appendOutput,
   blockStopDecision,
+  decideStatusStop,
   buildHookSettings,
   buildMessageWithImages,
   buildPastedText,
   buildSessionEnv,
   denyToolDecision,
   ENTER_KEY,
-  isStopContinuation,
   nextSessionState,
   allowTranscriptSwitch,
   hookTokenAuthorized,
@@ -90,8 +90,11 @@ type Transcript = { path: string; readByteCount: number; runningTools: Record<st
 // called report_status this turn. askedAtMs: for the no-response timeout.
 // harvestFromByte: the transcript size when this status turn began, so the
 // harvest reads only report_status lines the session writes during the turn.
-type StatusLane = { active: boolean; wanted: boolean; reported: boolean; askedAtMs: number; harvestFromByte: number };
-const IDLE_STATUS_LANE: StatusLane = { active: false, wanted: false, reported: false, askedAtMs: 0, harvestFromByte: 0 };
+// forcedStop: the host has already blocked one Stop to force the report, tracked
+// here rather than from the hook body's stop_hook_active (which a session can
+// forge over its own hook token).
+type StatusLane = { active: boolean; wanted: boolean; reported: boolean; askedAtMs: number; harvestFromByte: number; forcedStop: boolean };
+const IDLE_STATUS_LANE: StatusLane = { active: false, wanted: false, reported: false, askedAtMs: 0, harvestFromByte: 0, forcedStop: false };
 
 type HeldSession = {
   summary: SessionSummary;
@@ -157,7 +160,7 @@ const startStatusTurn = (sessionName: string) => {
   // left in the backlog by an earlier turn or a sub-agent isn't read as this
   // turn's status.
   const harvestFromByte = session.transcript ? Bun.file(session.transcript.path).size : 0;
-  updateStatusLane(sessionName, { active: true, wanted: false, reported: false, askedAtMs: Date.now(), harvestFromByte });
+  updateStatusLane(sessionName, { active: true, wanted: false, reported: false, askedAtMs: Date.now(), harvestFromByte, forcedStop: false });
   session.terminal.write(buildPastedText(STATUS_REQUEST_PROMPT));
   session.terminal.write(ENTER_KEY);
 };
@@ -171,7 +174,7 @@ const askForStatus = (sessionName: string): Response => {
   heldSessions.set(sessionName, {
     ...session,
     summary: { ...session.summary, status: { state: "pending", note: "", atMs: askedAtMs } },
-    statusLane: { active: false, wanted: !isIdle, reported: false, askedAtMs, harvestFromByte: 0 },
+    statusLane: { active: false, wanted: !isIdle, reported: false, askedAtMs, harvestFromByte: 0, forcedStop: false },
   });
   broadcastSessions();
   if (isIdle) startStatusTurn(sessionName);
@@ -328,11 +331,15 @@ const decideStatusHook = async (sessionName: string, hookEvent: string, hookDeta
   }
   if (hookEvent === "Stop" && lane?.active) {
     await readNewEntries(sessionName); // harvest a just-made report before deciding
-    if (heldSessions.get(sessionName)?.statusLane.reported) return updateStatusLane(sessionName, { active: false }), "";
-    if (!isStopContinuation(hookDetails)) return blockStopDecision("Call report_status with your state and one short line before finishing.");
-    // Forced once and still nothing: give up, mark no-response.
-    setSessionStatus(sessionName, { state: "no-response", note: "", atMs: Date.now() });
-    updateStatusLane(sessionName, { active: false });
+    const current = heldSessions.get(sessionName)?.statusLane;
+    if (!current) return "";
+    const outcome = decideStatusStop(current);
+    if (outcome === "reported") return updateStatusLane(sessionName, { active: false }), "";
+    // "force": block once to make the session report; "wait": already forced, so
+    // let the Stop proceed without blocking again. Neither clears `active` — only
+    // a report or the no-response sweep does — so a forged Stop can't end the
+    // status turn early and let a forbidden tool run.
+    if (outcome === "force") return updateStatusLane(sessionName, { forcedStop: true }), blockStopDecision("Call report_status with your state and one short line before finishing.");
     return "";
   }
   return "";
@@ -367,8 +374,10 @@ const handleHook = async (sessionName: string, hookDetailsText: string): Promise
       statusLane: { ...current.statusLane, harvestFromByte: Bun.file(transcriptPath).size },
     });
   }
-  // A blocked Stop keeps the turn going, so don't move the session to idle.
-  const blockedStop = hookEvent === "Stop" && heldSessions.get(sessionName)?.statusLane.active === true;
+  // A Stop the host answered with a block keeps the turn going, so don't move to
+  // idle. Keyed on the decision, not on `active` (which now persists past a Stop
+  // until the session reports or the sweep times out).
+  const blockedStop = hookEvent === "Stop" && decision !== "";
   const nextState = nextSessionState(hookEvent, hookDetails);
   if (nextState && !blockedStop) setSessionState(sessionName, nextState);
   return decision;

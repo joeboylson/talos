@@ -21,6 +21,7 @@ import {
   type SessionStatus,
 } from "talos-shared";
 import { trustFolder } from "./claude-trust";
+import { isPlainTranscriptFile } from "./transcript-file";
 import { readFolders } from "./folders";
 import {
   CLAUDE_COMMAND,
@@ -272,8 +273,12 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
 const readNewEntries = async (sessionName: string): Promise<void> => {
   const transcript = heldSessions.get(sessionName)?.transcript;
   if (!transcript) return;
+  // Don't follow a non-regular file (e.g. a symlink a session planted in its own
+  // transcript dir, whose lexical dirname passes allowTranscriptSwitch) — reading
+  // its target would show another file's content as this session's conversation.
+  if (!(await isPlainTranscriptFile(transcript.path))) return;
   const transcriptFile = Bun.file(transcript.path);
-  if (!(await transcriptFile.exists()) || transcriptFile.size <= transcript.readByteCount) return;
+  if (transcriptFile.size <= transcript.readByteCount) return;
 
   // Read at most a bounded chunk per poll, so a session can't make one read
   // allocate and parse its whole (possibly huge) transcript at once and OOM or

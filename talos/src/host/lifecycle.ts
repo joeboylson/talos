@@ -70,8 +70,8 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
     [SESSION_ENV_KEYS.hookToken]: hookToken,
   };
   const child = Bun.spawn(
-    // --mcp-config gives every session the report_status tool (status-tool.ts);
-    // the PreToolUse hook decides when it may be called.
+    // --mcp-config gives every session talos's structured tools (talos-tools.ts);
+    // the PreToolUse hook decides when each may be called.
     [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", MCP_CONFIG_FILE],
     {
       cwd: path,

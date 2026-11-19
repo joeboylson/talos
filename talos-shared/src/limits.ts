@@ -27,6 +27,11 @@ export const LIMITS = {
   // the session and isn't kept.
   maxSentTextLength: 100_000,
   maxStatusNoteLength: 280,
+  // A decision a session asks the person: one question and a few short choices.
+  maxDecisionQuestionLength: 500,
+  minDecisionChoices: 2,
+  maxDecisionChoices: 4,
+  maxDecisionChoiceLength: 100,
   maxToolSummaryLength: 1000,
   maxIdTextLength: 200,
   maxNameTextLength: 100,

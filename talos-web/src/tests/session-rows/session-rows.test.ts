@@ -61,3 +61,9 @@ test("buildSessionRows carries a session's reported status", () => {
   expect(other?.status).toBeUndefined();
 });
 
+
+test("buildSessionRows carries a session's open decision", () => {
+  const decision = { question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 2 };
+  const machine = { ...MACHINES[0], sessions: [{ sessionName: "pick-db", folderName: "talos", state: "needs-you" as const, decision }] };
+  expect(buildSessionRows([machine])[0]?.decision).toEqual(decision);
+});

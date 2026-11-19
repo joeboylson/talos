@@ -28,6 +28,16 @@ docs. Use these and no others.
   a one-line note, filled in when someone presses "ask for an update". The
   session reports it by calling the report_status tool; hooks force that call and
   keep it out of ordinary chat.
+- **decision**: a question a session asks its owner while working, with two to
+  four choices. The page shows it as buttons; the owner picks one or types their
+  own answer, which goes to the session as its next message. The session asks by
+  calling the ask_decision tool, then waits.
+- **structured tool**: a typed tool a session calls to hand talos an answer
+  (report_status, ask_decision), checked before it's recorded.
+- **prose turn** and **status turn**: a session's ordinary chat turn is a prose
+  turn, where any tool runs, plus the structured tools meant for chat (like
+  ask_decision). A status turn is one talos starts to ask for a status, where only
+  report_status runs.
 - **session host**: the background program on each machine that holds the
   sessions' terminals, so they outlive `talos` restarts.
 - **attach**: show a session's terminal in your own, to watch or type.

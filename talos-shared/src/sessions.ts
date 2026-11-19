@@ -9,7 +9,18 @@ import { LIMITS } from "./limits";
 export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
 
-export type SessionSummary = { sessionName: string; folderName: string; state: SessionState; status?: SessionStatus };
+export type SessionSummary = {
+  sessionName: string;
+  folderName: string;
+  state: SessionState;
+  status?: SessionStatus;
+  decision?: SessionDecision;
+};
+
+// A question the session asked the person while working, with the choices it
+// offered; the person answers with one of them or their own text, as the
+// session's next message. Gone once the person answers.
+export type SessionDecision = { question: string; choices: string[]; atMs: number };
 
 // A session's structured status, filled in when someone asks for an update.
 // The session itself picks one of REPORTED_STATUSES via the report_status tool;
@@ -57,6 +68,23 @@ export const readSessionStatus = (value: unknown): SessionStatus | null => {
 
 const isValidOptionalStatus = (value: unknown): boolean => value === undefined || readSessionStatus(value) !== null;
 
+// A decision, or null for anything that isn't one.
+export const readSessionDecision = (value: unknown): SessionDecision | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const question = fieldOf(value, "question");
+  const choices = fieldOf(value, "choices");
+  const atMs = fieldOf(value, "atMs");
+  const hasChoices =
+    Array.isArray(choices) &&
+    choices.length >= LIMITS.minDecisionChoices &&
+    choices.length <= LIMITS.maxDecisionChoices &&
+    choices.every((choice) => isTextUpTo(choice, LIMITS.maxDecisionChoiceLength) && choice.length > 0);
+  const isDecision = isTextUpTo(question, LIMITS.maxDecisionQuestionLength) && question.length > 0 && hasChoices && typeof atMs === "number";
+  return isDecision ? { question, choices: [...(choices as string[])], atMs } : null;
+};
+
+const isValidOptionalDecision = (value: unknown): boolean => value === undefined || readSessionDecision(value) !== null;
+
 // Both sides read these from messages, so neither trusts the shape.
 export const readSessionList = (value: unknown): SessionSummary[] | null => {
   if (!Array.isArray(value) || value.length > LIMITS.maxSessions) return null;
@@ -66,12 +94,14 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
     isIdentifierName(fieldOf(item, "sessionName")) &&
     isIdentifierName(fieldOf(item, "folderName")) &&
     isOneOf(SESSION_STATES, fieldOf(item, "state")) &&
-    isValidOptionalStatus(fieldOf(item, "status"));
+    isValidOptionalStatus(fieldOf(item, "status")) &&
+    isValidOptionalDecision(fieldOf(item, "decision"));
   if (!value.every(isSession)) return null;
   return value.map((item) => {
     const { sessionName, folderName, state } = item as SessionSummary;
     const status = readSessionStatus(fieldOf(item as object, "status"));
-    return status ? { sessionName, folderName, state, status } : { sessionName, folderName, state };
+    const decision = readSessionDecision(fieldOf(item as object, "decision"));
+    return { sessionName, folderName, state, ...(status && { status }), ...(decision && { decision }) };
   });
 };
 

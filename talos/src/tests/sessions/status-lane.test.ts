@@ -81,14 +81,23 @@ describe("3. nothing but a report or the timeout ends a status turn", () => {
     expect(step(lane, { type: "ask", isIdle: true }, NOW + 5000)).toEqual(unchanged(lane));
   });
   test("the person typing ends an unanswered turn, so their message's tools run", () => {
-    expect(step(askingForced, { type: "person-typed" })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
+    expect(step(askingForced, { type: "person-typed", isTurnChanging: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
     expect(step(NO_STATUS_LANE, bash)).toEqual(unchanged(NO_STATUS_LANE));
   });
   test("the person typing after a report keeps the report", () => {
-    expect(step(reported, { type: "person-typed" })).toEqual(unchanged(NO_STATUS_LANE));
+    expect(step(reported, { type: "person-typed", isTurnChanging: true })).toEqual(unchanged(NO_STATUS_LANE));
   });
   test("the person typing ends a queued ask, so their message isn't taken into a status turn", () => {
-    expect(step(queued, { type: "person-typed" })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
+    expect(step(queued, { type: "person-typed", isTurnChanging: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
+  });
+  test.each([
+    ["asking", asking],
+    ["reported", reported],
+  ])("a key that doesn't change the turn (like an arrow) leaves %s alone", (_name, lane) => {
+    expect(step(lane, { type: "person-typed", isTurnChanging: false })).toEqual(unchanged(lane));
+  });
+  test("any key ends a queued ask, so a draft isn't sent with the status request", () => {
+    expect(step(queued, { type: "person-typed", isTurnChanging: false }).lane).toEqual(NO_STATUS_LANE);
   });
   test("a Stop after the report ends the turn", () => {
     expect(step(reported, { type: "stop" })).toEqual(unchanged(NO_STATUS_LANE));

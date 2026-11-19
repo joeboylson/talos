@@ -74,6 +74,10 @@ export const runConnect = async (): Promise<void> => {
     log.detail(`talos: told the server about ${folders.length} folder(s)`);
   };
 
+  // A failed folder read or send is logged, not thrown: Bun quits on an
+  // unhandled rejection, which would take this machine offline.
+  const sendFoldersOrWarn = () => void sendFolders().catch((error: unknown) => log.warn(`talos: couldn't send the folders (${error})`));
+
   const forwardHostEvent = (hostEvent: HostEvent) => {
     keepLatest(hostEvent);
     if (!sendToServer) return;
@@ -164,10 +168,15 @@ export const runConnect = async (): Promise<void> => {
       serverUrl,
       machineKey,
       log,
-      onServerMessage: (message) => void handleServerMessage(message),
+      // The host can be down (restarting, or `talos host stop`), so a page
+      // command can fail; log it rather than let Bun quit on the rejection.
+      onServerMessage: (message) =>
+        void handleServerMessage(message).catch((error: unknown) =>
+          log.warn(`talos: couldn't handle ${message.type} from the server (${error})`),
+        ),
       onOpen: (send) => {
         sendToServer = send;
-        void sendFolders();
+        sendFoldersOrWarn();
         sendLatest(send);
       },
       onConnectionChange: (isNowConnected) => {
@@ -191,7 +200,7 @@ export const runConnect = async (): Promise<void> => {
   // another terminal; this tells the server as soon as it changes.
   await mkdir(CREDENTIALS_FOLDER, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
   watch(CREDENTIALS_FOLDER, (_event, changedFileName) => {
-    if (changedFileName === basename(FOLDERS_FILE)) void sendFolders();
+    if (changedFileName === basename(FOLDERS_FILE)) sendFoldersOrWarn();
   });
 
   startLocalStatusServer({

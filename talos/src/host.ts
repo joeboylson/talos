@@ -110,6 +110,8 @@ const sessionsBeingRead = new Set<string>();
 // Sessions with a ready-loop running, so a forged flood of SessionStart events
 // can't pile up uncancelled becomeReadyWhenQuiet loops and exhaust the host.
 const sessionsBecomingReady = new Set<string>();
+// Sessions with a queued status ask waiting for the screen to settle, one wait each.
+const sessionsWaitingToAsk = new Set<string>();
 
 const listSessions = (): SessionSummary[] => [...heldSessions.values()].map((session) => session.summary);
 
@@ -148,15 +150,41 @@ const setSessionState = (sessionName: string, state: SessionState) => {
   heldSessions.set(sessionName, { ...session, summary: { ...session.summary, state } });
   log.detail(`host: ${sessionName} is ${state}`);
   broadcastSessions();
-  // A status request is only typed into an idle session, so the turn's hooks
-  // belong to it. One asked while busy starts here.
-  if (state === "idle") applyStatusLaneEvent(sessionName, { type: "idle", hasDraft: session.hasDraft });
+  if (state === "idle") void startQueuedAskWhenSettled(sessionName, session.hookToken);
+};
+
+// A queued status request is typed only once the session is idle and its screen
+// has been still for a moment. talos counts a session idle on its own Stop
+// decision, but Claude Code also runs the person's own Stop hooks, and one can
+// block the Stop and keep the turn going. A request typed then is folded into
+// that running turn, which would then lose its tools. Claude Code animates a
+// spinner while Stop hooks and the turn run, so the screen doesn't settle.
+// shortcut: with reduced motion there's no spinner, so a slow, silent Stop hook
+// can still let the request fold in; and a status line that repaints every
+// second keeps the screen from ever settling, so the ask ends at its timeout.
+// Upgrade when Claude Code gives a real end-of-turn signal.
+const startQueuedAskWhenSettled = async (sessionName: string, token: string): Promise<void> => {
+  if (sessionsWaitingToAsk.has(sessionName)) return;
+  sessionsWaitingToAsk.add(sessionName);
+  try {
+    while (true) {
+      const session = heldSessions.get(sessionName);
+      const isStillWaiting = session?.hookToken === token && session.statusLane.kind === "queued" && session.summary.state === "idle";
+      if (!isStillWaiting) return;
+      const quietForMs = Date.now() - (lastOutputAtBySession.get(sessionName) ?? 0);
+      if (quietForMs >= READY_QUIET_MS) return void applyStatusLaneEvent(sessionName, { type: "idle", hasDraft: session.hasDraft });
+      await Bun.sleep(READY_CHECK_MS);
+    }
+  } finally {
+    if (heldSessions.get(sessionName)?.hookToken === token) sessionsWaitingToAsk.delete(sessionName);
+  }
 };
 
 const askForStatus = (sessionName: string): Response => {
   const session = heldSessions.get(sessionName);
   if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
-  applyStatusLaneEvent(sessionName, { type: "ask", isIdle: session.summary.state === "idle", hasDraft: session.hasDraft });
+  applyStatusLaneEvent(sessionName, { type: "ask" });
+  if (session.summary.state === "idle") void startQueuedAskWhenSettled(sessionName, session.hookToken);
   return new Response(null, { status: 204 });
 };
 
@@ -192,6 +220,7 @@ const forgetSession = (sessionName: string) => {
   outputListeners.delete(sessionName);
   sessionsBeingRead.delete(sessionName);
   sessionsBecomingReady.delete(sessionName);
+  sessionsWaitingToAsk.delete(sessionName);
   void rm(join(UPLOADS_FOLDER, sessionName), { recursive: true, force: true });
   log.event(`host: session ${sessionName} ended`);
   broadcastSessions();

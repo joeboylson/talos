@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { batchEntriesBySize } from "../../entry-batches";
-import type { SessionEntry } from "../../sessions";
+import { MAX_ENTRY_TEXT_LENGTH, type SessionEntry } from "../../sessions";
 
 const textEntry = (entryId: string, length: number): SessionEntry => ({ kind: "text", entryId, text: "x".repeat(length) });
 const sizeOf = (entry: SessionEntry) => Buffer.byteLength(JSON.stringify(entry));
@@ -30,7 +30,7 @@ describe("batchEntriesBySize", () => {
   });
 
   test("a reconnect's worst case fits the server's limit", () => {
-    const entries = Array.from({ length: 500 }, (_unused, i) => textEntry(`e${i}`, 100_000));
+    const entries = Array.from({ length: 500 }, (_unused, i) => textEntry(`e${i}`, MAX_ENTRY_TEXT_LENGTH));
     const limit = 4 * 1024 * 1024;
     expect(batchEntriesBySize(entries, limit).every((batch) => batch.byteCount <= limit)).toBe(true);
   });

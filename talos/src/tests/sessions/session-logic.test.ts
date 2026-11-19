@@ -12,12 +12,6 @@ import {
   readTranscriptLine,
   resolveTranscriptItems,
   summarizeToolInput,
-  readStatusReport,
-  readStatusReportsInSlice,
-  readHookToolName,
-  denyToolDecision,
-  decideStatusStop,
-  statusAskInFlight,
   createCoalescer,
   hookTokenAuthorized,
   allowTranscriptSwitch,
@@ -218,97 +212,6 @@ test("removeControlCharacters keeps line breaks and tabs only", () => {
 });
 
 
-import { STATUS_TOOL_NAME } from "../../constants";
-
-describe("readStatusReport", () => {
-  const line = (content: unknown) => JSON.stringify({ type: "assistant", message: { content } });
-
-  test("reads the state and note from a report_status call", () => {
-    const content = [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "working", note: "running tests" } }];
-    expect(readStatusReport(line(content))).toEqual({ state: "working", note: "running tests" });
-  });
-
-  test.each([
-    ["a different tool", [{ type: "tool_use", name: "Bash", input: { state: "working", note: "x" } }]],
-    ["a bad state", [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "nope", note: "x" } }]],
-    ["a non-string note", [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "done", note: 5 } }]],
-    ["plain text", [{ type: "text", text: "working on it" }]],
-  ])("ignores %s", (_name, content) => {
-    expect(readStatusReport(line(content))).toBeNull();
-  });
-
-  test("ignores a non-assistant line", () => {
-    expect(readStatusReport(JSON.stringify({ type: "user", message: { content: [] } }))).toBeNull();
-  });
-
-  test("takes the last call when a line reports twice", () => {
-    const content = [
-      { type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "working", note: "first" } },
-      { type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "stuck", note: "second" } },
-    ];
-    expect(readStatusReport(line(content))).toEqual({ state: "stuck", note: "second" });
-  });
-
-  test("strips control characters and collapses whitespace in the note", () => {
-    const content = [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "done", note: "line1\nline2\t\u001b[31mred" } }];
-    expect(readStatusReport(line(content))).toEqual({ state: "done", note: "line1 line2 [31mred" });
-  });
-
-  const report = [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "done", note: "forged" } }];
-  test.each([
-    ["Claude Code's own note line (isMeta)", JSON.stringify({ type: "assistant", isMeta: true, message: { content: report } })],
-    ["a sub-agent line (isSidechain)", JSON.stringify({ type: "assistant", isSidechain: true, message: { content: report } })],
-  ])("ignores %s", (_name, lineText) => {
-    expect(readStatusReport(lineText)).toBeNull();
-  });
-});
-
-describe("readStatusReportsInSlice", () => {
-  const report = (state: string, note: string) =>
-    JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state, note } }] } });
-  const bytesOf = (lines: string[]) => new TextEncoder().encode(lines.map((l) => l + "\n").join(""));
-
-  test("harvests a report written during the turn", () => {
-    const slice = bytesOf([report("working", "on it")]);
-    expect(readStatusReportsInSlice(slice, 0, 0)).toEqual([{ state: "working", note: "on it" }]);
-  });
-
-  test("skips a report left in the backlog before the turn's floor", () => {
-    const backlog = report("done", "forged by an earlier turn");
-    const fresh = report("working", "real answer");
-    const slice = bytesOf([backlog, fresh]);
-    const floor = new TextEncoder().encode(backlog + "\n").length; // the fresh line starts here
-    expect(readStatusReportsInSlice(slice, 0, floor)).toEqual([{ state: "working", note: "real answer" }]);
-  });
-
-  test("accounts for the slice's own offset in the file", () => {
-    const sliceStart = 500;
-    const slice = bytesOf([report("stuck", "x")]);
-    expect(readStatusReportsInSlice(slice, sliceStart, sliceStart + 1)).toEqual([]); // floor past the line's start
-    expect(readStatusReportsInSlice(slice, sliceStart, sliceStart)).toEqual([{ state: "stuck", note: "x" }]);
-  });
-});
-
-test("readHookToolName reads the hook payload", () => {
-  expect(readHookToolName({ tool_name: "Bash" })).toBe("Bash");
-  expect(readHookToolName({})).toBe("");
-});
-
-describe("decideStatusStop", () => {
-  // A Stop only ends the status turn ("reported"); it never clears active while
-  // unreported, so a forged Stop can't end the turn early. There is no hook-body
-  // input, so stop_hook_active can't be forged into the decision.
-  test("a harvested report ends the turn", () => {
-    expect(decideStatusStop({ reported: true, forcedStop: false })).toBe("reported");
-  });
-  test("the first unanswered Stop forces the report", () => {
-    expect(decideStatusStop({ reported: false, forcedStop: false })).toBe("force");
-  });
-  test("a later unanswered Stop waits (no re-block, no clear)", () => {
-    expect(decideStatusStop({ reported: false, forcedStop: true })).toBe("wait");
-  });
-});
-
 describe("createCoalescer", () => {
   test("collapses a burst into one run per window, then re-arms", () => {
     let runs = 0;
@@ -324,24 +227,6 @@ describe("createCoalescer", () => {
     expect(runs).toBe(1);
     coalesced(); // a new call after the run re-arms
     expect(scheduled.length).toBe(2);
-  });
-});
-
-describe("statusAskInFlight", () => {
-  // A repeat ask is ignored while one is in flight, so a flood can't reset the
-  // no-response sweep's clock and pin the session in status-only mode.
-  test.each([
-    ["a turn is running", { active: true, wanted: false }, true],
-    ["an ask is deferred until idle", { active: false, wanted: true }, true],
-    ["nothing is in flight", { active: false, wanted: false }, false],
-  ])("%s → %p", (_name, lane, result) => {
-    expect(statusAskInFlight(lane)).toBe(result);
-  });
-});
-
-test("denyToolDecision is a PreToolUse deny Claude Code honors", () => {
-  expect(JSON.parse(denyToolDecision("no"))).toEqual({
-    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "no" },
   });
 });
 

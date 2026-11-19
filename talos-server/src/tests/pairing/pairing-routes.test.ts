@@ -53,6 +53,15 @@ describe("pairing", () => {
     expect([first.status, second.status].sort()).toEqual([200, 404]);
   });
 
+  test("concurrent collects of one pairing mint exactly one key", async () => {
+    const setup = setUp();
+    const { pairingId, userCode } = await startPairing(setup);
+    await setup.routes.approve(setup.post({ userCode }, "joe"));
+    const results = await Promise.all(Array.from({ length: 12 }, () => setup.routes.collect(setup.post({ pairingId }))));
+    expect(results.filter((response) => response.status === 200).length).toBe(1);
+    expect(setup.savedMachines.length).toBe(1);
+  });
+
   test("the key can be collected once", async () => {
     const setup = setUp();
     const { pairingId, userCode } = await startPairing(setup);

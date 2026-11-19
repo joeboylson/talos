@@ -134,10 +134,14 @@ export const createPairingRoutes = (
     return Response.json({ machineName: toIdentifierName(pairing.machineName) } satisfies PairApproveResponse);
   };
 
-  // The machine's owner confirmed at the machine: make the machine and its
-  // key, once. The pairing is gone before anything is awaited.
+  // The machine's owner confirmed at the machine: make the machine and its key,
+  // once. Find AND remove the pairing in one synchronous step with nothing
+  // awaited between (the body is read first), so two concurrent collects can't
+  // both find the same pairing and each mint a key.
   const collect = async (request: Request): Promise<Response> => {
-    const pairing = await findWaitingPairing(request);
+    const pairingId = readStringField(await readJsonBody(request), "pairingId");
+    dropExpiredPairings(Date.now());
+    const pairing = waitingPairings.find((waitingPairing) => waitingPairing.pairingId === pairingId) ?? null;
     const approvedBy = pairing?.approvedBy;
     if (!pairing || !approvedBy) return textResponse("No approved pairing", 404);
     waitingPairings = waitingPairings.filter((waitingPairing) => waitingPairing !== pairing);

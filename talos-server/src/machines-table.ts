@@ -24,9 +24,11 @@ export const createMachinesTable = (documentClient: DocumentClient, tableName: s
     await documentClient.send(new DeleteCommand({ TableName: tableName, Key: { machineId } }));
   },
 
-  // One page of a scan holds 1 MB, far more machines than this will have.
+  // One page of a scan holds 1 MB, far more machines than this will have. A
+  // consistent read, so a scan just after a pair, rename or remove sees it: the
+  // server keeps the result and reuses it until the next write.
   listMachines: async (): Promise<MachineRecord[]> => {
-    const result = await documentClient.send(new ScanCommand({ TableName: tableName }));
+    const result = await documentClient.send(new ScanCommand({ TableName: tableName, ConsistentRead: true }));
     return (result.Items as MachineRecord[] | undefined) ?? [];
   },
 });

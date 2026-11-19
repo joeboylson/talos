@@ -32,16 +32,22 @@ const mcpToolName = (bareName: string): string => `mcp__${TALOS_MCP_SERVER_KEY}_
 
 // Text from a session lands in a shared table row, a card and the logs, so it
 // can't carry terminal escapes, line breaks, or characters that hide or reorder
-// text (zero-width and bidi marks).
-const INVISIBLE_CHARACTERS = /[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
+// text: format characters (zero-width, bidi, tags), the Hangul fillers that show
+// as blank, and combining marks with nothing before them.
+const INVISIBLE_CHARACTERS = /[\p{Cf}\u115f\u1160\u3164\uffa0]/gu;
+const LEADING_MARKS = /^\p{M}+/u;
 const cleanLine = (text: string): string =>
-  removeControlCharacters(text).replace(INVISIBLE_CHARACTERS, "").replace(/\s+/g, " ").trim();
+  removeControlCharacters(text).replace(INVISIBLE_CHARACTERS, "").replace(/\s+/g, " ").trim().replace(LEADING_MARKS, "");
+
+// Shown text must say something a person can read.
+const SAYS_SOMETHING = /[\p{L}\p{N}]/u;
 
 // A choice is sent as the person's own message when they click it, and Claude
-// Code runs a message starting with these as a command (/ slash command, ! shell,
-// # memory), so a session could dress a command up as a choice.
-const COMMAND_PREFIXES = ["/", "!", "#"];
-const isPlainChoice = (choice: string): boolean => choice !== "" && !COMMAND_PREFIXES.some((prefix) => choice.startsWith(prefix));
+// Code acts on these in a message: / runs a slash command or skill, ! a shell
+// command, # a memory note (at the start), and @ attaches a file, / a skill
+// (anywhere after a space). A session could dress one up as a choice.
+const COMMAND_MARKER = /(^|\s)[@/!#]/;
+const isPlainChoice = (choice: string): boolean => SAYS_SOMETHING.test(choice) && !COMMAND_MARKER.test(choice);
 
 const fieldOf = (value: unknown, field: string): unknown =>
   typeof value === "object" && value !== null ? Reflect.get(value, field) : undefined;
@@ -70,7 +76,8 @@ export const readDecision = (toolInput: unknown): { question: string; choices: s
   if (!isQuestion || !isChoiceList) return null;
   const cleanedQuestion = cleanLine(question);
   const cleanedChoices = (choices as string[]).map(cleanLine);
-  const isUsable = cleanedQuestion !== "" && cleanedChoices.every(isPlainChoice);
+  const hasDuplicates = new Set(cleanedChoices).size !== cleanedChoices.length;
+  const isUsable = SAYS_SOMETHING.test(cleanedQuestion) && cleanedChoices.every(isPlainChoice) && !hasDuplicates;
   return isUsable ? { question: cleanedQuestion, choices: cleanedChoices } : null;
 };
 
@@ -123,7 +130,7 @@ export const DECISION_TOOL: StructuredTool = {
     const decision = readDecision(toolInput);
     return decision ? { kind: "decision", decision: { ...decision, atMs: nowMs } } : null;
   },
-  badInputReason: `Call ${DECISION_BARE_NAME} with one question and ${choiceCount} short choices, none starting with / ! or #.`,
+  badInputReason: `Call ${DECISION_BARE_NAME} with one question and ${choiceCount} short, different choices in plain words (no /, !, # or @).`,
   acceptedReply: "Asked. End your turn now and wait: the answer comes as the person's next message.",
 };
 

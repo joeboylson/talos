@@ -62,8 +62,7 @@ export const readStatusReport = (toolInput: unknown): { state: ReportedStatus; n
 const fieldOf = (value: unknown, field: string): unknown =>
   typeof value === "object" && value !== null ? Reflect.get(value, field) : undefined;
 
-// The lane event a hook carries, if any. agent_id marks a sub-agent's hook: a
-// sub-agent's report_status is not this session's answer.
+// The lane event a hook carries, if any. agent_id marks a sub-agent's hook.
 export const readStatusLaneEvent = (hookDetails: unknown): StatusLaneEvent | null => {
   const hookEvent = fieldOf(hookDetails, "hook_event_name");
   if (hookEvent === "Stop") return { type: "stop" };
@@ -105,9 +104,13 @@ const stepAsk = (lane: StatusLane, isIdle: boolean, nowMs: number): StatusLaneSt
 
 const stepPreToolUse = (lane: StatusLane, event: Extract<StatusLaneEvent, { type: "pre-tool-use" }>, nowMs: number): StatusLaneStep => {
   const isStatusTool = event.toolName === STATUS_TOOL_NAME;
+  // A sub-agent can't start in a status turn (its tool is denied there), so one
+  // running now is chat work started earlier: it keeps every tool but
+  // report_status, whose report wouldn't be this session's answer.
+  if (event.isSubagent) return isStatusTool ? stay(lane, denyToolDecision(NOT_NOW_REASON)) : stay(lane);
   if (!isStatusTurnRunning(lane)) return isStatusTool ? stay(lane, denyToolDecision(NOT_NOW_REASON)) : stay(lane);
   if (!isStatusTool) return stay(lane, denyToolDecision(ONLY_REPORT_REASON));
-  const report = event.isSubagent ? null : readStatusReport(event.toolInput);
+  const report = readStatusReport(event.toolInput);
   if (!report) return stay(lane, denyToolDecision(BAD_REPORT_REASON));
   return {
     lane: { kind: "reported", askedAtMs: lane.askedAtMs },

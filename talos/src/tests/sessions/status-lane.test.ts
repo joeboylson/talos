@@ -49,6 +49,12 @@ describe("1. a status turn runs no tool but report_status", () => {
 
 describe("2. a chat turn runs everything but report_status", () => {
   test.each([
+    ["asking", asking],
+    ["reported", reported],
+  ])("a background sub-agent's tools keep running while %s", (_name, lane) => {
+    expect(step(lane, toolCall("Bash", { command: "ls" }, true))).toEqual(unchanged(lane));
+  });
+  test.each([
     ["no ask", NO_STATUS_LANE],
     ["an ask queued", queued],
   ])("%s lets other tools through and denies report_status", (_name, lane) => {

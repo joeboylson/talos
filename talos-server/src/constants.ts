@@ -30,12 +30,7 @@ export const MAX_SOCKET_MESSAGE_BYTES = 16 * 1024 * 1024;
 export const HEALTH_ROUTE = "/health";
 
 // WebSocket close codes 4000–4999 are free for apps to define.
-export const CLOSE_CODES = {
-  machineReplaced: 4000,
-  machineRemoved: 4001,
-  signedOut: 4002,
-  sessionExpired: 4003,
-} as const;
+export { WS_CLOSE_CODES as CLOSE_CODES } from "talos-shared";
 
 // AWS's load balancer drops a connection that's quiet for 60 seconds, so the
 // server pings every open socket more often than that.

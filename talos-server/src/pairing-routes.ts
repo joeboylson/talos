@@ -53,7 +53,10 @@ export const createPairingRoutes = (
 
   const takeAttempt = (timesByKey: Map<string, number[]>, key: string, limit: typeof PAIR_START_LIMIT): boolean => {
     const { isAllowed, timesMs } = allowAttempt(timesByKey.get(key) ?? [], Date.now(), limit);
-    timesByKey.set(key, timesMs);
+    // Drop a key once its window empties, so a flood of distinct addresses can't
+    // grow these maps without bound.
+    if (timesMs.length === 0) timesByKey.delete(key);
+    else timesByKey.set(key, timesMs);
     return isAllowed;
   };
 

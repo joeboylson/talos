@@ -90,4 +90,9 @@ describe("mergeSessionEntries", () => {
   test("entries sent again after a reconnect aren't doubled", () => {
     expect(mergeSessionEntries([running, text], [running, text], 10)).toEqual([running, text]);
   });
+
+  test("an entry without a string id is skipped (defends the page's raw decode)", () => {
+    const bad = { kind: "text", text: "no id" } as unknown as typeof text;
+    expect(mergeSessionEntries([text], [bad], 10)).toEqual([text]);
+  });
 });

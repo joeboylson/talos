@@ -13,6 +13,10 @@ env:
     # Bun's own published checksum for bun-linux-aarch64.zip at that version.
     # The build stops if the download doesn't match it.
     BUN_ZIP_SHA256: "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e"
+    # Pinned AWS CLI, verified by AWS's published checksum (see AWSCLI_ZIP_SHA256
+    # below). Bump both together.
+    AWSCLI_VERSION: "2.41.0"
+    AWSCLI_ZIP_SHA256: "a1bdbb55835d5e5159f7ad9ad4f55bcce838565a2f12aded2aefee2f4bf71d0a"
     SERVICE_ARN: arn:aws:ecs:us-east-2:135977257766:service/default/talos-server
     REPOSITORY: talos-server
 
@@ -24,10 +28,12 @@ phases:
       - unzip -q /tmp/bun.zip -d /tmp && mkdir -p "$HOME/.bun/bin" && mv /tmp/bun-linux-aarch64/bun "$HOME/.bun/bin/bun"
       - export PATH="$HOME/.bun/bin:$PATH"
       - command -v jq || dnf install -y jq
-      # Express Mode is newer than some build images' AWS CLI.
+      # Express Mode is newer than some build images' AWS CLI. Pin + verify the
+      # installer, the same way the Bun download is checked.
       - |
         if ! aws ecs update-express-gateway-service help >/dev/null 2>&1; then
-          curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip -o /tmp/awscli.zip
+          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64-${AWSCLI_VERSION}.zip" -o /tmp/awscli.zip
+          echo "${AWSCLI_ZIP_SHA256}  /tmp/awscli.zip" | sha256sum -c -
           unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install --update
         fi
       - bun install --frozen-lockfile
@@ -44,6 +50,9 @@ phases:
 
   build:
     commands:
+      # Defense in depth: only main deploys. The CodeBuild webhook already
+      # filters to main, but enforce it here too, in version control.
+      - test "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/main" || test -z "$CODEBUILD_WEBHOOK_HEAD_REF"
       # Tags can't be reused, so a rerun of the same commit skips the build.
       # The security checks run between building and uploading: if one fails,
       # nothing is uploaded and nothing is published.

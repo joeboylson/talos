@@ -13,6 +13,7 @@ export const HOST_ROUTES = {
   events: "/events",
   sessions: "/sessions",
   stop: "/stop",
+  hooks: "/hooks/:sessionName",
 } as const;
 
 export const sessionRoute = (sessionName: string, action: "send" | "stop" | "output" | "input" | "resize") =>

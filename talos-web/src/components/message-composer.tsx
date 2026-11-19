@@ -29,8 +29,10 @@ export const MessageComposer = ({ onSend }: MessageComposerProps) => {
     setImages((current) => [...current, ...prepared].slice(0, MAX_IMAGES_PER_MESSAGE));
   };
 
-  const removeImage = (previewUrl: string) =>
+  const removeImage = (previewUrl: string) => {
+    URL.revokeObjectURL(previewUrl);
     setImages((current) => current.filter((image) => image.previewUrl !== previewUrl));
+  };
 
   const sendMessage = () => {
     if (!canSend) return;

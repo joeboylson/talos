@@ -112,12 +112,14 @@ export const readSentImages = (value: unknown): SentImage[] | null => {
 
 // Entries arrive again when a tool ends, or after a reconnect. The newer
 // copy replaces the older one in place, and new ones go on the end.
+const hasEntryId = (entry: SessionEntry): boolean => typeof entry?.entryId === "string";
+
 export const mergeSessionEntries = (
   keptEntries: SessionEntry[],
   newEntries: SessionEntry[],
   maxKept: number,
 ): SessionEntry[] => {
-  const newEntryById = new Map(newEntries.map((entry) => [entry.entryId, entry]));
+  const newEntryById = new Map(newEntries.filter(hasEntryId).map((entry) => [entry.entryId, entry]));
   const keptIds = new Set(keptEntries.map((entry) => entry.entryId));
   const updatedEntries = keptEntries.map((entry) => newEntryById.get(entry.entryId) ?? entry);
   const addedEntries = [...newEntryById.values()].filter((entry) => !keptIds.has(entry.entryId));

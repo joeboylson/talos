@@ -15,7 +15,12 @@ export const CREDENTIALS_FOLDER_MODE = 0o700;
 // The session host: the background program that holds the Claude Code
 // terminals, so sessions outlive talos restarts. talos and the hook script
 // reach it through this file socket, which only this user can open.
+// Two sockets, so a session reaches only the hook one. The control socket
+// (used by talos) carries the powerful routes - typing into sessions,
+// starting/stopping them; the hook socket carries only /hooks, which is all a
+// running Claude session needs. Both are 0600 in the 0700 ~/.talos folder.
 export const HOST_SOCKET = join(CREDENTIALS_FOLDER, "host.sock");
+export const HOST_HOOKS_SOCKET = join(CREDENTIALS_FOLDER, "host-hooks.sock");
 export const HOST_SOCKET_MODE = 0o600;
 export const HOST_LOG = join(CREDENTIALS_FOLDER, "host.log");
 export const HOST_SCRIPT = new URL("./host.ts", import.meta.url).pathname;

@@ -41,3 +41,12 @@ export const LOCAL_STATUS_PORT = 7071;
 export const LOCAL_STATUS_ROUTE = "/status";
 
 export const RECONNECT_DELAY_MS = 2000;
+
+// WebSocket close codes 4000-4999 are free for apps. The server closes a
+// socket with one of these to say why it dropped.
+export const WS_CLOSE_CODES = {
+  machineReplaced: 4000,
+  machineRemoved: 4001,
+  signedOut: 4002,
+  sessionExpired: 4003,
+} as const;

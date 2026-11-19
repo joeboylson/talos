@@ -23,11 +23,13 @@ import { trustFolder } from "./claude-trust";
 import { readFolders } from "./folders";
 import {
   CLAUDE_COMMAND,
+  CREDENTIALS_FOLDER,
   CREDENTIALS_FOLDER_MODE,
   HOOK_SCRIPT,
+  HOST_HOOKS_SOCKET,
+  HOST_SOCKET,
   HOST_SOCKET_MODE,
   IMAGE_PASTE_SETTLE_MS,
-  HOST_SOCKET,
   MAX_OUTPUT_BYTES,
   READY_CHECK_MS,
   READY_LONGEST_WAIT_MS,
@@ -139,7 +141,7 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
       cwd: path,
       env: buildSessionEnv(process.env, {
         [SESSION_ENV_KEYS.sessionName]: sessionName,
-        [SESSION_ENV_KEYS.hostSocket]: HOST_SOCKET,
+        [SESSION_ENV_KEYS.hostSocket]: HOST_HOOKS_SOCKET,
       }),
       terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, chunk) },
     } as Parameters<typeof Bun.spawn>[1],
@@ -316,21 +318,32 @@ const readJson = async (request: Request): Promise<Record<string, unknown>> => {
 
 const sessionNameOf = (request: BunRequest) => request.params.sessionName ?? "";
 
+// Control routes only act on a held session; a non-identifier name can't be one.
+const heldSessionOf = (request: BunRequest) => {
+  const sessionName = sessionNameOf(request);
+  return isIdentifierName(sessionName) ? heldSessions.get(sessionName) : undefined;
+};
+
 const stopHost = () => {
   log.event("host: stopping, with every session it holds");
   heldSessions.forEach((session) => session.child.kill());
   setTimeout(async () => {
-    await rm(HOST_SOCKET, { force: true });
+    await Promise.all([rm(HOST_SOCKET, { force: true }), rm(HOST_HOOKS_SOCKET, { force: true })]);
     process.exit(0);
   }, 200);
   return new Response(null, { status: 204 });
 };
 
-await rm(HOST_SOCKET, { force: true });
+await Promise.all([rm(HOST_SOCKET, { force: true }), rm(HOST_HOOKS_SOCKET, { force: true })]);
+// talos (and only talos) connects to the control socket. A session is told the
+// hook socket instead, so a prompt-injected session can't reach the routes that
+// drive other sessions.
+await mkdir(CREDENTIALS_FOLDER, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
+
 // Event and output streams stay open for as long as someone listens, so the
 // host turns off Bun's limit on quiet requests (0 = none). Bun's types don't
 // allow that option alongside a file socket, though Bun itself does.
-const serveOptions = {
+const controlServeOptions = {
   unix: HOST_SOCKET,
   idleTimeout: 0,
   routes: {
@@ -363,7 +376,7 @@ const serveOptions = {
     },
     [`${HOST_ROUTES.sessions}/:sessionName/stop`]: {
       POST: (request: BunRequest) => {
-        heldSessions.get(sessionNameOf(request))?.child.kill();
+        heldSessionOf(request)?.child.kill();
         return new Response(null, { status: 204 });
       },
     },
@@ -372,19 +385,27 @@ const serveOptions = {
     },
     [`${HOST_ROUTES.sessions}/:sessionName/input`]: {
       POST: async (request: BunRequest) => {
-        heldSessions.get(sessionNameOf(request))?.terminal.write(new Uint8Array(await request.arrayBuffer()));
+        heldSessionOf(request)?.terminal.write(new Uint8Array(await request.arrayBuffer()));
         return new Response(null, { status: 204 });
       },
     },
     [`${HOST_ROUTES.sessions}/:sessionName/resize`]: {
       POST: async (request: BunRequest) => {
         const { cols, rows } = await readJson(request);
-        if (typeof cols === "number" && typeof rows === "number")
-          heldSessions.get(sessionNameOf(request))?.terminal.resize(cols, rows);
+        if (typeof cols === "number" && typeof rows === "number") heldSessionOf(request)?.terminal.resize(cols, rows);
         return new Response(null, { status: 204 });
       },
     },
-    "/hooks/:sessionName": {
+  },
+  fetch: () => new Response("Not found", { status: 404 }),
+};
+
+// The only route a session can reach: its own Claude Code hooks.
+const hookServeOptions = {
+  unix: HOST_HOOKS_SOCKET,
+  routes: {
+    [HOST_ROUTES.health]: new Response("ok"),
+    [HOST_ROUTES.hooks]: {
       POST: async (request: BunRequest) => {
         await handleHook(sessionNameOf(request), await request.text()).catch((error: unknown) =>
           log.warn(`host: couldn't handle a hook: ${error}`),
@@ -395,7 +416,10 @@ const serveOptions = {
   },
   fetch: () => new Response("Not found", { status: 404 }),
 };
-Bun.serve(serveOptions as unknown as Parameters<typeof Bun.serve>[0]);
+
+Bun.serve(controlServeOptions as unknown as Parameters<typeof Bun.serve>[0]);
+Bun.serve(hookServeOptions as unknown as Parameters<typeof Bun.serve>[0]);
 await chmod(HOST_SOCKET, HOST_SOCKET_MODE);
+await chmod(HOST_HOOKS_SOCKET, HOST_SOCKET_MODE);
 setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
 log.event(`host: listening on ${HOST_SOCKET}`);

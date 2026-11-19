@@ -20,8 +20,8 @@ export type StatusLane =
 export const NO_STATUS_LANE: StatusLane = { kind: "none" };
 
 export type StatusLaneEvent =
-  | { type: "ask"; isIdle: boolean }
-  | { type: "idle" }
+  | { type: "ask"; isIdle: boolean; hasDraft: boolean }
+  | { type: "idle"; hasDraft: boolean }
   | { type: "pre-tool-use"; toolName: string; toolInput: unknown; isSubagent: boolean }
   | { type: "stop" }
   | { type: "person-typed"; isTurnChanging: boolean }
@@ -84,6 +84,8 @@ export const hookReplyWhenHostUnreachable = (hookDetails: unknown): string => {
   return isStatusCall ? denyToolDecision(HOST_UNREACHABLE_REASON) : "";
 };
 
+const noResponseAt = (nowMs: number): SessionStatus => ({ state: "no-response", note: "", atMs: nowMs });
+
 const stay = (lane: StatusLane, hookReply = ""): StatusLaneStep => ({ lane, hookReply, statusChange: null, shouldTypeRequest: false });
 
 const startStatusTurn = (nowMs: number, statusChange: SessionStatus | null): StatusLaneStep => ({
@@ -95,8 +97,9 @@ const startStatusTurn = (nowMs: number, statusChange: SessionStatus | null): Sta
 
 // A repeat ask while one is in flight is ignored: re-arming would reset the
 // timeout clock, so a flood of asks could pin a session in status-only mode.
-const stepAsk = (lane: StatusLane, isIdle: boolean, nowMs: number): StatusLaneStep => {
+const stepAsk = (lane: StatusLane, isIdle: boolean, hasDraft: boolean, nowMs: number): StatusLaneStep => {
   if (lane.kind !== "none") return stay(lane);
+  if (isIdle && hasDraft) return { ...stay(lane), statusChange: noResponseAt(nowMs) };
   const pending: SessionStatus = { state: "pending", note: "", atMs: nowMs };
   if (isIdle) return startStatusTurn(nowMs, pending);
   return { lane: { kind: "queued", askedAtMs: nowMs }, hookReply: "", statusChange: pending, shouldTypeRequest: false };
@@ -130,9 +133,18 @@ const stepStop = (lane: StatusLane): StatusLaneStep => {
 };
 
 // An unanswered ask becomes "no response"; a reported one keeps its status.
-const endStatusAsk = (lane: StatusLane, nowMs: number): StatusLaneStep => {
-  const noResponse: SessionStatus = { state: "no-response", note: "", atMs: nowMs };
-  return { lane: NO_STATUS_LANE, hookReply: "", statusChange: lane.kind === "reported" ? null : noResponse, shouldTypeRequest: false };
+const endStatusAsk = (lane: StatusLane, nowMs: number): StatusLaneStep => ({
+  lane: NO_STATUS_LANE,
+  hookReply: "",
+  statusChange: lane.kind === "reported" ? null : noResponseAt(nowMs),
+  shouldTypeRequest: false,
+});
+
+// The status request is pasted and sent with Enter, so with unsent text in the
+// input box it would be sent along with it, as one status turn.
+const stepIdle = (lane: StatusLane, hasDraft: boolean, nowMs: number): StatusLaneStep => {
+  if (lane.kind !== "queued") return stay(lane);
+  return hasDraft ? endStatusAsk(lane, nowMs) : startStatusTurn(nowMs, null);
 };
 
 const isStatusTurnRunning = (lane: StatusLane): lane is Extract<StatusLane, { kind: "asking" | "reported" }> =>
@@ -158,8 +170,8 @@ const stepPersonTyped = (lane: StatusLane, isTurnChanging: boolean, nowMs: numbe
 };
 
 export const stepStatusLane = (lane: StatusLane, event: StatusLaneEvent, nowMs: number): StatusLaneStep => {
-  if (event.type === "ask") return stepAsk(lane, event.isIdle, nowMs);
-  if (event.type === "idle") return lane.kind === "queued" ? startStatusTurn(nowMs, null) : stay(lane);
+  if (event.type === "ask") return stepAsk(lane, event.isIdle, event.hasDraft, nowMs);
+  if (event.type === "idle") return stepIdle(lane, event.hasDraft, nowMs);
   if (event.type === "pre-tool-use") return stepPreToolUse(lane, event, nowMs);
   if (event.type === "stop") return stepStop(lane);
   if (event.type === "person-typed") return stepPersonTyped(lane, event.isTurnChanging, nowMs);

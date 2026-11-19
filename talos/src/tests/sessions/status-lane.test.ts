@@ -71,14 +71,14 @@ describe("3. nothing but a report or the timeout ends a status turn", () => {
     expect(step(askingForced, { type: "stop" })).toEqual(unchanged(askingForced));
   });
   test("going idle mid-turn doesn't end or restart it", () => {
-    expect(step(asking, { type: "idle" })).toEqual(unchanged(asking));
+    expect(step(asking, { type: "idle", hasDraft: false })).toEqual(unchanged(asking));
   });
   test.each([
     ["queued", queued],
     ["asking", asking],
     ["reported", reported],
   ])("a repeat ask while %s is ignored (no clock reset, no retype)", (_name, lane) => {
-    expect(step(lane, { type: "ask", isIdle: true }, NOW + 5000)).toEqual(unchanged(lane));
+    expect(step(lane, { type: "ask", isIdle: true, hasDraft: false }, NOW + 5000)).toEqual(unchanged(lane));
   });
   test("the person typing ends an unanswered turn, so their message's tools run", () => {
     expect(step(askingForced, { type: "person-typed", isTurnChanging: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
@@ -148,11 +148,23 @@ describe("5. a bad or missing report fails safe", () => {
 
 describe("asking", () => {
   test("an idle session is asked now", () => {
-    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: true })).toEqual({ lane: asking, decision: "", status: "pending", typed: true });
+    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: true, hasDraft: false })).toEqual({ lane: asking, decision: "", status: "pending", typed: true });
   });
   test("a busy session is asked when it next goes idle", () => {
-    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: false })).toEqual({ lane: queued, decision: "", status: "pending", typed: false });
-    expect(step(queued, { type: "idle" }, NOW + 10)).toEqual({ lane: { ...asking, askedAtMs: NOW + 10 }, decision: "", status: null, typed: true });
+    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: false, hasDraft: false })).toEqual({ lane: queued, decision: "", status: "pending", typed: false });
+    expect(step(queued, { type: "idle", hasDraft: false }, NOW + 10)).toEqual({ lane: { ...asking, askedAtMs: NOW + 10 }, decision: "", status: null, typed: true });
+  });
+});
+
+describe("a draft in the input box", () => {
+  test("an idle session with a draft isn't asked: the request would be sent with it", () => {
+    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: true, hasDraft: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
+  });
+  test("a busy session with a draft still queues the ask", () => {
+    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: false, hasDraft: true }).lane).toEqual(queued);
+  });
+  test("a queued ask that meets a draft at idle ends instead of starting", () => {
+    expect(step(queued, { type: "idle", hasDraft: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
 });
 

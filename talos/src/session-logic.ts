@@ -85,7 +85,8 @@ const ESC_BYTE = 0x1b;
 const CTRL_C_BYTE = 0x03;
 // Esc and Ctrl-C as a terminal sends them once Claude Code turns on kitty or
 // modifyOtherKeys key encoding.
-const ENCODED_INTERRUPT_KEYS = ["\x1b[27u", "\x1b[99;5u", "\x1b[27;5;99~"];
+const ENCODED_CTRL_C_KEYS = ["\x1b[99;5u", "\x1b[27;5;99~"];
+const ENCODED_INTERRUPT_KEYS = ["\x1b[27u", ...ENCODED_CTRL_C_KEYS];
 export const isTurnChangingKeys = (keys: Uint8Array): boolean => {
   const isOnlyEsc = keys.length > 0 && keys.every((byte) => byte === ESC_BYTE);
   const keysText = new TextDecoder().decode(keys);
@@ -93,11 +94,36 @@ export const isTurnChangingKeys = (keys: Uint8Array): boolean => {
   return keys.includes(ENTER_BYTE) || keys.includes(CTRL_C_BYTE) || isOnlyEsc || hasEncodedInterrupt;
 };
 
-// Keys that type into the draft. Arrow keys and the reports a terminal sends on
-// its own (focus in or out, cursor position) all start with Esc, so they don't.
-// shortcut: Up recalling an old message also starts with Esc and is missed;
-// upgrade once the host tracks unsent drafts.
-export const isDraftChangingKeys = (keys: Uint8Array): boolean => keys.length > 0 && keys[0] !== ESC_BYTE;
+// The host guesses whether the input box holds unsent text from the keys sent
+// to it, since it can't see the box.
+// shortcut: a few edits fool the guess (Backspace back to empty, Enter in a menu
+// or permission prompt, backslash then Enter); upgrade by reading the box from
+// the screen output.
+
+// Keys that put text in the input box: typing, a paste, or Up and Down, which
+// recall an old message. Other arrow keys and the reports a terminal sends on
+// its own (focus in or out, cursor position) are escape sequences and don't. A
+// chunk can hold several keys, so any text left after removing the escape
+// sequences counts.
+const DRAFT_ESCAPE_KEYS = [PASTE_START, "\x1b[A", "\x1b[B", "\x1bOA", "\x1bOB"];
+const ESCAPE_SEQUENCE = /\x1b(\[[0-9;:?<>=]*[ -\/]*[@-~]|O[@-~]|\][^\x07]*\x07|[ -~])?/g;
+const FIRST_TEXT_CHARACTER = 0x20;
+export const isDraftChangingKeys = (keys: Uint8Array): boolean => {
+  const keysText = new TextDecoder().decode(keys);
+  if (DRAFT_ESCAPE_KEYS.some((sequence) => keysText.includes(sequence))) return true;
+  const textKeys = keysText.replace(ESCAPE_SEQUENCE, "");
+  return [...textKeys].some((character) => character.charCodeAt(0) >= FIRST_TEXT_CHARACTER);
+};
+
+// Keys that empty the input box: Enter sends it and Ctrl-C clears it. Judged by
+// the last key, since a paste can hold a line break and still leave a draft.
+// Esc then Enter (Option-Enter) only adds a line.
+export const isDraftClearingKeys = (keys: Uint8Array): boolean => {
+  const keysText = new TextDecoder().decode(keys);
+  const endsWithSend = keysText.endsWith("\r") && !keysText.endsWith("\x1b\r");
+  const endsWithCtrlC = keys.at(-1) === CTRL_C_BYTE || ENCODED_CTRL_C_KEYS.some((sequence) => keysText.endsWith(sequence));
+  return endsWithSend || endsWithCtrlC;
+};
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
 // only the fields talos reads.

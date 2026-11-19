@@ -15,6 +15,7 @@ import {
   createCoalescer,
   hookTokenAuthorized,
   isDraftChangingKeys,
+  isDraftClearingKeys,
   isTurnChangingKeys,
   allowTranscriptSwitch,
 } from "../../session-logic";
@@ -256,12 +257,33 @@ describe("isDraftChangingKeys", () => {
     ["a letter", "a", true],
     ["a pasted line", "fix the build", true],
     ["Backspace", "\x7f", true],
-    ["an arrow key", "\x1b[A", false],
+    ["Up, recalling an old message", "\x1b[A", true],
+    ["Down in application mode", "\x1bOB", true],
+    ["a pasted block", "\x1b[200~two\rlines\x1b[201~", true],
+    ["letters glued after Left", "\x1b[Dabc", true],
+    ["a letter glued after a focus report", "\x1b[Ia", true],
+    ["Left", "\x1b[D", false],
+    ["a kitty key report", "\x1b[?1u", false],
     ["a focus-in report", "\x1b[I", false],
     ["a cursor position report", "\x1b[12;40R", false],
     ["nothing", "", false],
   ])("%s → %p", (_name, keys, expected) => {
     expect(isDraftChangingKeys(new TextEncoder().encode(keys))).toBe(expected);
+  });
+});
+
+describe("isDraftClearingKeys", () => {
+  test.each([
+    ["Enter", "\r", true],
+    ["a line and Enter", "fix it\r", true],
+    ["Ctrl-C", "\x03", true],
+    ["Ctrl-C in kitty key encoding", "\x1b[99;5u", true],
+    ["Option-Enter, which only adds a line", "\x1b\r", false],
+    ["a pasted block with a line break", "\x1b[200~two\rlines\x1b[201~", false],
+    ["a letter", "a", false],
+    ["nothing", "", false],
+  ])("%s → %p", (_name, keys, expected) => {
+    expect(isDraftClearingKeys(new TextEncoder().encode(keys))).toBe(expected);
   });
 });
 

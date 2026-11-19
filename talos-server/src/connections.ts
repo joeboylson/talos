@@ -17,7 +17,7 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CLOSE_CODES, NO_MACHINES_MESSAGE, PING_ANSWER_WAIT_MS } from "./constants";
+import { CLOSE_CODES, MACHINE_LIST_RELAY_COALESCE_MS, NO_MACHINES_MESSAGE, PING_ANSWER_WAIT_MS } from "./constants";
 import type { MachineRecord, MachinesTable } from "./machines-table";
 
 export type SocketData =
@@ -93,6 +93,22 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
   const sendMachineListToPages = async (personId: string): Promise<void> => {
     const machines = await machinesTable.listMachines();
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) => sendMachineList(pageSocket, machines));
+  };
+
+  // A machine reports its sessions often (every status, state or entry change),
+  // and each relay scans the whole machines table and re-broadcasts. Coalesce
+  // per owner so a burst becomes one scan+broadcast per window — which also caps
+  // the amplification if a machine floods these messages (there's no other rate
+  // limit on the machine socket). Roster changes (pair/connect/disconnect) relay
+  // immediately; only the hot session/folder path is coalesced.
+  const relayScheduledFor = new Set<string>();
+  const scheduleMachineListRelay = (personId: string) => {
+    if (relayScheduledFor.has(personId)) return;
+    relayScheduledFor.add(personId);
+    setTimeout(() => {
+      relayScheduledFor.delete(personId);
+      void sendMachineListToPages(personId);
+    }, MACHINE_LIST_RELAY_COALESCE_MS);
   };
 
   // A page that just opened gets every kept entry of the person's sessions.
@@ -226,7 +242,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
   const updateReport = (machine: MachineData, change: Partial<MachineReport>) => {
     const currentReport = reportsByMachineId.get(machine.machineId) ?? { folders: [], sessions: [] };
     reportsByMachineId.set(machine.machineId, { ...currentReport, ...change });
-    void sendMachineListToPages(machine.ownerPersonId);
+    scheduleMachineListRelay(machine.ownerPersonId);
   };
 
   const handleSessions = (machine: MachineData, sessions: SessionSummary[]) => {

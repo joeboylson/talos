@@ -26,6 +26,10 @@ export const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 export const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 export const MAX_SOCKET_MESSAGE_BYTES = 16 * 1024 * 1024;
 
+// A machine's session/folder updates are coalesced per owner into one table
+// scan + page broadcast per this window, so a burst (or a flood) can't amplify.
+export const MACHINE_LIST_RELAY_COALESCE_MS = 100;
+
 // AWS's load balancer calls this to check the server is up.
 export const HEALTH_ROUTE = "/health";
 

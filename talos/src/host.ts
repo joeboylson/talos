@@ -61,8 +61,8 @@ import {
   isStopContinuation,
   nextSessionState,
   readCompleteLines,
+  readStatusReportsInSlice,
   readHookToolName,
-  readStatusReport,
   readTranscriptLine,
   resolveTranscriptItems,
   STATUS_REQUEST_PROMPT,
@@ -83,8 +83,10 @@ type Transcript = { path: string; readByteCount: number; runningTools: Record<st
 // The status lane for one session. active: a status turn is running now.
 // wanted: asked while busy, start when it next goes idle. reported: the session
 // called report_status this turn. askedAtMs: for the no-response timeout.
-type StatusLane = { active: boolean; wanted: boolean; reported: boolean; askedAtMs: number };
-const IDLE_STATUS_LANE: StatusLane = { active: false, wanted: false, reported: false, askedAtMs: 0 };
+// harvestFromByte: the transcript size when this status turn began, so the
+// harvest reads only report_status lines the session writes during the turn.
+type StatusLane = { active: boolean; wanted: boolean; reported: boolean; askedAtMs: number; harvestFromByte: number };
+const IDLE_STATUS_LANE: StatusLane = { active: false, wanted: false, reported: false, askedAtMs: 0, harvestFromByte: 0 };
 
 type HeldSession = {
   summary: SessionSummary;
@@ -144,7 +146,11 @@ const setSessionStatus = (sessionName: string, status: SessionStatus) => {
 const startStatusTurn = (sessionName: string) => {
   const session = heldSessions.get(sessionName);
   if (!session) return;
-  updateStatusLane(sessionName, { active: true, wanted: false, reported: false, askedAtMs: Date.now() });
+  // Harvest only what the session writes from here on, so a report_status call
+  // left in the backlog by an earlier turn or a sub-agent isn't read as this
+  // turn's status.
+  const harvestFromByte = session.transcript ? Bun.file(session.transcript.path).size : 0;
+  updateStatusLane(sessionName, { active: true, wanted: false, reported: false, askedAtMs: Date.now(), harvestFromByte });
   session.terminal.write(buildPastedText(STATUS_REQUEST_PROMPT));
   session.terminal.write(ENTER_KEY);
 };
@@ -158,7 +164,7 @@ const askForStatus = (sessionName: string): Response => {
   heldSessions.set(sessionName, {
     ...session,
     summary: { ...session.summary, status: { state: "pending", note: "", atMs: askedAtMs } },
-    statusLane: { active: false, wanted: !isIdle, reported: false, askedAtMs },
+    statusLane: { active: false, wanted: !isIdle, reported: false, askedAtMs, harvestFromByte: 0 },
   });
   broadcastSessions();
   if (isIdle) startStatusTurn(sessionName);
@@ -249,11 +255,13 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
   });
   if (entries.length > 0) broadcast({ type: "session-entries", sessionName, entries });
 
-  // On a status turn, the session's report_status call is in these same lines.
-  if (heldSessions.get(sessionName)?.statusLane.active) {
-    for (const lineText of lines) {
-      const report = readStatusReport(lineText);
-      if (!report) continue;
+  // On a status turn, harvest the session's report_status call from these lines —
+  // but only the ones written during THIS turn (byte offset at/after the turn's
+  // floor), so a report_status left in the backlog by an earlier turn or a
+  // sub-agent sidechain can't be read as this turn's status.
+  const lane = heldSessions.get(sessionName)?.statusLane;
+  if (lane?.active) {
+    for (const report of readStatusReportsInSlice(newBytes.subarray(0, usedByteCount), transcript.readByteCount, lane.harvestFromByte)) {
       setSessionStatus(sessionName, { state: report.state, note: report.note, atMs: Date.now() });
       updateStatusLane(sessionName, { reported: true });
     }

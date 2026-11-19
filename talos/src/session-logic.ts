@@ -266,6 +266,10 @@ const cleanStatusNote = (note: string): string => removeControlCharacters(note).
 export const readStatusReport = (lineText: string): ReportedStatusUpdate | null => {
   const line: unknown = parseJsonOrNull(lineText);
   if (typeof line !== "object" || line === null || Reflect.get(line, "type") !== "assistant") return null;
+  // A status is this session's own answer, so skip Claude Code's own notes
+  // (isMeta) and a sub-agent's lines (isSidechain) — same as readTranscriptLine —
+  // or a sub-agent could report a status for the session it runs under.
+  if (Reflect.get(line, "isMeta") === true || Reflect.get(line, "isSidechain") === true) return null;
   const content = (line as { message?: { content?: unknown } }).message?.content;
   if (!Array.isArray(content)) return null;
   let latest: ReportedStatusUpdate | null = null;
@@ -278,4 +282,27 @@ export const readStatusReport = (lineText: string): ReportedStatusUpdate | null 
     if (isValid) latest = { state: state as ReportedStatus, note: cleanStatusNote(note as string) };
   }
   return latest;
+};
+
+// The report_status calls in a freshly-read transcript slice, in order, counting
+// ONLY lines whose absolute byte start is at/after `fromByte` — the file size
+// when the status turn began. A report_status left in the backlog by an earlier
+// turn (a chat-turn call the hook denied, whose tool_use input still lands in the
+// transcript) or by a sub-agent would otherwise be harvested as this turn's
+// status; the floor keeps the harvest to lines the session wrote this turn.
+// `sliceStart` is the slice's own byte offset in the file; `sliceBytes` holds
+// only complete lines (as readCompleteLines returns).
+export const readStatusReportsInSlice = (sliceBytes: Uint8Array, sliceStart: number, fromByte: number): ReportedStatusUpdate[] => {
+  const reports: ReportedStatusUpdate[] = [];
+  const decoder = new TextDecoder();
+  let lineFrom = 0;
+  for (let i = 0; i < sliceBytes.length; i++) {
+    if (sliceBytes[i] !== NEWLINE_BYTE) continue;
+    if (sliceStart + lineFrom >= fromByte) {
+      const report = readStatusReport(decoder.decode(sliceBytes.subarray(lineFrom, i)));
+      if (report) reports.push(report);
+    }
+    lineFrom = i + 1;
+  }
+  return reports;
 };

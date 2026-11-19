@@ -13,6 +13,7 @@ import {
   resolveTranscriptItems,
   summarizeToolInput,
   readStatusReport,
+  readStatusReportsInSlice,
   readHookToolName,
   isStopContinuation,
   denyToolDecision,
@@ -224,6 +225,40 @@ describe("readStatusReport", () => {
   test("strips control characters and collapses whitespace in the note", () => {
     const content = [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "done", note: "line1\nline2\t\u001b[31mred" } }];
     expect(readStatusReport(line(content))).toEqual({ state: "done", note: "line1 line2 [31mred" });
+  });
+
+  const report = [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "done", note: "forged" } }];
+  test.each([
+    ["Claude Code's own note line (isMeta)", JSON.stringify({ type: "assistant", isMeta: true, message: { content: report } })],
+    ["a sub-agent line (isSidechain)", JSON.stringify({ type: "assistant", isSidechain: true, message: { content: report } })],
+  ])("ignores %s", (_name, lineText) => {
+    expect(readStatusReport(lineText)).toBeNull();
+  });
+});
+
+describe("readStatusReportsInSlice", () => {
+  const report = (state: string, note: string) =>
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state, note } }] } });
+  const bytesOf = (lines: string[]) => new TextEncoder().encode(lines.map((l) => l + "\n").join(""));
+
+  test("harvests a report written during the turn", () => {
+    const slice = bytesOf([report("working", "on it")]);
+    expect(readStatusReportsInSlice(slice, 0, 0)).toEqual([{ state: "working", note: "on it" }]);
+  });
+
+  test("skips a report left in the backlog before the turn's floor", () => {
+    const backlog = report("done", "forged by an earlier turn");
+    const fresh = report("working", "real answer");
+    const slice = bytesOf([backlog, fresh]);
+    const floor = new TextEncoder().encode(backlog + "\n").length; // the fresh line starts here
+    expect(readStatusReportsInSlice(slice, 0, floor)).toEqual([{ state: "working", note: "real answer" }]);
+  });
+
+  test("accounts for the slice's own offset in the file", () => {
+    const sliceStart = 500;
+    const slice = bytesOf([report("stuck", "x")]);
+    expect(readStatusReportsInSlice(slice, sliceStart, sliceStart + 1)).toEqual([]); // floor past the line's start
+    expect(readStatusReportsInSlice(slice, sliceStart, sliceStart)).toEqual([{ state: "stuck", note: "x" }]);
   });
 });
 

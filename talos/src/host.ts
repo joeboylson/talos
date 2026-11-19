@@ -175,6 +175,10 @@ const startQueuedAskWhenSettled = async (sessionName: string, token: string): Pr
       if (quietForMs >= READY_QUIET_MS) return void applyStatusLaneEvent(sessionName, { type: "idle", hasDraft: session.hasDraft });
       await Bun.sleep(READY_CHECK_MS);
     }
+  } catch (error) {
+    // Logged, not thrown: Bun quits on an unhandled rejection, which would end
+    // every session the host holds.
+    log.warn(`host: couldn't start ${sessionName}'s status ask: ${error}`);
   } finally {
     if (heldSessions.get(sessionName)?.hookToken === token) sessionsWaitingToAsk.delete(sessionName);
   }
@@ -221,7 +225,9 @@ const forgetSession = (sessionName: string) => {
   sessionsBeingRead.delete(sessionName);
   sessionsBecomingReady.delete(sessionName);
   sessionsWaitingToAsk.delete(sessionName);
-  void rm(join(UPLOADS_FOLDER, sessionName), { recursive: true, force: true });
+  void rm(join(UPLOADS_FOLDER, sessionName), { recursive: true, force: true }).catch((error: unknown) =>
+    log.warn(`host: couldn't delete ${sessionName}'s uploads: ${error}`),
+  );
   log.event(`host: session ${sessionName} ended`);
   broadcastSessions();
 };
@@ -265,7 +271,7 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
     hookToken,
     hasDraft: false,
   });
-  child.exited.then(() => forgetSession(sessionName));
+  void child.exited.then(() => forgetSession(sessionName)).catch((error: unknown) => log.warn(`host: couldn't clean up ${sessionName}: ${error}`));
   log.event(`host: started session ${sessionName} in ${path}`);
   broadcastSessions();
   return new Response(null, { status: 201 });
@@ -360,9 +366,9 @@ const handleHook = (sessionName: string, hookDetailsText: string): string => {
   // events can't pile up uncancelled loops and exhaust the host's memory.
   if (hookEvent === "SessionStart" && !sessionsBecomingReady.has(sessionName)) {
     sessionsBecomingReady.add(sessionName);
-    void becomeReadyWhenQuiet(sessionName, session.hookToken, Date.now() + READY_LONGEST_WAIT_MS).finally(() =>
-      sessionsBecomingReady.delete(sessionName),
-    );
+    void becomeReadyWhenQuiet(sessionName, session.hookToken, Date.now() + READY_LONGEST_WAIT_MS)
+      .catch((error: unknown) => log.warn(`host: couldn't finish starting ${sessionName}: ${error}`))
+      .finally(() => sessionsBecomingReady.delete(sessionName));
   }
 
   // Claude Code can start a new conversation file (like after /clear), so

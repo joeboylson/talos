@@ -41,6 +41,8 @@ test("buildHookSettings runs the hook command on every event", () => {
   const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"'));
   expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"]);
   expect(settings.hooks.Stop).toEqual([{ hooks: [{ type: "command", command: '"/bin/bun" "/talos/hook.ts"' }] }]);
+  // Pinned so a project's own disableAllHooks:true can't switch off enforcement.
+  expect(settings.disableAllHooks).toBe(false);
 });
 
 test("buildPastedText pastes the whole text as one piece", () => {

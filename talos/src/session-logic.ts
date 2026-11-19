@@ -39,9 +39,13 @@ export const nextSessionState = (hookEvent: string, hookPayload: unknown): Sessi
 
 // The --settings value that makes Claude Code run talos's hook script on
 // each event. It adds to the person's own settings rather than replacing them.
+// disableAllHooks is pinned false here because --settings outranks a project's
+// own settings: without the pin, a session could write .claude/settings.local.json
+// with disableAllHooks:true to switch off the whole enforcement layer for the
+// next session in its folder.
 export const buildHookSettings = (hookCommand: string): string => {
   const commandHook = [{ hooks: [{ type: "command", command: hookCommand }] }];
-  return JSON.stringify({ hooks: Object.fromEntries(HOOK_EVENTS.map((hookEvent) => [hookEvent, commandHook])) });
+  return JSON.stringify({ disableAllHooks: false, hooks: Object.fromEntries(HOOK_EVENTS.map((hookEvent) => [hookEvent, commandHook])) });
 };
 
 // Bracketed paste: Claude Code takes the whole text as one message, even with

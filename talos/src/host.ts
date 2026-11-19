@@ -293,9 +293,12 @@ const becomeReadyWhenQuiet = async (sessionName: string, token: string, giveUpAt
   const session = heldSessions.get(sessionName);
   if (!session || session.hookToken !== token) return;
   heldSessions.set(sessionName, { ...session, queuedMessages: [] });
-  // With messages to type, the session is about to work, not idle: a queued
-  // status ask then waits for that turn's Stop instead of taking the messages.
-  setSessionState(sessionName, session.queuedMessages.length > 0 ? "working" : "idle");
+  // Messages sent during startup are the person typing, so they end any ask.
+  // The session is then working, not idle, so a new ask waits for their Stop
+  // instead of landing on top of them.
+  const hasQueuedMessages = session.queuedMessages.length > 0;
+  if (hasQueuedMessages) applyStatusLaneEvent(sessionName, { type: "person-typed" });
+  setSessionState(sessionName, hasQueuedMessages ? "working" : "idle");
   for (const message of session.queuedMessages) await typeIntoSession(session, message);
 };
 

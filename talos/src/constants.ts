@@ -37,6 +37,10 @@ export const MCP_CONFIG_FILE = join(CREDENTIALS_FOLDER, "mcp-config.json");
 
 // A status request that goes unanswered this long becomes "no response".
 export const STATUS_TIMEOUT_MS = 60_000;
+// An ask queued behind a busy session waits this long for it to go idle: long
+// enough for real work, short enough that a session stuck waiting on the person
+// doesn't block asks for good.
+export const QUEUED_STATUS_TIMEOUT_MS = 30 * 60_000;
 // How often the host checks for status requests that have timed out.
 export const STATUS_CHECK_MS = 5_000;
 export const HOST_START_TIMEOUT_MS = 5000;

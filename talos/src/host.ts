@@ -121,6 +121,9 @@ const lastOutputAtBySession = new Map<string, number>();
 const outputListeners = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>();
 const eventListeners = new Set<ReadableStreamDefaultController<string>>();
 const sessionsBeingRead = new Set<string>();
+// Sessions with a ready-loop running, so a forged flood of SessionStart events
+// can't pile up uncancelled becomeReadyWhenQuiet loops and exhaust the host.
+const sessionsBecomingReady = new Set<string>();
 
 const listSessions = (): SessionSummary[] => [...heldSessions.values()].map((session) => session.summary);
 
@@ -215,6 +218,8 @@ const forgetSession = (sessionName: string) => {
   lastOutputAtBySession.delete(sessionName);
   outputListeners.get(sessionName)?.forEach((listener) => listener.close());
   outputListeners.delete(sessionName);
+  sessionsBeingRead.delete(sessionName);
+  sessionsBecomingReady.delete(sessionName);
   void rm(join(UPLOADS_FOLDER, sessionName), { recursive: true, force: true });
   log.event(`host: session ${sessionName} ended`);
   broadcastSessions();
@@ -319,14 +324,17 @@ const readAllNewEntries = () =>
 
 // Once Claude Code's screen settles after it starts, the session is ready:
 // type anything sent while it was starting.
-const becomeReadyWhenQuiet = async (sessionName: string, giveUpAtMs: number): Promise<void> => {
+const becomeReadyWhenQuiet = async (sessionName: string, token: string, giveUpAtMs: number): Promise<void> => {
+  // Bail if the session is gone, or was replaced by a new instance with the same
+  // name, so a stale loop never drives the replacement.
+  if (heldSessions.get(sessionName)?.hookToken !== token) return;
   const quietForMs = Date.now() - (lastOutputAtBySession.get(sessionName) ?? 0);
   if (quietForMs < READY_QUIET_MS && Date.now() < giveUpAtMs) {
     await Bun.sleep(READY_CHECK_MS);
-    return becomeReadyWhenQuiet(sessionName, giveUpAtMs);
+    return becomeReadyWhenQuiet(sessionName, token, giveUpAtMs);
   }
   const session = heldSessions.get(sessionName);
-  if (!session) return;
+  if (!session || session.hookToken !== token) return;
   heldSessions.set(sessionName, { ...session, queuedMessages: [] });
   setSessionState(sessionName, "idle");
   for (const message of session.queuedMessages) await typeIntoSession(session, message);
@@ -366,7 +374,14 @@ const handleHook = async (sessionName: string, hookDetailsText: string): Promise
 
   const decision = await decideStatusHook(sessionName, hookEvent, hookDetails);
 
-  if (hookEvent === "SessionStart") void becomeReadyWhenQuiet(sessionName, Date.now() + READY_LONGEST_WAIT_MS);
+  // Only one ready-loop per session instance, so a forged flood of SessionStart
+  // events can't pile up uncancelled loops and exhaust the host's memory.
+  if (hookEvent === "SessionStart" && !sessionsBecomingReady.has(sessionName)) {
+    sessionsBecomingReady.add(sessionName);
+    void becomeReadyWhenQuiet(sessionName, session.hookToken, Date.now() + READY_LONGEST_WAIT_MS).finally(() =>
+      sessionsBecomingReady.delete(sessionName),
+    );
+  }
 
   // Claude Code can start a new conversation file (like after /clear), so
   // a new path starts over from its beginning.

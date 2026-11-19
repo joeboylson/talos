@@ -11,9 +11,11 @@ import { applyStatusLaneEvent, setSessionState } from "./session-state";
 import { heldSessions, updateHeldSession } from "./store";
 import { TALOS_LIMITS } from "../limits";
 
-const handleHook = (sessionName: string, hookDetailsText: string): string => {
+const handleHook = (sessionName: string, token: string, hookDetailsText: string): string => {
   const session = heldSessions.get(sessionName);
-  if (!session) return "";
+  // The token was checked before the body was read; the session may have been
+  // replaced under its name since, and a request from the old one must not act.
+  if (session?.hookToken !== token) return "";
   const hookDetails: unknown = JSON.parse(hookDetailsText || "{}");
   const hookEvent = String(Reflect.get(hookDetails as object, "hook_event_name") ?? "");
 
@@ -46,8 +48,9 @@ const handleHook = (sessionName: string, hookDetailsText: string): string => {
   const blockedStop = hookEvent === "Stop" && decision !== "";
   const nextState = nextSessionState(hookEvent, hookDetails);
   const hasOpenDecision = heldSessions.get(sessionName)?.summary.decision !== undefined;
-  const shownState = nextState === "idle" && hasOpenDecision ? "needs-you" : nextState;
-  if (shownState && !blockedStop) setSessionState(sessionName, shownState);
+  const isTurnOver = nextState === "idle";
+  const shownState = isTurnOver && hasOpenDecision ? "needs-you" : nextState;
+  if (shownState && !blockedStop) setSessionState(sessionName, shownState, isTurnOver);
   return decision;
 };
 
@@ -64,14 +67,15 @@ export const hookServeOptions = {
         // The hooks socket is shared by every session, so bind the POST to its
         // session with a per-session token; a request for a session whose token
         // it doesn't have is ignored, so one session can't drive another's hooks.
-        if (!hookTokenAuthorized(request.headers.get(HOOK_TOKEN_HEADER), heldSessions.get(sessionName)?.hookToken)) {
+        const token = heldSessions.get(sessionName)?.hookToken;
+        if (!token || !hookTokenAuthorized(request.headers.get(HOOK_TOKEN_HEADER), token)) {
           log.warn(`host: ignored a hook for "${sessionName}" with a bad token`);
           return new Response("");
         }
         const hookDetailsText = await request.text();
         try {
           // The hook script prints this to Claude Code; empty means no decision.
-          return new Response(handleHook(sessionName, hookDetailsText));
+          return new Response(handleHook(sessionName, token, hookDetailsText));
         } catch (error) {
           log.warn(`host: couldn't handle a hook: ${error}`);
           return new Response("");

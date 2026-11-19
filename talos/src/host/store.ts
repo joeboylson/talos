@@ -32,6 +32,10 @@ export type HeldSession = {
   // Unsent text the person left in Claude Code's input box from an attached
   // terminal. The status request mustn't be pasted onto it.
   hasDraft: boolean;
+  // The session's last turn has ended (talos's Stop came, or it just started),
+  // as opposed to "needs you" for a permission prompt mid-turn. Only then may a
+  // status request be typed: Enter in a permission prompt would approve it.
+  isTurnOver: boolean;
   // The most recent terminal output, so someone attaching sees the screen, and
   // when it last changed, to tell when the screen has settled.
   output: Uint8Array;
@@ -60,10 +64,17 @@ export const updateHeldSession = (sessionName: string, token: string, change: Pa
 
 export const listSessions = (): SessionSummary[] => [...heldSessions.values()].map((session) => session.summary);
 
-export const broadcast = (hostEvent: HostEvent) => {
-  const line = encodeHostEvent(hostEvent);
-  eventListeners.forEach((listener) => listener.enqueue(line));
-};
+// Sends a chunk to every listener, cutting off one too far behind (it stopped
+// reading), so the host never holds an unbounded backlog for it.
+export const sendToListeners = <T>(listeners: Set<ReadableStreamDefaultController<T>>, chunk: T) =>
+  listeners.forEach((listener) => {
+    const isTooFarBehind = (listener.desiredSize ?? 0) < -TALOS_LIMITS.maxStreamBacklogChunks;
+    if (!isTooFarBehind) return listener.enqueue(chunk);
+    listeners.delete(listener);
+    listener.error(new Error("stopped reading"));
+  });
+
+export const broadcast = (hostEvent: HostEvent) => sendToListeners(eventListeners, encodeHostEvent(hostEvent));
 
 // Coalesced: rapid state/status changes (a session can flap its own state via
 // forged hooks) collapse into one roster broadcast per window, so the uplink

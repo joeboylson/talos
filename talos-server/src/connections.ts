@@ -103,24 +103,50 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     pageSocket.send(encode<ServerToPage>({ type: "machines", machines: machineSummaries }));
   };
 
-  const sendMachineListToPages = async (personId: string): Promise<void> => {
-    const machines = await machinesTable.listMachines();
+  // Each owner's machines as of the last table read. Every change to the table
+  // (pair, rename, remove) and every connect or disconnect ends in
+  // sendMachineListToPages, which reads the table again, so this stays current
+  // and the frequent session and folder reports reuse it instead of scanning.
+  // shortcut: a second server instance (a deploy's overlap) doesn't see the
+  // other's writes until it reads again; share the list if it ever runs more
+  // than one instance.
+  const machinesByOwner = new Map<string, MachineRecord[]>();
+  // Two reads for one owner can finish out of order; only the newest one sends,
+  // so the page never ends on an older list.
+  const tableReadCountByOwner = new Map<string, number>();
+
+  const sendOwnerMachineList = (personId: string, machines: MachineRecord[]) =>
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) => sendMachineList(pageSocket, machines));
+
+  const sendMachineListToPages = async (personId: string): Promise<void> => {
+    const readNumber = (tableReadCountByOwner.get(personId) ?? 0) + 1;
+    tableReadCountByOwner.set(personId, readNumber);
+    // A failed read drops the copy, so the next report reads fresh instead of
+    // reusing a list that misses the write this read was for.
+    const allMachines = await machinesTable.listMachines().catch((error: unknown) => {
+      machinesByOwner.delete(personId);
+      throw error;
+    });
+    const machines = allMachines.filter((machine) => machine.ownerPersonId === personId);
+    const isNewestRead = tableReadCountByOwner.get(personId) === readNumber;
+    if (!isNewestRead) return;
+    machinesByOwner.set(personId, machines);
+    sendOwnerMachineList(personId, machines);
   };
 
-  // A machine reports its sessions often (every status, state or entry change),
-  // and each relay scans the whole machines table and re-broadcasts. Coalesce
-  // per owner so a burst becomes one scan+broadcast per window — which also caps
-  // the amplification if a machine floods these messages (there's no other rate
-  // limit on the machine socket). Roster changes (pair/connect/disconnect) relay
-  // immediately; only the hot session/folder path is coalesced.
+  // A machine reports its sessions often (every status, state or entry change).
+  // Coalesce per owner so a burst becomes one broadcast per window, which also
+  // caps the page traffic if a machine floods these messages. Roster changes
+  // (pair/connect/disconnect) relay at once through sendMachineListToPages.
   const relayScheduledFor = new Set<string>();
   const scheduleMachineListRelay = (personId: string) => {
     if (relayScheduledFor.has(personId)) return;
     relayScheduledFor.add(personId);
     setTimeout(() => {
       relayScheduledFor.delete(personId);
-      void sendMachineListToPages(personId);
+      const machines = machinesByOwner.get(personId);
+      if (machines) return sendOwnerMachineList(personId, machines);
+      sendMachineListToPages(personId).catch((error: unknown) => log.warn(`couldn't send ${personId}'s machine list: ${error}`));
     }, MACHINE_LIST_RELAY_COALESCE_MS);
   };
 
@@ -311,7 +337,11 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     if (socket.data.role === "page") {
       pageSockets.add(socket);
       log.detail(`${socket.data.displayName} connected to the live updates`);
-      sendMachineList(socket, await machinesTable.listMachines());
+      // From the kept copy, or a numbered read (which sends to this page too),
+      // so an older read can't land after a newer one.
+      const machines = machinesByOwner.get(socket.data.personId);
+      if (machines) sendMachineList(socket, machines);
+      else await sendMachineListToPages(socket.data.personId);
       sendKeptEntries(socket, socket.data.personId);
       return;
     }

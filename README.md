@@ -82,7 +82,7 @@ renamed too.
 Sessions run in the session host, a background program `talos` starts on
 each machine. It holds Claude Code's terminals, so sessions keep running
 when `talos` restarts (it restarts on every save in development). After
-changing `talos/src/host.ts` or `talos/src/hook.ts`, run
+changing anything in `talos/src/host/` or `talos/src/hook.ts`, run
 `make talos host stop` so the next `talos` starts a fresh host; that ends
 running sessions. The host's own log is `~/.talos/host.log`.
 

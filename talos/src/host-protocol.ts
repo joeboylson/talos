@@ -1,3 +1,4 @@
+import type { BunRequest } from "bun";
 import { parseJsonOrNull, readSessionEntries, readSessionList, type SessionEntry, type SessionSummary } from "talos-shared";
 
 // What the session host streams to talos: the session list whenever it
@@ -37,3 +38,5 @@ export const parseHostEvent = (line: string): HostEvent | null => {
   }
   return null;
 };
+
+export const sessionNameOf = (request: BunRequest): string => request.params.sessionName ?? "";

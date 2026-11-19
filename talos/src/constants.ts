@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { MAX_SOCKET_MESSAGE_BYTES, SOCKET_INGRESS_MAX_BYTES, SOCKET_INGRESS_WINDOW_MS } from "talos-shared";
 
 // TALOS_HOME moves everything talos keeps on this machine, so a second talos
 // (like a test against a local server) doesn't share this one's key or host.
@@ -85,6 +86,13 @@ export const SESSIONS_BROADCAST_COALESCE_MS = 100;
 export const HOOK_MAX_BODY_BYTES = 4 * 1024 * 1024;
 export const MAX_TOOL_SUMMARY_LENGTH = 300;
 export const MAX_TOOL_NAME_LENGTH = 100;
+
+// A reconnect sends each session's kept entries again. They go in batches of at
+// most this size, well under the server's socket message limit, and at most
+// this many bytes per millisecond: half the server's per-socket budget, so live
+// traffic still fits and the server drops nothing.
+export const MAX_ENTRIES_BATCH_BYTES = MAX_SOCKET_MESSAGE_BYTES / 4;
+export const RESEND_BYTES_PER_MS = SOCKET_INGRESS_MAX_BYTES / SOCKET_INGRESS_WINDOW_MS / 2;
 
 // Images sent from the page are saved here, one folder per session, and
 // deleted when the session ends. Claude Code reads them from their path.

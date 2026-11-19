@@ -1,6 +1,8 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import {
   MAX_ENTRIES_KEPT,
+  SOCKET_INGRESS_MAX_BYTES,
+  SOCKET_INGRESS_WINDOW_MS,
   encode,
   mergeSessionEntries,
   parseJsonOrNull,
@@ -22,8 +24,6 @@ import {
   MACHINE_LIST_RELAY_COALESCE_MS,
   NO_MACHINES_MESSAGE,
   PING_ANSWER_WAIT_MS,
-  SOCKET_INGRESS_MAX_BYTES,
-  SOCKET_INGRESS_WINDOW_MS,
 } from "./constants";
 import { allowBytes, type ByteWindow } from "./utils/rate-limit";
 import type { MachineRecord, MachinesTable } from "./machines-table";

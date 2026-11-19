@@ -107,6 +107,12 @@ describe("mergeSessionEntries", () => {
   const running = { kind: "tool", entryId: "t", toolName: "Bash", summary: "ls", outcome: "running" } as const;
   const text = { kind: "text", entryId: "x", text: "hi" } as const;
 
+  // talos's reconnect resend relies on this to send only what changed.
+  test("an entry that didn't change keeps the same object", () => {
+    const [kept] = mergeSessionEntries([text, running], [{ ...running, outcome: "done" }], 10);
+    expect(kept).toBe(text);
+  });
+
   test("a tool that ends replaces its running copy in place", () => {
     const merged = mergeSessionEntries([running, text], [{ ...running, outcome: "done" }], 10);
     expect(merged).toEqual([{ ...running, outcome: "done" }, text]);

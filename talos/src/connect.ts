@@ -17,7 +17,8 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE } from "./constants";
+import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, MAX_ENTRIES_BATCH_BYTES, RESEND_BYTES_PER_MS } from "./constants";
+import { batchEntriesBySize } from "./entry-batches";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
 import { readFolders, renameFolder, saveFolders } from "./folders";
 import { ensureHostRunning, followHostEvents, postToHost } from "./host-client";
@@ -45,6 +46,10 @@ export const runConnect = async (): Promise<void> => {
   let sendToServer: SendToServer | null = null;
   let latestSessions: SessionSummary[] = [];
   let entriesBySession: Record<string, SessionEntry[]> = {};
+  // Sessions whose kept entries haven't been sent again since this connection
+  // opened. Their live entries wait (they're kept above) and go out with their
+  // turn, so the page never gets newer entries before older ones.
+  let sessionsAwaitingResend = new Set<string>();
 
   const keepLatest = (hostEvent: HostEvent) => {
     if (hostEvent.type === "sessions") {
@@ -60,11 +65,39 @@ export const runConnect = async (): Promise<void> => {
     entriesBySession = { ...entriesBySession, [hostEvent.sessionName]: mergedEntries };
   };
 
-  const sendLatest = (send: SendToServer) => {
+  // Sends one session's kept entries again, in batches under the server's
+  // message limit and paced under its byte budget. Entries that arrive or change
+  // during a pause go out in the next round (an unchanged entry keeps its object,
+  // so the rest aren't sent twice). The session stays held until nothing is left,
+  // then leaves the held set at once, so a live entry can't overtake an older
+  // batch. Returns false if the connection changed.
+  const resendSessionEntries = async (sessionName: string, send: SendToServer): Promise<boolean> => {
+    const sentEntries = new Set<SessionEntry>();
+    while (true) {
+      const unsentEntries = (entriesBySession[sessionName] ?? []).filter((entry) => !sentEntries.has(entry));
+      if (unsentEntries.length === 0) return true;
+      for (const batch of batchEntriesBySize(unsentEntries, MAX_ENTRIES_BATCH_BYTES)) {
+        if (sendToServer !== send) return false;
+        send({ type: "session-entries", sessionName, entries: batch.entries });
+        batch.entries.forEach((entry) => sentEntries.add(entry));
+        await Bun.sleep(batch.byteCount / RESEND_BYTES_PER_MS);
+      }
+    }
+  };
+
+  // A bigger message closes the socket, and the same resend on every reconnect
+  // would close it again; too much at once and the server drops it unread.
+  // shortcut: live entries from sessions already resent aren't paced, so a heavy
+  // burst during a resend can still push a batch past the server's budget; pace
+  // all uplink traffic if that shows up.
+  const sendLatest = async (send: SendToServer) => {
     send({ type: "sessions", sessions: latestSessions });
-    Object.entries(entriesBySession).forEach(([sessionName, entries]) =>
-      send({ type: "session-entries", sessionName, entries }),
-    );
+    sessionsAwaitingResend = new Set(Object.keys(entriesBySession));
+    for (const sessionName of [...sessionsAwaitingResend]) {
+      const isStillThisConnection = await resendSessionEntries(sessionName, send);
+      if (!isStillThisConnection) return;
+      sessionsAwaitingResend.delete(sessionName);
+    }
   };
 
   const sendFolders = async () => {
@@ -82,7 +115,10 @@ export const runConnect = async (): Promise<void> => {
     keepLatest(hostEvent);
     if (!sendToServer) return;
     if (hostEvent.type === "sessions") return sendToServer({ type: "sessions", sessions: hostEvent.sessions });
-    sendToServer({ type: "session-entries", sessionName: hostEvent.sessionName, entries: hostEvent.entries });
+    if (sessionsAwaitingResend.has(hostEvent.sessionName)) return;
+    batchEntriesBySize(hostEvent.entries, MAX_ENTRIES_BATCH_BYTES).forEach((batch) =>
+      sendToServer?.({ type: "session-entries", sessionName: hostEvent.sessionName, entries: batch.entries }),
+    );
   };
 
   // Sessions run in the session host, which outlives talos. If the host goes
@@ -177,7 +213,7 @@ export const runConnect = async (): Promise<void> => {
       onOpen: (send) => {
         sendToServer = send;
         sendFoldersOrWarn();
-        sendLatest(send);
+        void sendLatest(send).catch((error: unknown) => log.warn(`talos: couldn't send the latest entries (${error})`));
       },
       onConnectionChange: (isNowConnected) => {
         isConnected = isNowConnected;

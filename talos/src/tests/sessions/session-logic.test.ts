@@ -40,11 +40,13 @@ describe("nextSessionState", () => {
 });
 
 test("buildHookSettings runs the hook command on every event", () => {
-  const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"'));
+  const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"', { TALOS_HOST_SOCKET: "/sock", TALOS_HOOK_TOKEN: "tok" }));
   expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"]);
   expect(settings.hooks.Stop).toEqual([{ hooks: [{ type: "command", command: '"/bin/bun" "/talos/hook.ts"' }] }]);
   // Pinned so a project's own disableAllHooks:true can't switch off enforcement.
   expect(settings.disableAllHooks).toBe(false);
+  // Pinned so a project's own `env` can't blank the socket/token the hook reads.
+  expect(settings.env).toEqual({ TALOS_HOST_SOCKET: "/sock", TALOS_HOOK_TOKEN: "tok" });
 });
 
 test("buildPastedText pastes the whole text as one piece", () => {

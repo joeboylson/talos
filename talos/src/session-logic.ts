@@ -43,9 +43,13 @@ export const nextSessionState = (hookEvent: string, hookPayload: unknown): Sessi
 // own settings: without the pin, a session could write .claude/settings.local.json
 // with disableAllHooks:true to switch off the whole enforcement layer for the
 // next session in its folder.
-export const buildHookSettings = (hookCommand: string): string => {
+export const buildHookSettings = (hookCommand: string, hookEnv: Record<string, string>): string => {
   const commandHook = [{ hooks: [{ type: "command", command: hookCommand }] }];
-  return JSON.stringify({ disableAllHooks: false, hooks: Object.fromEntries(HOOK_EVENTS.map((hookEvent) => [hookEvent, commandHook])) });
+  // Pin `env` here too: --settings outranks a project's own settings, so a
+  // session can't write .claude/settings.local.json with an `env` block that
+  // blanks the socket/token the hook reads to reach the host (which would make
+  // the hook self-disable and the enforcement fail open).
+  return JSON.stringify({ disableAllHooks: false, env: hookEnv, hooks: Object.fromEntries(HOOK_EVENTS.map((hookEvent) => [hookEvent, commandHook])) });
 };
 
 // Bracketed paste: Claude Code takes the whole text as one message, even with

@@ -231,17 +231,20 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
 
   const hookCommand = `"${process.execPath}" "${HOOK_SCRIPT}"`;
   const hookToken = crypto.randomUUID();
+  // The hook reads these from its env to reach the host; pin them in --settings
+  // (below) as well as the spawn env so a project's own settings can't poison them.
+  const hookEnv = {
+    [SESSION_ENV_KEYS.sessionName]: sessionName,
+    [SESSION_ENV_KEYS.hostSocket]: HOST_HOOKS_SOCKET,
+    [SESSION_ENV_KEYS.hookToken]: hookToken,
+  };
   const child = Bun.spawn(
     // --mcp-config gives every session the report_status tool (status-tool.ts);
     // the PreToolUse hook decides when it may be called.
-    [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand), "--mcp-config", MCP_CONFIG_FILE],
+    [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", MCP_CONFIG_FILE],
     {
       cwd: path,
-      env: buildSessionEnv(process.env, {
-        [SESSION_ENV_KEYS.sessionName]: sessionName,
-        [SESSION_ENV_KEYS.hostSocket]: HOST_HOOKS_SOCKET,
-        [SESSION_ENV_KEYS.hookToken]: hookToken,
-      }),
+      env: buildSessionEnv(process.env, hookEnv),
       terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, chunk) },
     } as Parameters<typeof Bun.spawn>[1],
   );

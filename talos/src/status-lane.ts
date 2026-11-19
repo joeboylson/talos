@@ -7,7 +7,7 @@ import { MAX_STATUS_NOTE_LENGTH, REPORTED_STATUSES, type ReportedStatus, type Se
 import { QUEUED_STATUS_TIMEOUT_MS, STATUS_TIMEOUT_MS, STATUS_TOOL_NAME } from "./constants";
 import { removeControlCharacters } from "./session-logic";
 
-// none: no ask. queued: asked while busy, starts when the session goes idle.
+// none: no ask. queued: asked, starts when the session is idle and settled.
 // asking: the status turn is running. reported: answered, waiting for its Stop.
 // hasForcedStop is kept here rather than read from the hook body's
 // stop_hook_active, which a session can forge over its own hook token.
@@ -20,7 +20,9 @@ export type StatusLane =
 export const NO_STATUS_LANE: StatusLane = { kind: "none" };
 
 export type StatusLaneEvent =
-  | { type: "ask"; isIdle: boolean; hasDraft: boolean }
+  | { type: "ask" }
+  // The session is idle and its screen has settled (see host.ts), so a request
+  // typed now starts a turn of its own.
   | { type: "idle"; hasDraft: boolean }
   | { type: "pre-tool-use"; toolName: string; toolInput: unknown; isSubagent: boolean }
   | { type: "stop" }
@@ -84,8 +86,6 @@ export const hookReplyWhenHostUnreachable = (hookDetails: unknown): string => {
   return isStatusCall ? denyToolDecision(HOST_UNREACHABLE_REASON) : "";
 };
 
-const noResponseAt = (nowMs: number): SessionStatus => ({ state: "no-response", note: "", atMs: nowMs });
-
 const stay = (lane: StatusLane, hookReply = ""): StatusLaneStep => ({ lane, hookReply, statusChange: null, shouldTypeRequest: false });
 
 const startStatusTurn = (nowMs: number, statusChange: SessionStatus | null): StatusLaneStep => ({
@@ -95,13 +95,13 @@ const startStatusTurn = (nowMs: number, statusChange: SessionStatus | null): Sta
   shouldTypeRequest: true,
 });
 
-// A repeat ask while one is in flight is ignored: re-arming would reset the
-// timeout clock, so a flood of asks could pin a session in status-only mode.
-const stepAsk = (lane: StatusLane, isIdle: boolean, hasDraft: boolean, nowMs: number): StatusLaneStep => {
+// Every ask queues, even to an idle session, so the request is only ever typed
+// from the idle event. A repeat ask while one is in flight is ignored:
+// re-arming would reset the timeout clock, so a flood of asks could pin a
+// session in status-only mode.
+const stepAsk = (lane: StatusLane, nowMs: number): StatusLaneStep => {
   if (lane.kind !== "none") return stay(lane);
-  if (isIdle && hasDraft) return { ...stay(lane), statusChange: noResponseAt(nowMs) };
   const pending: SessionStatus = { state: "pending", note: "", atMs: nowMs };
-  if (isIdle) return startStatusTurn(nowMs, pending);
   return { lane: { kind: "queued", askedAtMs: nowMs }, hookReply: "", statusChange: pending, shouldTypeRequest: false };
 };
 
@@ -136,7 +136,7 @@ const stepStop = (lane: StatusLane): StatusLaneStep => {
 const endStatusAsk = (lane: StatusLane, nowMs: number): StatusLaneStep => ({
   lane: NO_STATUS_LANE,
   hookReply: "",
-  statusChange: lane.kind === "reported" ? null : noResponseAt(nowMs),
+  statusChange: lane.kind === "reported" ? null : { state: "no-response", note: "", atMs: nowMs },
   shouldTypeRequest: false,
 });
 
@@ -170,7 +170,7 @@ const stepPersonTyped = (lane: StatusLane, isTurnChanging: boolean, nowMs: numbe
 };
 
 export const stepStatusLane = (lane: StatusLane, event: StatusLaneEvent, nowMs: number): StatusLaneStep => {
-  if (event.type === "ask") return stepAsk(lane, event.isIdle, event.hasDraft, nowMs);
+  if (event.type === "ask") return stepAsk(lane, nowMs);
   if (event.type === "idle") return stepIdle(lane, event.hasDraft, nowMs);
   if (event.type === "pre-tool-use") return stepPreToolUse(lane, event, nowMs);
   if (event.type === "stop") return stepStop(lane);

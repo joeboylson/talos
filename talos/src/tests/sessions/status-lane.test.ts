@@ -78,7 +78,7 @@ describe("3. nothing but a report or the timeout ends a status turn", () => {
     ["asking", asking],
     ["reported", reported],
   ])("a repeat ask while %s is ignored (no clock reset, no retype)", (_name, lane) => {
-    expect(step(lane, { type: "ask", isIdle: true, hasDraft: false }, NOW + 5000)).toEqual(unchanged(lane));
+    expect(step(lane, { type: "ask" }, NOW + 5000)).toEqual(unchanged(lane));
   });
   test("the person typing ends an unanswered turn, so their message's tools run", () => {
     expect(step(askingForced, { type: "person-typed", isTurnChanging: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
@@ -147,23 +147,13 @@ describe("5. a bad or missing report fails safe", () => {
 });
 
 describe("asking", () => {
-  test("an idle session is asked now", () => {
-    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: true, hasDraft: false })).toEqual({ lane: asking, decision: "", status: "pending", typed: true });
+  test("an ask queues, so the request is only typed from the idle event", () => {
+    expect(step(NO_STATUS_LANE, { type: "ask" })).toEqual({ lane: queued, decision: "", status: "pending", typed: false });
   });
-  test("a busy session is asked when it next goes idle", () => {
-    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: false, hasDraft: false })).toEqual({ lane: queued, decision: "", status: "pending", typed: false });
+  test("the idle event types the request and starts the turn's clock", () => {
     expect(step(queued, { type: "idle", hasDraft: false }, NOW + 10)).toEqual({ lane: { ...asking, askedAtMs: NOW + 10 }, decision: "", status: null, typed: true });
   });
-});
-
-describe("a draft in the input box", () => {
-  test("an idle session with a draft isn't asked: the request would be sent with it", () => {
-    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: true, hasDraft: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
-  });
-  test("a busy session with a draft still queues the ask", () => {
-    expect(step(NO_STATUS_LANE, { type: "ask", isIdle: false, hasDraft: true }).lane).toEqual(queued);
-  });
-  test("a queued ask that meets a draft at idle ends instead of starting", () => {
+  test("a queued ask that meets a draft at idle ends: the request would be sent with it", () => {
     expect(step(queued, { type: "idle", hasDraft: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
 });

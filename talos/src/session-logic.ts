@@ -279,6 +279,26 @@ export const decideStatusStop = (lane: { reported: boolean; forcedStop: boolean 
 // could pin a session in status-only mode and starve the sweep.
 export const statusAskInFlight = (lane: { active: boolean; wanted: boolean }): boolean => lane.active || lane.wanted;
 
+// Collapses rapid calls into one run per window (trailing edge): a burst becomes
+// a single run that reads the latest state itself, so nothing is lost, only
+// coalesced. Used to debounce the host's session broadcast so a session can't
+// flood the uplink by flapping its own state. `schedule` is injectable for tests.
+export const createCoalescer = (
+  run: () => void,
+  windowMs: number,
+  schedule: (fn: () => void, ms: number) => unknown = setTimeout,
+): (() => void) => {
+  let pending = false;
+  return () => {
+    if (pending) return;
+    pending = true;
+    schedule(() => {
+      pending = false;
+      run();
+    }, windowMs);
+  };
+};
+
 // A session's transcript only legitimately rotates within its own project folder
 // (a /clear or compaction starts a new file there). Following a switch anywhere
 // else would let a self-authenticated hook point the host at an unrelated file to

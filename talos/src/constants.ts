@@ -71,6 +71,9 @@ export const NEWLINE_BYTE = 0x0a;
 // Most a single transcript poll reads and parses at once, so one session's large
 // transcript is drained over several polls instead of blocking the host in one go.
 export const MAX_TRANSCRIPT_READ_BYTES = 4 * 1024 * 1024;
+// Rapid session state/status changes collapse into one roster broadcast per this
+// window, so a session flapping its state can't flood the host→server uplink.
+export const SESSIONS_BROADCAST_COALESCE_MS = 100;
 export const MAX_TOOL_SUMMARY_LENGTH = 300;
 export const MAX_TOOL_NAME_LENGTH = 100;
 

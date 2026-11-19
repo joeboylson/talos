@@ -34,6 +34,7 @@ import {
   IMAGE_PASTE_SETTLE_MS,
   MAX_OUTPUT_BYTES,
   MAX_TRANSCRIPT_READ_BYTES,
+  SESSIONS_BROADCAST_COALESCE_MS,
   NEWLINE_BYTE,
   READY_CHECK_MS,
   READY_LONGEST_WAIT_MS,
@@ -65,6 +66,7 @@ import {
   ENTER_KEY,
   nextSessionState,
   allowTranscriptSwitch,
+  createCoalescer,
   hookTokenAuthorized,
   readCompleteLines,
   readStatusReportsInSlice,
@@ -127,7 +129,13 @@ const broadcast = (hostEvent: HostEvent) => {
   eventListeners.forEach((listener) => listener.enqueue(line));
 };
 
-const broadcastSessions = () => broadcast({ type: "sessions", sessions: listSessions() });
+// Coalesced: rapid state/status changes (a session can flap its own state via
+// forged hooks) collapse into one roster broadcast per window, so the uplink
+// (host→machine→server) can't be flooded. The run sends the latest list.
+const broadcastSessions = createCoalescer(
+  () => broadcast({ type: "sessions", sessions: listSessions() }),
+  SESSIONS_BROADCAST_COALESCE_MS,
+);
 
 const setSessionState = (sessionName: string, state: SessionState) => {
   const session = heldSessions.get(sessionName);

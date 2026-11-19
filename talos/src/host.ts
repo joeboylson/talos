@@ -61,6 +61,8 @@ import {
   allowTranscriptSwitch,
   createCoalescer,
   hookTokenAuthorized,
+  isDraftChangingKeys,
+  isTurnChangingKeys,
   readCompleteLines,
   readTranscriptLine,
   resolveTranscriptItems,
@@ -297,7 +299,7 @@ const becomeReadyWhenQuiet = async (sessionName: string, token: string, giveUpAt
   // The session is then working, not idle, so a new ask waits for their Stop
   // instead of landing on top of them.
   const hasQueuedMessages = session.queuedMessages.length > 0;
-  if (hasQueuedMessages) applyStatusLaneEvent(sessionName, { type: "person-typed" });
+  if (hasQueuedMessages) applyStatusLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   setSessionState(sessionName, hasQueuedMessages ? "working" : "idle");
   for (const message of session.queuedMessages) await typeIntoSession(session, message);
 };
@@ -368,7 +370,7 @@ const sendToSession = async (sessionName: string, text: string, images: SentImag
   if (session.summary.state === "starting") {
     heldSessions.set(sessionName, { ...session, queuedMessages: [...session.queuedMessages, message] });
   } else {
-    applyStatusLaneEvent(sessionName, { type: "person-typed" });
+    applyStatusLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
     await typeIntoSession(session, message);
   }
   return new Response(null, { status: 204 });
@@ -506,7 +508,10 @@ const controlServeOptions = {
         const session = heldSessionOf(request);
         const keys = new Uint8Array(await request.arrayBuffer());
         if (!session) return new Response(null, { status: 204 });
-        applyStatusLaneEvent(session.summary.sessionName, { type: "person-typed" });
+        // A terminal sends reports (like focus in or out) as input on its own, so
+        // only keys that change the turn or the draft count as the person typing.
+        const isTurnChanging = isTurnChangingKeys(keys);
+        if (isTurnChanging || isDraftChangingKeys(keys)) applyStatusLaneEvent(session.summary.sessionName, { type: "person-typed", isTurnChanging });
         session.terminal.write(keys);
         return new Response(null, { status: 204 });
       },

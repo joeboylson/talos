@@ -77,6 +77,28 @@ export const buildPastedText = (text: string): string => `${PASTE_START}${remove
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 export const removeControlCharacters = (text: string): string => text.replace(CONTROL_CHARACTERS, "");
 
+// Keys from an attached terminal that start the next turn: Enter sends a
+// message, and Esc or Ctrl-C interrupts. Arrow keys, scrolling and other escape
+// sequences don't, so they mustn't end a running status turn.
+const ENTER_BYTE = 0x0d;
+const ESC_BYTE = 0x1b;
+const CTRL_C_BYTE = 0x03;
+// Esc and Ctrl-C as a terminal sends them once Claude Code turns on kitty or
+// modifyOtherKeys key encoding.
+const ENCODED_INTERRUPT_KEYS = ["\x1b[27u", "\x1b[99;5u", "\x1b[27;5;99~"];
+export const isTurnChangingKeys = (keys: Uint8Array): boolean => {
+  const isOnlyEsc = keys.length > 0 && keys.every((byte) => byte === ESC_BYTE);
+  const keysText = new TextDecoder().decode(keys);
+  const hasEncodedInterrupt = ENCODED_INTERRUPT_KEYS.some((sequence) => keysText.includes(sequence));
+  return keys.includes(ENTER_BYTE) || keys.includes(CTRL_C_BYTE) || isOnlyEsc || hasEncodedInterrupt;
+};
+
+// Keys that type into the draft. Arrow keys and the reports a terminal sends on
+// its own (focus in or out, cursor position) all start with Esc, so they don't.
+// shortcut: Up recalling an old message also starts with Esc and is missed;
+// upgrade once the host tracks unsent drafts.
+export const isDraftChangingKeys = (keys: Uint8Array): boolean => keys.length > 0 && keys[0] !== ESC_BYTE;
+
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
 // only the fields talos reads.
 type TranscriptLine = {

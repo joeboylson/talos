@@ -24,7 +24,7 @@ export type StatusLaneEvent =
   | { type: "idle" }
   | { type: "pre-tool-use"; toolName: string; toolInput: unknown; isSubagent: boolean }
   | { type: "stop" }
-  | { type: "person-typed" }
+  | { type: "person-typed"; isTurnChanging: boolean }
   | { type: "tick" };
 
 // hookReply is the hook's stdout for Claude Code ("" = no decision).
@@ -146,18 +146,22 @@ const stepTick = (lane: StatusLane, nowMs: number): StatusLaneStep => {
   return nowMs - lane.askedAtMs > timeoutMs ? endStatusAsk(lane, nowMs) : stay(lane);
 };
 
-// The person typing ends any ask. Otherwise a queued ask is typed in at the next
-// Stop and pulls their message into a status turn, and an Esc (which sends no
-// Stop) leaves it pending. Only the control socket sends this, so a session
+// The person typing ends a queued ask: it would otherwise be pasted
+// after their draft at the next Stop and pull it into a status turn, and an Esc
+// (which sends no Stop) would leave it pending. A running status turn ends only
+// on a turn-changing key (Enter, Esc, Ctrl-C), so watching it with arrow keys
+// doesn't lose the report. Only the control socket sends this, so a session
 // can't forge it the way it can forge a Stop.
-const stepPersonTyped = (lane: StatusLane, nowMs: number): StatusLaneStep =>
-  lane.kind === "none" ? stay(lane) : endStatusAsk(lane, nowMs);
+const stepPersonTyped = (lane: StatusLane, isTurnChanging: boolean, nowMs: number): StatusLaneStep => {
+  const endsAsk = lane.kind === "queued" || (isStatusTurnRunning(lane) && isTurnChanging);
+  return endsAsk ? endStatusAsk(lane, nowMs) : stay(lane);
+};
 
 export const stepStatusLane = (lane: StatusLane, event: StatusLaneEvent, nowMs: number): StatusLaneStep => {
   if (event.type === "ask") return stepAsk(lane, event.isIdle, nowMs);
   if (event.type === "idle") return lane.kind === "queued" ? startStatusTurn(nowMs, null) : stay(lane);
   if (event.type === "pre-tool-use") return stepPreToolUse(lane, event, nowMs);
   if (event.type === "stop") return stepStop(lane);
-  if (event.type === "person-typed") return stepPersonTyped(lane, nowMs);
+  if (event.type === "person-typed") return stepPersonTyped(lane, event.isTurnChanging, nowMs);
   return stepTick(lane, nowMs);
 };

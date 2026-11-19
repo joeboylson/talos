@@ -7,6 +7,7 @@ import {
   type SessionEntry,
   type SessionState,
 } from "talos-shared";
+import { dirname } from "node:path";
 import { MAX_TOOL_NAME_LENGTH, MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE, STATUS_TOOL_NAME } from "./constants";
 
 // Claude Code's hook events that move a session between states. They also
@@ -249,6 +250,20 @@ export const denyToolDecision = (reason: string): string =>
 // A Stop decision: block keeps the turn going with a reason, so the session
 // can't finish until it has reported.
 export const blockStopDecision = (reason: string): string => JSON.stringify({ decision: "block", reason });
+
+// Every session on a machine shares one hooks socket, so a hook POST must prove
+// which session it is: the host checks the token it sent against the named
+// session's token. A session knows only its own token, so it can't drive another
+// session's hooks by naming it in the path.
+export const hookTokenAuthorized = (provided: string | null, expected: string | undefined): boolean =>
+  typeof provided === "string" && provided.length > 0 && provided === expected;
+
+// A session's transcript only legitimately rotates within its own project folder
+// (a /clear or compaction starts a new file there). Following a switch anywhere
+// else would let a self-authenticated hook point the host at an unrelated file to
+// read and show as the session's conversation.
+export const allowTranscriptSwitch = (newPath: string, currentPath: string | null): boolean =>
+  currentPath === null || dirname(newPath) === dirname(currentPath);
 
 type ReportedStatusUpdate = { state: ReportedStatus; note: string };
 

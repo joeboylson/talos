@@ -45,7 +45,12 @@ export const HOST_START_CHECK_MS = 100;
 // The hook script must never hold Claude up.
 export const HOOK_TIMEOUT_MS = 2000;
 
-export const SESSION_ENV_KEYS = { sessionName: "TALOS_SESSION_NAME", hostSocket: "TALOS_HOST_SOCKET" } as const;
+export const SESSION_ENV_KEYS = { sessionName: "TALOS_SESSION_NAME", hostSocket: "TALOS_HOST_SOCKET", hookToken: "TALOS_HOOK_TOKEN" } as const;
+
+// Every session shares one hooks socket, so a hook POST proves which session it
+// is with this per-session token (minted at spawn, sent as a header). Without it
+// a session could POST to another session's /hooks route and drive it.
+export const HOOK_TOKEN_HEADER = "x-talos-hook-token";
 export const CLAUDE_COMMAND = "claude";
 export const CLAUDE_CONFIG_FILE = join(homedir(), ".claude.json");
 export const TERMINAL_SIZE = { cols: 120, rows: 40 } as const;

@@ -27,6 +27,7 @@ import {
   CREDENTIALS_FOLDER,
   CREDENTIALS_FOLDER_MODE,
   HOOK_SCRIPT,
+  HOOK_TOKEN_HEADER,
   HOST_HOOKS_SOCKET,
   HOST_SOCKET,
   HOST_SOCKET_MODE,
@@ -60,6 +61,8 @@ import {
   ENTER_KEY,
   isStopContinuation,
   nextSessionState,
+  allowTranscriptSwitch,
+  hookTokenAuthorized,
   readCompleteLines,
   readStatusReportsInSlice,
   readHookToolName,
@@ -98,6 +101,8 @@ type HeldSession = {
   transcript: Transcript | null;
   entries: SessionEntry[];
   statusLane: StatusLane;
+  // Proves a hook POST on the shared hooks socket came from this session.
+  hookToken: string;
 };
 
 // The host's state: the sessions it holds, each one's recent terminal output,
@@ -203,6 +208,7 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
   await trustFolder(path);
 
   const hookCommand = `"${process.execPath}" "${HOOK_SCRIPT}"`;
+  const hookToken = crypto.randomUUID();
   const child = Bun.spawn(
     // --mcp-config gives every session the report_status tool (status-tool.ts);
     // the PreToolUse hook decides when it may be called.
@@ -212,6 +218,7 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
       env: buildSessionEnv(process.env, {
         [SESSION_ENV_KEYS.sessionName]: sessionName,
         [SESSION_ENV_KEYS.hostSocket]: HOST_HOOKS_SOCKET,
+        [SESSION_ENV_KEYS.hookToken]: hookToken,
       }),
       terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, chunk) },
     } as Parameters<typeof Bun.spawn>[1],
@@ -228,6 +235,7 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
     transcript: null,
     entries: [],
     statusLane: IDLE_STATUS_LANE,
+    hookToken,
   });
   child.exited.then(() => forgetSession(sessionName));
   log.event(`host: started session ${sessionName} in ${path}`);
@@ -330,9 +338,20 @@ const handleHook = async (sessionName: string, hookDetailsText: string): Promise
   // a new path starts over from its beginning.
   const transcriptPath = Reflect.get(hookDetails as object, "transcript_path");
   const current = heldSessions.get(sessionName);
-  const isNewTranscript = typeof transcriptPath === "string" && current && transcriptPath !== current.transcript?.path;
+  const isNewTranscript =
+    typeof transcriptPath === "string" &&
+    current !== undefined &&
+    transcriptPath !== current.transcript?.path &&
+    allowTranscriptSwitch(transcriptPath, current.transcript?.path ?? null);
   if (isNewTranscript && current) {
-    heldSessions.set(sessionName, { ...current, transcript: { path: transcriptPath, readByteCount: 0, runningTools: {} } });
+    heldSessions.set(sessionName, {
+      ...current,
+      transcript: { path: transcriptPath, readByteCount: 0, runningTools: {} },
+      // The harvest floor is a byte offset into the old transcript, so re-anchor
+      // it to the new file's size — a fresh file starts at 0; a resumed file
+      // keeps its existing lines out of this status turn's harvest.
+      statusLane: { ...current.statusLane, harvestFromByte: Bun.file(transcriptPath).size },
+    });
   }
   // A blocked Stop keeps the turn going, so don't move the session to idle.
   const blockedStop = hookEvent === "Stop" && heldSessions.get(sessionName)?.statusLane.active === true;
@@ -526,7 +545,15 @@ const hookServeOptions = {
     [HOST_ROUTES.health]: new Response("ok"),
     [HOST_ROUTES.hooks]: {
       POST: async (request: BunRequest) => {
-        const decision = await handleHook(sessionNameOf(request), await request.text()).catch((error: unknown) => {
+        const sessionName = sessionNameOf(request);
+        // The hooks socket is shared by every session, so bind the POST to its
+        // session with a per-session token; a request for a session whose token
+        // it doesn't have is ignored, so one session can't drive another's hooks.
+        if (!hookTokenAuthorized(request.headers.get(HOOK_TOKEN_HEADER), heldSessions.get(sessionName)?.hookToken)) {
+          log.warn(`host: ignored a hook for "${sessionName}" with a bad token`);
+          return new Response("");
+        }
+        const decision = await handleHook(sessionName, await request.text()).catch((error: unknown) => {
           log.warn(`host: couldn't handle a hook: ${error}`);
           return "";
         });

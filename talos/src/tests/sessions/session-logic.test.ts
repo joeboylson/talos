@@ -17,6 +17,8 @@ import {
   readHookToolName,
   isStopContinuation,
   denyToolDecision,
+  hookTokenAuthorized,
+  allowTranscriptSwitch,
 } from "../../session-logic";
 
 describe("nextSessionState", () => {
@@ -272,5 +274,30 @@ test("readHookToolName + isStopContinuation read the hook payload", () => {
 test("denyToolDecision is a PreToolUse deny Claude Code honors", () => {
   expect(JSON.parse(denyToolDecision("no"))).toEqual({
     hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "no" },
+  });
+});
+
+describe("hookTokenAuthorized", () => {
+  test.each([
+    ["the token matches", "tok-abc", "tok-abc", true],
+    ["the token differs (another session)", "tok-victim", "tok-mine", false],
+    ["no token header", null, "tok-abc", false],
+    ["an empty token", "", "tok-abc", false],
+    ["the session has no token", "tok-abc", undefined, false],
+  ])("%s → %p", (_name, provided, expected, result) => {
+    expect(hookTokenAuthorized(provided as string | null, expected as string | undefined)).toBe(result);
+  });
+});
+
+describe("allowTranscriptSwitch", () => {
+  test("allows the first transcript (no current)", () => {
+    expect(allowTranscriptSwitch("/home/me/.claude/projects/proj/abc.jsonl", null)).toBe(true);
+  });
+  test("allows a rotation within the same project folder", () => {
+    const dir = "/home/me/.claude/projects/proj";
+    expect(allowTranscriptSwitch(`${dir}/new.jsonl`, `${dir}/old.jsonl`)).toBe(true);
+  });
+  test("refuses a switch to another folder (an unrelated file to read)", () => {
+    expect(allowTranscriptSwitch("/tmp/evil.jsonl", "/home/me/.claude/projects/proj/old.jsonl")).toBe(false);
   });
 });

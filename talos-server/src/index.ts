@@ -1,5 +1,5 @@
 import type { BunRequest, Server } from "bun";
-import { PAGE_KINDS, SERVER_ROUTES, buildPagePath, createLogger } from "talos-shared";
+import { MAX_SOCKET_MESSAGE_BYTES, PAGE_KINDS, SERVER_ROUTES, buildPagePath, createLogger } from "talos-shared";
 import page from "../../talos-web/src/index.html";
 
 const PAGE_ENTRY_PATH = new URL("../../talos-web/src/index.html", import.meta.url).pathname;
@@ -11,7 +11,6 @@ import {
   HEALTH_ROUTE,
   KEEP_ALIVE_INTERVAL_MS,
   MAX_REQUEST_BODY_BYTES,
-  MAX_SOCKET_MESSAGE_BYTES,
   PAGE_ASSETS_ROUTE,
 } from "./constants";
 import { buildTableName, createDocumentClient, createEmulatorTables } from "./dynamo";

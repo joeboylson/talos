@@ -21,17 +21,9 @@ export const DEFAULT_TABLE_PREFIX = "talos-";
 export const PAGE_ASSETS_ROUTE = "/assets";
 export const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
-// Every HTTP request here is small JSON. Socket messages carry at most four
-// images (about 12 MB as text), so 16 MB covers them with room to spare.
+// Every HTTP request here is small JSON. The socket limits live in talos-shared,
+// since talos sizes and paces what it sends by them.
 export const MAX_REQUEST_BODY_BYTES = 64 * 1024;
-export const MAX_SOCKET_MESSAGE_BYTES = 16 * 1024 * 1024;
-
-// Each socket may make the server parse at most this many message bytes per
-// window; beyond it, messages are dropped before parsing, so one connection
-// can't flood large frames and starve the shared thread for other owners. Well
-// above legit traffic (an image message is ~12MB, an entry burst ~13MB/s).
-export const SOCKET_INGRESS_WINDOW_MS = 1000;
-export const SOCKET_INGRESS_MAX_BYTES = 32 * 1024 * 1024;
 
 // A machine's session/folder updates are coalesced per owner into one table
 // scan + page broadcast per this window, so a burst (or a flood) can't amplify.

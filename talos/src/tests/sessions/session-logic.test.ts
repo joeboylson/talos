@@ -212,6 +212,19 @@ describe("readStatusReport", () => {
   test("ignores a non-assistant line", () => {
     expect(readStatusReport(JSON.stringify({ type: "user", message: { content: [] } }))).toBeNull();
   });
+
+  test("takes the last call when a line reports twice", () => {
+    const content = [
+      { type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "working", note: "first" } },
+      { type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "stuck", note: "second" } },
+    ];
+    expect(readStatusReport(line(content))).toEqual({ state: "stuck", note: "second" });
+  });
+
+  test("strips control characters and collapses whitespace in the note", () => {
+    const content = [{ type: "tool_use", name: STATUS_TOOL_NAME, input: { state: "done", note: "line1\nline2\t\u001b[31mred" } }];
+    expect(readStatusReport(line(content))).toEqual({ state: "done", note: "line1 line2 [31mred" });
+  });
 });
 
 test("readHookToolName + isStopContinuation read the hook payload", () => {

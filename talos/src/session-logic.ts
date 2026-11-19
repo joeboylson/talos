@@ -252,20 +252,30 @@ export const blockStopDecision = (reason: string): string => JSON.stringify({ de
 
 type ReportedStatusUpdate = { state: ReportedStatus; note: string };
 
+// A status note is one short line that lands in the sessions table and the
+// logs, so strip control characters (an ANSI escape, a stray newline) and
+// collapse whitespace: the session shouldn't be able to put terminal escapes in
+// a shared row or split a log line through its note.
+const cleanStatusNote = (note: string): string => removeControlCharacters(note).replace(/\s+/g, " ").trim();
+
 // The report_status call in one transcript line, if any: the state and note the
 // session reported. Read from the saved conversation, so the shape isn't trusted.
+// The last valid call in the line wins, matching the host's cross-line harvest
+// (each report overwrites the one before), so reporting twice ends on the final
+// answer.
 export const readStatusReport = (lineText: string): ReportedStatusUpdate | null => {
   const line: unknown = parseJsonOrNull(lineText);
   if (typeof line !== "object" || line === null || Reflect.get(line, "type") !== "assistant") return null;
   const content = (line as { message?: { content?: unknown } }).message?.content;
   if (!Array.isArray(content)) return null;
+  let latest: ReportedStatusUpdate | null = null;
   for (const block of content) {
     const isCall = typeof block === "object" && block !== null && block.type === "tool_use" && block.name === STATUS_TOOL_NAME;
     const input: unknown = isCall ? block.input : null;
     const state = typeof input === "object" && input !== null ? Reflect.get(input, "state") : null;
     const note = typeof input === "object" && input !== null ? Reflect.get(input, "note") : null;
     const isValid = REPORTED_STATUSES.some((s) => s === state) && typeof note === "string" && note.length <= MAX_STATUS_NOTE_LENGTH;
-    if (isValid) return { state: state as ReportedStatus, note: note as string };
+    if (isValid) latest = { state: state as ReportedStatus, note: cleanStatusNote(note as string) };
   }
-  return null;
+  return latest;
 };

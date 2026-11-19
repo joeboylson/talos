@@ -10,7 +10,13 @@ export const TALOS_LIMITS = {
   maxHookBodyBytes: 4 * 1024 * 1024,
   // Most a single transcript poll reads and parses at once, so one session's large
   // transcript is drained over several polls instead of blocking the host in one go.
-  maxTranscriptReadBytes: 4 * 1024 * 1024,
+  // It must hold one whole line, and a prompt's line carries its images.
+  maxTranscriptReadBytes: LIMITS.maxImagesPerMessage * LIMITS.maxImageBase64Length + 4 * 1024 * 1024,
+  // An attached terminal or talos that stops reading gets cut off once this many
+  // chunks wait for it, instead of the host holding everything it hasn't read.
+  maxStreamBacklogChunks: 1024,
+  // Terminal sizes a resize may ask for.
+  maxTerminalCells: 1000,
   // The control socket carries a message with up to four images, so the same
   // cap as a socket message to the server.
   maxControlBodyBytes: LIMITS.maxSocketMessageBytes,

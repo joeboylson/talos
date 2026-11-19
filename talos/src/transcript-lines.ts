@@ -19,8 +19,6 @@ type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
 export type TranscriptItem = SessionEntry | { kind: "tool-end"; toolUseId: string; isFailed: boolean };
 
 const IMAGE_MARKER = /\[Image #\d+\]/g;
-const COMMAND_NAME = /<command-name>([\s\S]*?)<\/command-name>/;
-const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
 const COMMAND_OUTPUT = /^<local-command-stdout>([\s\S]*)<\/local-command-stdout>$/;
 // Claude Code's own notes, saved as messages, that nobody typed.
 const NOTE_PREFIXES = ["<local-command-caveat>", "<system-reminder>", "<bash-stdout>", "<bash-stderr>"];
@@ -34,10 +32,21 @@ const contentBlocksOf = (content: unknown): ContentBlock[] => {
 };
 
 // A slash command or skill is saved as tags; show it the way it was typed.
+// Found with indexOf, not a lazy regex: a session can write a prompt full of
+// opening tags with no closing one, and the regex rescans to the end for each,
+// freezing the host's one thread for minutes.
+const textInTag = (text: string, tag: string): string | null => {
+  const openTag = `<${tag}>`;
+  const start = text.indexOf(openTag);
+  if (start === -1) return null;
+  const end = text.indexOf(`</${tag}>`, start + openTag.length);
+  return end === -1 ? null : text.slice(start + openTag.length, end);
+};
+
 export const readCommandPrompt = (text: string): string | null => {
-  const commandName = COMMAND_NAME.exec(text)?.[1]?.trim();
+  const commandName = textInTag(text, "command-name")?.trim();
   if (!commandName) return null;
-  const commandArgs = COMMAND_ARGS.exec(text)?.[1]?.trim() ?? "";
+  const commandArgs = textInTag(text, "command-args")?.trim() ?? "";
   return `${commandName} ${commandArgs}`.trim();
 };
 
@@ -119,7 +128,13 @@ export const resolveTranscriptItems = (
   for (const item of items) {
     if (item.kind === "tool") {
       entries.push(item);
+      // Only a tool that can be shown is tracked, and at most as many as a
+      // session keeps, oldest dropped: tools that never end would otherwise grow
+      // the host's memory for as long as the session writes them.
+      if (readSessionEntry(item) === null) continue;
       stillRunning.set(item.entryId, item);
+      const oldestToolId = stillRunning.keys().next().value;
+      if (stillRunning.size > LIMITS.maxEntriesKept && oldestToolId !== undefined) stillRunning.delete(oldestToolId);
     } else if (item.kind !== "tool-end") {
       entries.push(item);
     } else {

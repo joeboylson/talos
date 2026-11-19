@@ -23,9 +23,10 @@ export const NO_STATUS_LANE: StatusLane = { kind: "none" };
 
 export type StatusLaneEvent =
   | { type: "ask" }
-  // The session is idle and its screen has settled (see host/session-state.ts), so a request
-  // typed now starts a turn of its own.
-  | { type: "idle"; hasDraft: boolean }
+  // The session's turn is over and its screen has settled (see
+  // host/session-state.ts): a request typed now starts a turn of its own, and a
+  // finished status turn has really ended.
+  | { type: "settled"; hasDraft: boolean }
   | { type: "pre-tool-use"; toolName: string; toolInput: unknown; isSubagent: boolean }
   | { type: "stop" }
   | { type: "prompt-submitted"; prompt: string }
@@ -48,6 +49,7 @@ export const STATUS_REQUEST_PROMPT =
 const ONLY_REPORT_REASON = `This is a status update — only ${STATUS_TOOL.bareName} is allowed this turn.`;
 const FORCE_REPORT_REASON = `Call ${STATUS_TOOL.bareName} with your state and one short line before finishing.`;
 const HOST_UNREACHABLE_REASON = "talos can't record that right now.";
+const TOO_BIG_REASON = "This tool call is too big for talos to check.";
 const notNowReason = (tool: StructuredTool) => `${tool.bareName} can't be called now.`;
 const notThisSessionReason = (tool: StructuredTool) => `Only the session itself can call ${tool.bareName}, not a sub-agent.`;
 
@@ -82,6 +84,11 @@ export const hookReplyWhenHostUnreachable = (hookDetails: unknown): string => {
   const isStructuredCall = event?.type === "pre-tool-use" && findStructuredTool(event.toolName) !== undefined;
   return isStructuredCall ? denyToolDecision(HOST_UNREACHABLE_REASON) : "";
 };
+
+// What hook.ts prints when the host turned the hook down as too big to read: a
+// tool call talos couldn't check doesn't run, since in a status turn it must not.
+export const hookReplyWhenTooBig = (hookDetails: unknown): string =>
+  readStatusLaneEvent(hookDetails)?.type === "pre-tool-use" ? denyToolDecision(TOO_BIG_REASON) : "";
 
 const stay = (lane: StatusLane, hookReply = ""): StatusLaneStep => ({
   lane,
@@ -138,11 +145,10 @@ const stepPreToolUse = (lane: StatusLane, event: Extract<StatusLaneEvent, { type
   return withRecord(stay(lane, allowToolDecision()), record);
 };
 
-// Only a report ends the turn. An unreported Stop is blocked once to force the
-// report, then let through, but the turn stays open until a report or the
-// timeout, so a forged Stop can't end it early and let another tool run.
+// A Stop never ends a status turn: a session can forge one, so the turn stays in
+// status-only mode until its screen settles with the turn over, the person types,
+// or the backstop runs out. An unreported Stop is blocked once to force the report.
 const stepStop = (lane: StatusLane): StatusLaneStep => {
-  if (lane.kind === "reported") return stay(NO_STATUS_LANE);
   if (lane.kind !== "asking" || lane.hasForcedStop) return stay(lane);
   return stay({ ...lane, hasForcedStop: true }, blockStopDecision(FORCE_REPORT_REASON));
 };
@@ -153,9 +159,10 @@ const endStatusAsk = (lane: StatusLane, nowMs: number): StatusLaneStep => ({
   statusChange: lane.kind === "reported" ? null : { state: "no-response", note: "", atMs: nowMs },
 });
 
-// The status request is pasted and sent with Enter, so with unsent text in the
-// input box it would be sent along with it, as one status turn.
-const stepIdle = (lane: StatusLane, hasDraft: boolean, nowMs: number): StatusLaneStep => {
+// Settled: a queued ask is typed now (unless a draft is waiting, which the
+// request would be sent along with), and a reported status turn ends.
+const stepSettled = (lane: StatusLane, hasDraft: boolean, nowMs: number): StatusLaneStep => {
+  if (lane.kind === "reported") return stay(NO_STATUS_LANE);
   if (lane.kind !== "queued") return stay(lane);
   return hasDraft ? endStatusAsk(lane, nowMs) : startStatusTurn(nowMs, null);
 };
@@ -163,12 +170,17 @@ const stepIdle = (lane: StatusLane, hasDraft: boolean, nowMs: number): StatusLan
 const isStatusTurnRunning = (lane: StatusLane): lane is Extract<StatusLane, { kind: "asking" | "reported" }> =>
   lane.kind === "asking" || lane.kind === "reported";
 
-// The backstop for an ask that never ends on its own. A queued ask gets far
-// longer, since it waits for the session's own work to finish first.
+// The backstops. An unanswered status turn becomes "no response" but stays in
+// status-only mode (as reported, so a late answer still counts) until it
+// settles, since the turn itself may still be running. A queued ask, or a
+// status turn that never settles, ends after the long wait.
 const stepTick = (lane: StatusLane, nowMs: number): StatusLaneStep => {
   if (lane.kind === "none") return stay(lane);
-  const timeoutMs = lane.kind === "queued" ? TALOS_LIMITS.queuedStatusTimeoutMs : TALOS_LIMITS.statusTimeoutMs;
-  return nowMs - lane.askedAtMs > timeoutMs ? endStatusAsk(lane, nowMs) : stay(lane);
+  const waitedMs = nowMs - lane.askedAtMs;
+  if (lane.kind === "asking" && waitedMs > TALOS_LIMITS.statusTimeoutMs) {
+    return { ...stay({ kind: "reported", askedAtMs: lane.askedAtMs }), statusChange: { state: "no-response", note: "", atMs: nowMs } };
+  }
+  return waitedMs > TALOS_LIMITS.queuedStatusTimeoutMs ? endStatusAsk(lane, nowMs) : stay(lane);
 };
 
 // The person typing ends a queued ask: it would otherwise be pasted
@@ -193,7 +205,7 @@ const stepPromptSubmitted = (lane: StatusLane, prompt: string): StatusLaneStep =
 
 export const stepStatusLane = (lane: StatusLane, event: StatusLaneEvent, nowMs: number): StatusLaneStep => {
   if (event.type === "ask") return stepAsk(lane, nowMs);
-  if (event.type === "idle") return stepIdle(lane, event.hasDraft, nowMs);
+  if (event.type === "settled") return stepSettled(lane, event.hasDraft, nowMs);
   if (event.type === "pre-tool-use") return stepPreToolUse(lane, event, nowMs);
   if (event.type === "stop") return stepStop(lane);
   if (event.type === "person-typed") return stepPersonTyped(lane, event.isTurnChanging, nowMs);

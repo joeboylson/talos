@@ -21,7 +21,7 @@ import { appendOutput } from "../terminal";
 import { log } from "./log";
 import { typeIntoSession } from "./messages";
 import { applyStatusLaneEvent, setSessionState } from "./session-state";
-import { broadcastSessions, heldSessions, updateHeldSession, type Terminal } from "./store";
+import { broadcastSessions, heldSessions, sendToListeners, updateHeldSession, type Terminal } from "./store";
 import { LIMITS } from "talos-shared";
 import { TALOS_LIMITS } from "../limits";
 
@@ -29,7 +29,7 @@ const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => 
   const session = heldSessions.get(sessionName);
   if (session?.hookToken !== token) return;
   updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, TALOS_LIMITS.maxOutputBytes), lastOutputAtMs: Date.now() });
-  session.outputListeners.forEach((listener) => listener.enqueue(chunk));
+  sendToListeners(session.outputListeners, chunk);
 };
 
 const forgetSession = (sessionName: string, token: string) => {
@@ -93,6 +93,7 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
     statusLane: NO_STATUS_LANE,
     hookToken,
     hasDraft: false,
+    isTurnOver: false,
     output: new Uint8Array(),
     lastOutputAtMs: 0,
     outputListeners: new Set(),

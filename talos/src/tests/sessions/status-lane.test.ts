@@ -4,6 +4,7 @@ import {
   NO_STATUS_LANE,
   STATUS_REQUEST_PROMPT,
   hookReplyWhenHostUnreachable,
+  hookReplyWhenTooBig,
   readStatusLaneEvent,
   stepStatusLane,
   type StatusLane,
@@ -73,7 +74,7 @@ describe("3. nothing but a report or the timeout ends a status turn", () => {
     expect(step(askingForced, { type: "stop" })).toEqual(unchanged(askingForced));
   });
   test("going idle mid-turn doesn't end or restart it", () => {
-    expect(step(asking, { type: "idle", hasDraft: false })).toEqual(unchanged(asking));
+    expect(step(asking, { type: "settled", hasDraft: false })).toEqual(unchanged(asking));
   });
   test.each([
     ["queued", queued],
@@ -101,8 +102,12 @@ describe("3. nothing but a report or the timeout ends a status turn", () => {
   test("any key ends a queued ask, so a draft isn't sent with the status request", () => {
     expect(step(queued, { type: "person-typed", isTurnChanging: false }).lane).toEqual(NO_STATUS_LANE);
   });
-  test("a Stop after the report ends the turn", () => {
-    expect(step(reported, { type: "stop" })).toEqual(unchanged(NO_STATUS_LANE));
+  test("a Stop after the report doesn't end it: a session can forge one mid-turn", () => {
+    expect(step(reported, { type: "stop" })).toEqual(unchanged(reported));
+    expect(step(reported, bash)).toEqual(unchanged(reported, "deny"));
+  });
+  test("the turn ends once it's over and the screen has settled", () => {
+    expect(step(reported, { type: "settled", hasDraft: false })).toEqual(unchanged(NO_STATUS_LANE));
   });
 });
 
@@ -131,8 +136,9 @@ describe("5. a bad or missing report fails safe", () => {
   ])("%s is denied and records nothing", (_name, toolInput) => {
     expect(step(asking, toolCall(STATUS_TOOL.name, toolInput))).toEqual(unchanged(asking, "deny"));
   });
-  test("an unanswered turn becomes no-response at the timeout", () => {
-    expect(step(asking, { type: "tick" }, NOW + TALOS_LIMITS.statusTimeoutMs + 1)).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
+  test("an unanswered turn becomes no-response at the timeout, but stays status-only until it settles", () => {
+    expect(step(asking, { type: "tick" }, NOW + TALOS_LIMITS.statusTimeoutMs + 1)).toEqual({ lane: reported, decision: "", status: "no-response", typed: false });
+    expect(step(reported, bash, NOW + TALOS_LIMITS.statusTimeoutMs + 2)).toEqual(unchanged(reported, "deny"));
   });
   test("a queued ask waits for long work to finish", () => {
     expect(step(queued, { type: "tick" }, NOW + TALOS_LIMITS.queuedStatusTimeoutMs)).toEqual(unchanged(queued));
@@ -140,8 +146,9 @@ describe("5. a bad or missing report fails safe", () => {
   test("a queued ask that never starts becomes no-response", () => {
     expect(step(queued, { type: "tick" }, NOW + TALOS_LIMITS.queuedStatusTimeoutMs + 1)).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
-  test("a reported turn that never stopped ends at the timeout and keeps its status", () => {
-    expect(step(reported, { type: "tick" }, NOW + TALOS_LIMITS.statusTimeoutMs + 1)).toEqual(unchanged(NO_STATUS_LANE));
+  test("a reported turn that never settles ends at the long backstop and keeps its status", () => {
+    expect(step(reported, { type: "tick" }, NOW + TALOS_LIMITS.statusTimeoutMs + 1)).toEqual(unchanged(reported));
+    expect(step(reported, { type: "tick" }, NOW + TALOS_LIMITS.queuedStatusTimeoutMs + 1)).toEqual(unchanged(NO_STATUS_LANE));
   });
   test("nothing times out early", () => {
     expect(step(asking, { type: "tick" }, NOW + TALOS_LIMITS.statusTimeoutMs)).toEqual(unchanged(asking));
@@ -153,10 +160,10 @@ describe("asking", () => {
     expect(step(NO_STATUS_LANE, { type: "ask" })).toEqual({ lane: queued, decision: "", status: "pending", typed: false });
   });
   test("the idle event types the request and starts the turn's clock", () => {
-    expect(step(queued, { type: "idle", hasDraft: false }, NOW + 10)).toEqual({ lane: { ...asking, askedAtMs: NOW + 10 }, decision: "", status: null, typed: true });
+    expect(step(queued, { type: "settled", hasDraft: false }, NOW + 10)).toEqual({ lane: { ...asking, askedAtMs: NOW + 10 }, decision: "", status: null, typed: true });
   });
   test("a queued ask that meets a draft at idle ends: the request would be sent with it", () => {
-    expect(step(queued, { type: "idle", hasDraft: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
+    expect(step(queued, { type: "settled", hasDraft: true })).toEqual({ lane: NO_STATUS_LANE, decision: "", status: "no-response", typed: false });
   });
 });
 
@@ -250,5 +257,14 @@ describe("hookReplyWhenHostUnreachable", () => {
     ["unreadable details", null],
   ])("lets %s through", (_name, hookDetails) => {
     expect(hookReplyWhenHostUnreachable(hookDetails)).toBe("");
+  });
+});
+
+describe("hookReplyWhenTooBig", () => {
+  test("denies any tool call talos couldn't read", () => {
+    expect(decisionOf(hookReplyWhenTooBig({ hook_event_name: "PreToolUse", tool_name: "Bash" }))).toBe("deny");
+  });
+  test("leaves other events alone", () => {
+    expect(hookReplyWhenTooBig({ hook_event_name: "Stop" })).toBe("");
   });
 });

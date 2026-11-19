@@ -149,7 +149,9 @@ export const controlServeOptions = {
     [`${HOST_ROUTES.sessions}/:sessionName/resize`]: {
       POST: async (request: BunRequest) => {
         const { cols, rows } = await readJson(request);
-        if (typeof cols === "number" && typeof rows === "number") heldSessionOf(request)?.terminal.resize(cols, rows);
+        const isSize = (value: unknown) => Number.isInteger(value) && Number(value) >= 1 && Number(value) <= TALOS_LIMITS.maxTerminalCells;
+        if (!isSize(cols) || !isSize(rows)) return new Response("expected a terminal size", { status: 400 });
+        heldSessionOf(request)?.terminal.resize(Number(cols), Number(rows));
         return new Response(null, { status: 204 });
       },
     },

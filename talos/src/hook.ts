@@ -2,12 +2,13 @@
 // the event's details on stdin. It hands them to the session host and prints
 // back whatever decision the host returns (empty for most events). For the
 // status lane the host returns a PreToolUse allow/deny or a Stop block, which
-// Claude Code then enforces. If the host is slow or unreachable it denies
-// report_status (nothing would record it) and lets everything else through, so
-// it can never hold Claude up.
+// Claude Code then enforces. If the host is slow or unreachable it denies the
+// structured tools (nothing would record them) and lets everything else through,
+// so it can never hold Claude up. A tool call too big for the host to read is
+// denied outright, since talos can't check it.
 import { parseJsonOrNull } from "talos-shared";
-import { HOOK_TOKEN_HEADER, SESSION_ENV_KEYS } from "./constants";
-import { hookReplyWhenHostUnreachable } from "./status-lane";
+import { HOOK_TOKEN_HEADER, HTTP_PAYLOAD_TOO_LARGE, SESSION_ENV_KEYS } from "./constants";
+import { hookReplyWhenHostUnreachable, hookReplyWhenTooBig } from "./status-lane";
 import { TALOS_LIMITS } from "./limits";
 
 const sessionName = process.env[SESSION_ENV_KEYS.sessionName];
@@ -23,7 +24,10 @@ if (sessionName && hostSocket) {
     unix: hostSocket,
     signal: AbortSignal.timeout(TALOS_LIMITS.hookTimeoutMs),
   } as RequestInit)
-    .then((response) => response.text())
+    .then((response) => {
+      if (response.status === HTTP_PAYLOAD_TOO_LARGE) return hookReplyWhenTooBig(parseJsonOrNull(hookDetails));
+      return response.ok ? response.text() : hookReplyWhenHostUnreachable(parseJsonOrNull(hookDetails));
+    })
     .catch(() => hookReplyWhenHostUnreachable(parseJsonOrNull(hookDetails)));
   if (decision) process.stdout.write(decision);
 }

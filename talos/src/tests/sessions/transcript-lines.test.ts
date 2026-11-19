@@ -7,6 +7,7 @@ import {
   resolveTranscriptItems,
   summarizeToolInput,
 } from "../../transcript-lines";
+import { LIMITS } from "talos-shared";
 
 describe("readTranscriptLine", () => {
   const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
@@ -161,5 +162,26 @@ describe("allowTranscriptSwitch", () => {
   });
   test("refuses a switch to another folder (an unrelated file to read)", () => {
     expect(allowTranscriptSwitch("/tmp/evil.jsonl", "/home/me/.claude/projects/proj/old.jsonl")).toBe(false);
+  });
+});
+
+test("command tags are found in linear time, even with many unclosed ones", () => {
+  const hostile = "<command-name>".repeat(200_000);
+  const startMs = Date.now();
+  expect(readCommandPrompt(hostile)).toBeNull();
+  expect(Date.now() - startMs).toBeLessThan(500);
+});
+
+describe("running tools", () => {
+  const tool = (entryId: string) => ({ kind: "tool", entryId, toolName: "Bash", summary: "", outcome: "running" }) as const;
+  test("a tool the shared reader would turn down isn't tracked", () => {
+    expect(resolveTranscriptItems([tool("x".repeat(201))], new Map()).knownTools.size).toBe(0);
+  });
+  test("at most as many as a session keeps, oldest dropped", () => {
+    const items = Array.from({ length: LIMITS.maxEntriesKept + 10 }, (_unused, i) => tool(`t${i}`));
+    const { knownTools } = resolveTranscriptItems(items, new Map());
+    expect(knownTools.size).toBe(LIMITS.maxEntriesKept);
+    expect(knownTools.has("t0")).toBe(false);
+    expect(knownTools.has(`t${LIMITS.maxEntriesKept + 9}`)).toBe(true);
   });
 });

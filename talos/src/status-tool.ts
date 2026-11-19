@@ -1,10 +1,11 @@
 // A tiny stdio MCP server, run once per Claude session (the host passes it with
 // --mcp-config). It exposes a single prescoped tool, report_status, which a
 // session calls to report its own status. The schema makes the reply typed;
-// the host reads the accepted call from the session's transcript, so this
-// server never calls back into the host (no new host-socket surface).
-import { MAX_STATUS_NOTE_LENGTH, REPORTED_STATUSES } from "talos-shared";
+// the host takes the report from the call's PreToolUse hook, so this server
+// never calls back into the host (no new host-socket surface).
+import { REPORTED_STATUSES } from "talos-shared";
 import { STATUS_TOOL_BARE_NAME } from "./constants";
+import { readStatusReport } from "./status-lane";
 
 const reply = (id: unknown, result: unknown) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
 
@@ -23,13 +24,6 @@ const tool = {
   },
 };
 
-const isGoodCall = (args: unknown): boolean =>
-  typeof args === "object" &&
-  args !== null &&
-  REPORTED_STATUSES.some((state) => state === Reflect.get(args, "state")) &&
-  typeof Reflect.get(args, "note") === "string" &&
-  (Reflect.get(args, "note") as string).length <= MAX_STATUS_NOTE_LENGTH;
-
 for await (const line of console) {
   if (!line.trim()) continue;
   let message: { id?: unknown; method?: string; params?: { name?: string; arguments?: unknown } };
@@ -44,7 +38,7 @@ for await (const line of console) {
   } else if (method === "tools/list") {
     reply(id, { tools: [tool] });
   } else if (method === "tools/call") {
-    const isReport = params?.name === STATUS_TOOL_BARE_NAME && isGoodCall(params?.arguments);
+    const isReport = params?.name === STATUS_TOOL_BARE_NAME && readStatusReport(params?.arguments) !== null;
     if (isReport) reply(id, { content: [{ type: "text", text: "Status recorded." }] });
     else reply(id, { content: [{ type: "text", text: `Rejected: call ${STATUS_TOOL_BARE_NAME} with state (${REPORTED_STATUSES.join("/")}) and a short note.` }], isError: true });
   } else if (method === "ping") {

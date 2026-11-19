@@ -1,19 +1,10 @@
-import {
-  MAX_ENTRY_TEXT_LENGTH,
-  MAX_STATUS_NOTE_LENGTH,
-  REPORTED_STATUSES,
-  parseJsonOrNull,
-  type ReportedStatus,
-  type SessionEntry,
-  type SessionState,
-} from "talos-shared";
+import { MAX_ENTRY_TEXT_LENGTH, parseJsonOrNull, type SessionEntry, type SessionState } from "talos-shared";
 import { dirname } from "node:path";
-import { MAX_TOOL_NAME_LENGTH, MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE, STATUS_TOOL_NAME } from "./constants";
+import { MAX_TOOL_NAME_LENGTH, MAX_TOOL_SUMMARY_LENGTH, NEWLINE_BYTE } from "./constants";
 
 // Claude Code's hook events that move a session between states. They also
 // carry where the session's conversation is saved.
-// PreToolUse and Stop also carry a decision back (the status lane: force the
-// report_status call, and keep a status turn to that one tool).
+// PreToolUse and Stop also carry the status lane's decision back (see status-lane.ts).
 export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
@@ -260,49 +251,12 @@ export const appendOutput = (output: Uint8Array, chunk: Uint8Array, maxBytes: nu
   return combined.length > maxBytes ? combined.slice(combined.length - maxBytes) : combined;
 };
 
-
-// What the host asks a session to do for a status update. The session answers
-// by calling report_status (the PreToolUse hook forces it to be the only tool).
-export const STATUS_REQUEST_PROMPT =
-  "Give a status update on this session by calling report_status once, with your state and one short line. Do not do anything else.";
-
-// The tool a PreToolUse hook is about to run, from its payload.
-export const readHookToolName = (hookPayload: unknown): string =>
-  typeof hookPayload === "object" && hookPayload !== null ? String(Reflect.get(hookPayload, "tool_name") ?? "") : "";
-
-// A PreToolUse decision Claude Code honors: allow runs the tool with no prompt,
-// deny blocks it and tells the model why. Returned as the hook's stdout.
-export const allowToolDecision = (): string =>
-  JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } });
-export const denyToolDecision = (reason: string): string =>
-  JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
-
-// A Stop decision: block keeps the turn going with a reason, so the session
-// can't finish until it has reported.
-export const blockStopDecision = (reason: string): string => JSON.stringify({ decision: "block", reason });
-
 // Every session on a machine shares one hooks socket, so a hook POST must prove
 // which session it is: the host checks the token it sent against the named
 // session's token. A session knows only its own token, so it can't drive another
 // session's hooks by naming it in the path.
 export const hookTokenAuthorized = (provided: string | null, expected: string | undefined): boolean =>
   typeof provided === "string" && provided.length > 0 && provided === expected;
-
-// What a Stop during an active status turn should do, decided only from the
-// host's own lane state — never from the hook body's stop_hook_active, which a
-// session can forge over its own token. "reported" is the only outcome that ends
-// the turn (clears active); a Stop never clears active while unreported, so a
-// forged Stop can't end a status turn early and let a forbidden tool run. An
-// unanswered turn is ended by the no-response timeout instead.
-export type StatusStopOutcome = "reported" | "force" | "wait";
-export const decideStatusStop = (lane: { reported: boolean; forcedStop: boolean }): StatusStopOutcome =>
-  lane.reported ? "reported" : lane.forcedStop ? "wait" : "force";
-
-// A status ask is already in flight when a turn is running (active) or deferred
-// until the session next goes idle (wanted). A repeat ask is then ignored, not
-// re-armed: re-arming resets the no-response timeout clock, so a flood of asks
-// could pin a session in status-only mode and starve the sweep.
-export const statusAskInFlight = (lane: { active: boolean; wanted: boolean }): boolean => lane.active || lane.wanted;
 
 // Collapses rapid calls into one run per window (trailing edge): a burst becomes
 // a single run that reads the latest state itself, so nothing is lost, only
@@ -330,60 +284,3 @@ export const createCoalescer = (
 // read and show as the session's conversation.
 export const allowTranscriptSwitch = (newPath: string, currentPath: string | null): boolean =>
   currentPath === null || dirname(newPath) === dirname(currentPath);
-
-type ReportedStatusUpdate = { state: ReportedStatus; note: string };
-
-// A status note is one short line that lands in the sessions table and the
-// logs, so strip control characters (an ANSI escape, a stray newline) and
-// collapse whitespace: the session shouldn't be able to put terminal escapes in
-// a shared row or split a log line through its note.
-const cleanStatusNote = (note: string): string => removeControlCharacters(note).replace(/\s+/g, " ").trim();
-
-// The report_status call in one transcript line, if any: the state and note the
-// session reported. Read from the saved conversation, so the shape isn't trusted.
-// The last valid call in the line wins, matching the host's cross-line harvest
-// (each report overwrites the one before), so reporting twice ends on the final
-// answer.
-export const readStatusReport = (lineText: string): ReportedStatusUpdate | null => {
-  const line: unknown = parseJsonOrNull(lineText);
-  if (typeof line !== "object" || line === null || Reflect.get(line, "type") !== "assistant") return null;
-  // A status is this session's own answer, so skip Claude Code's own notes
-  // (isMeta) and a sub-agent's lines (isSidechain) — same as readTranscriptLine —
-  // or a sub-agent could report a status for the session it runs under.
-  if (Reflect.get(line, "isMeta") === true || Reflect.get(line, "isSidechain") === true) return null;
-  const content = (line as { message?: { content?: unknown } }).message?.content;
-  if (!Array.isArray(content)) return null;
-  let latest: ReportedStatusUpdate | null = null;
-  for (const block of content) {
-    const isCall = typeof block === "object" && block !== null && block.type === "tool_use" && block.name === STATUS_TOOL_NAME;
-    const input: unknown = isCall ? block.input : null;
-    const state = typeof input === "object" && input !== null ? Reflect.get(input, "state") : null;
-    const note = typeof input === "object" && input !== null ? Reflect.get(input, "note") : null;
-    const isValid = REPORTED_STATUSES.some((s) => s === state) && typeof note === "string" && note.length <= MAX_STATUS_NOTE_LENGTH;
-    if (isValid) latest = { state: state as ReportedStatus, note: cleanStatusNote(note as string) };
-  }
-  return latest;
-};
-
-// The report_status calls in a freshly-read transcript slice, in order, counting
-// ONLY lines whose absolute byte start is at/after `fromByte` — the file size
-// when the status turn began. A report_status left in the backlog by an earlier
-// turn (a chat-turn call the hook denied, whose tool_use input still lands in the
-// transcript) or by a sub-agent would otherwise be harvested as this turn's
-// status; the floor keeps the harvest to lines the session wrote this turn.
-// `sliceStart` is the slice's own byte offset in the file; `sliceBytes` holds
-// only complete lines (as readCompleteLines returns).
-export const readStatusReportsInSlice = (sliceBytes: Uint8Array, sliceStart: number, fromByte: number): ReportedStatusUpdate[] => {
-  const reports: ReportedStatusUpdate[] = [];
-  const decoder = new TextDecoder();
-  let lineFrom = 0;
-  for (let i = 0; i < sliceBytes.length; i++) {
-    if (sliceBytes[i] !== NEWLINE_BYTE) continue;
-    if (sliceStart + lineFrom >= fromByte) {
-      const report = readStatusReport(decoder.decode(sliceBytes.subarray(lineFrom, i)));
-      if (report) reports.push(report);
-    }
-    lineFrom = i + 1;
-  }
-  return reports;
-};

@@ -2,9 +2,12 @@
 // the event's details on stdin. It hands them to the session host and prints
 // back whatever decision the host returns (empty for most events). For the
 // status lane the host returns a PreToolUse allow/deny or a Stop block, which
-// Claude Code then enforces. If the host is slow or unreachable it prints
-// nothing and exits cleanly, so it can never hold Claude up.
+// Claude Code then enforces. If the host is slow or unreachable it denies
+// report_status (nothing would record it) and lets everything else through, so
+// it can never hold Claude up.
+import { parseJsonOrNull } from "talos-shared";
 import { HOOK_TIMEOUT_MS, HOOK_TOKEN_HEADER, SESSION_ENV_KEYS } from "./constants";
+import { hookReplyWhenHostUnreachable } from "./status-lane";
 
 const sessionName = process.env[SESSION_ENV_KEYS.sessionName];
 const hostSocket = process.env[SESSION_ENV_KEYS.hostSocket];
@@ -20,7 +23,7 @@ if (sessionName && hostSocket) {
     signal: AbortSignal.timeout(HOOK_TIMEOUT_MS),
   } as RequestInit)
     .then((response) => response.text())
-    .catch(() => "");
+    .catch(() => hookReplyWhenHostUnreachable(parseJsonOrNull(hookDetails)));
   if (decision) process.stdout.write(decision);
 }
 process.exit(0);

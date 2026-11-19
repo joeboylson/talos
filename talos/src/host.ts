@@ -62,6 +62,7 @@ import {
   createCoalescer,
   hookTokenAuthorized,
   isDraftChangingKeys,
+  isDraftClearingKeys,
   isTurnChangingKeys,
   readCompleteLines,
   readTranscriptLine,
@@ -93,6 +94,9 @@ type HeldSession = {
   statusLane: StatusLane;
   // Proves a hook POST on the shared hooks socket came from this session.
   hookToken: string;
+  // Unsent text the person left in Claude Code's input box from an attached
+  // terminal. The status request mustn't be pasted onto it.
+  hasDraft: boolean;
 };
 
 // The host's state: the sessions it holds, each one's recent terminal output,
@@ -146,20 +150,29 @@ const setSessionState = (sessionName: string, state: SessionState) => {
   broadcastSessions();
   // A status request is only typed into an idle session, so the turn's hooks
   // belong to it. One asked while busy starts here.
-  if (state === "idle") applyStatusLaneEvent(sessionName, { type: "idle" });
+  if (state === "idle") applyStatusLaneEvent(sessionName, { type: "idle", hasDraft: session.hasDraft });
 };
 
 const askForStatus = (sessionName: string): Response => {
   const session = heldSessions.get(sessionName);
   if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
-  applyStatusLaneEvent(sessionName, { type: "ask", isIdle: session.summary.state === "idle" });
+  applyStatusLaneEvent(sessionName, { type: "ask", isIdle: session.summary.state === "idle", hasDraft: session.hasDraft });
   return new Response(null, { status: 204 });
 };
 
+const setHasDraft = (session: HeldSession, hasDraft: boolean) => {
+  const current = heldSessions.get(session.summary.sessionName);
+  if (current?.hookToken === session.hookToken) heldSessions.set(session.summary.sessionName, { ...current, hasDraft });
+};
+
+// The message counts as a draft until its Enter (an image paste waits a second
+// first), and Enter sends any draft along with it, so the box is empty after.
 const typeIntoSession = async (session: HeldSession, { text, hasImages }: TypedMessage): Promise<void> => {
+  setHasDraft(session, true);
   session.terminal.write(buildPastedText(text));
   if (hasImages) await Bun.sleep(IMAGE_PASTE_SETTLE_MS);
   session.terminal.write(ENTER_KEY);
+  setHasDraft(session, false);
 };
 
 const handleOutput = (sessionName: string, chunk: Uint8Array) => {
@@ -221,6 +234,7 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
     entries: [],
     statusLane: NO_STATUS_LANE,
     hookToken,
+    hasDraft: false,
   });
   child.exited.then(() => forgetSession(sessionName));
   log.event(`host: started session ${sessionName} in ${path}`);
@@ -505,13 +519,17 @@ const controlServeOptions = {
     },
     [`${HOST_ROUTES.sessions}/:sessionName/input`]: {
       POST: async (request: BunRequest) => {
-        const session = heldSessionOf(request);
+        // Read the body first: a session read before the wait could be stale.
         const keys = new Uint8Array(await request.arrayBuffer());
+        const session = heldSessionOf(request);
         if (!session) return new Response(null, { status: 204 });
         // A terminal sends reports (like focus in or out) as input on its own, so
         // only keys that change the turn or the draft count as the person typing.
         const isTurnChanging = isTurnChangingKeys(keys);
-        if (isTurnChanging || isDraftChangingKeys(keys)) applyStatusLaneEvent(session.summary.sessionName, { type: "person-typed", isTurnChanging });
+        const isDraftChanging = isDraftChangingKeys(keys);
+        const hasDraft = isDraftClearingKeys(keys) ? false : isDraftChanging || session.hasDraft;
+        heldSessions.set(session.summary.sessionName, { ...session, hasDraft });
+        if (isTurnChanging || isDraftChanging) applyStatusLaneEvent(session.summary.sessionName, { type: "person-typed", isTurnChanging });
         session.terminal.write(keys);
         return new Response(null, { status: 204 });
       },

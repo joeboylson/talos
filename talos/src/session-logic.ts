@@ -273,6 +273,12 @@ export type StatusStopOutcome = "reported" | "force" | "wait";
 export const decideStatusStop = (lane: { reported: boolean; forcedStop: boolean }): StatusStopOutcome =>
   lane.reported ? "reported" : lane.forcedStop ? "wait" : "force";
 
+// A status ask is already in flight when a turn is running (active) or deferred
+// until the session next goes idle (wanted). A repeat ask is then ignored, not
+// re-armed: re-arming resets the no-response timeout clock, so a flood of asks
+// could pin a session in status-only mode and starve the sweep.
+export const statusAskInFlight = (lane: { active: boolean; wanted: boolean }): boolean => lane.active || lane.wanted;
+
 // A session's transcript only legitimately rotates within its own project folder
 // (a /clear or compaction starts a new file there). Following a switch anywhere
 // else would let a self-authenticated hook point the host at an unrelated file to

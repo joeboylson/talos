@@ -56,6 +56,7 @@ import {
   appendOutput,
   blockStopDecision,
   decideStatusStop,
+  statusAskInFlight,
   buildHookSettings,
   buildMessageWithImages,
   buildPastedText,
@@ -169,6 +170,10 @@ const startStatusTurn = (sessionName: string) => {
 const askForStatus = (sessionName: string): Response => {
   const session = heldSessions.get(sessionName);
   if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
+  // Ignore a repeat ask while one is already in flight, so a flood of asks can't
+  // keep resetting askedAtMs (starving the no-response sweep) or re-clobber the
+  // running turn. The in-flight ask resolves on its own and a later ask works.
+  if (statusAskInFlight(session.statusLane)) return new Response(null, { status: 204 });
   const askedAtMs = Date.now();
   const isIdle = session.summary.state === "idle";
   heldSessions.set(sessionName, {

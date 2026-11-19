@@ -17,6 +17,7 @@ import {
   readHookToolName,
   denyToolDecision,
   decideStatusStop,
+  statusAskInFlight,
   hookTokenAuthorized,
   allowTranscriptSwitch,
 } from "../../session-logic";
@@ -297,6 +298,18 @@ describe("decideStatusStop", () => {
   });
   test("a later unanswered Stop waits (no re-block, no clear)", () => {
     expect(decideStatusStop({ reported: false, forcedStop: true })).toBe("wait");
+  });
+});
+
+describe("statusAskInFlight", () => {
+  // A repeat ask is ignored while one is in flight, so a flood can't reset the
+  // no-response sweep's clock and pin the session in status-only mode.
+  test.each([
+    ["a turn is running", { active: true, wanted: false }, true],
+    ["an ask is deferred until idle", { active: false, wanted: true }, true],
+    ["nothing is in flight", { active: false, wanted: false }, false],
+  ])("%s → %p", (_name, lane, result) => {
+    expect(statusAskInFlight(lane)).toBe(result);
   });
 });
 

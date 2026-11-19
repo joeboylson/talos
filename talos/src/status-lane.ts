@@ -39,9 +39,9 @@ const BAD_REPORT_REASON = `Call report_status with state (${REPORTED_STATUSES.jo
 const FORCE_REPORT_REASON = "Call report_status with your state and one short line before finishing.";
 const HOST_UNREACHABLE_REASON = "talos can't record a status right now.";
 
-export const allowToolDecision = (): string =>
+const allowToolDecision = (): string =>
   JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } });
-export const denyToolDecision = (reason: string): string =>
+const denyToolDecision = (reason: string): string =>
   JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
 const blockStopDecision = (reason: string): string => JSON.stringify({ decision: "block", reason });
 

@@ -97,21 +97,32 @@ type HeldSession = {
   // Unsent text the person left in Claude Code's input box from an attached
   // terminal. The status request mustn't be pasted onto it.
   hasDraft: boolean;
+  // The most recent terminal output, so someone attaching sees the screen, and
+  // when it last changed, to tell when the screen has settled.
+  output: Uint8Array;
+  lastOutputAtMs: number;
+  // Attached terminals. A Set kept by reference: streams add and remove
+  // themselves as they open and close.
+  outputListeners: Set<ReadableStreamDefaultController<Uint8Array>>;
+  // One of each loop at a time: a transcript read, so lines aren't read twice; a
+  // ready wait, so a forged flood of SessionStart events can't pile up loops; and
+  // a settle wait for a queued status ask.
+  isBeingRead: boolean;
+  isBecomingReady: boolean;
+  isWaitingToAsk: boolean;
 };
 
-// The host's state: the sessions it holds, each one's recent terminal output,
-// and who is listening for events and output.
+// The host's state: the sessions it holds, and who is listening for events.
 const heldSessions = new Map<string, HeldSession>();
-const outputBySession = new Map<string, Uint8Array>();
-const lastOutputAtBySession = new Map<string, number>();
-const outputListeners = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>();
 const eventListeners = new Set<ReadableStreamDefaultController<string>>();
-const sessionsBeingRead = new Set<string>();
-// Sessions with a ready-loop running, so a forged flood of SessionStart events
-// can't pile up uncancelled becomeReadyWhenQuiet loops and exhaust the host.
-const sessionsBecomingReady = new Set<string>();
-// Sessions with a queued status ask waiting for the screen to settle, one wait each.
-const sessionsWaitingToAsk = new Set<string>();
+
+// Changes a held session only while it's the same instance (same hook token),
+// so a loop or read left over from a session that ended never touches a new
+// one started under its name.
+const updateHeldSession = (sessionName: string, token: string, change: Partial<HeldSession>) => {
+  const session = heldSessions.get(sessionName);
+  if (session?.hookToken === token) heldSessions.set(sessionName, { ...session, ...change });
+};
 
 const listSessions = (): SessionSummary[] => [...heldSessions.values()].map((session) => session.summary);
 
@@ -164,14 +175,15 @@ const setSessionState = (sessionName: string, state: SessionState) => {
 // second keeps the screen from ever settling, so the ask ends at its timeout.
 // Upgrade when Claude Code gives a real end-of-turn signal.
 const startQueuedAskWhenSettled = async (sessionName: string, token: string): Promise<void> => {
-  if (sessionsWaitingToAsk.has(sessionName)) return;
-  sessionsWaitingToAsk.add(sessionName);
+  const waitingSession = heldSessions.get(sessionName);
+  if (waitingSession?.hookToken !== token || waitingSession.isWaitingToAsk) return;
+  updateHeldSession(sessionName, token, { isWaitingToAsk: true });
   try {
     while (true) {
       const session = heldSessions.get(sessionName);
       const isStillWaiting = session?.hookToken === token && session.statusLane.kind === "queued" && session.summary.state === "idle";
       if (!isStillWaiting) return;
-      const quietForMs = Date.now() - (lastOutputAtBySession.get(sessionName) ?? 0);
+      const quietForMs = Date.now() - session.lastOutputAtMs;
       if (quietForMs >= READY_QUIET_MS) return void applyStatusLaneEvent(sessionName, { type: "idle", hasDraft: session.hasDraft });
       await Bun.sleep(READY_CHECK_MS);
     }
@@ -180,7 +192,7 @@ const startQueuedAskWhenSettled = async (sessionName: string, token: string): Pr
     // every session the host holds.
     log.warn(`host: couldn't start ${sessionName}'s status ask: ${error}`);
   } finally {
-    if (heldSessions.get(sessionName)?.hookToken === token) sessionsWaitingToAsk.delete(sessionName);
+    updateHeldSession(sessionName, token, { isWaitingToAsk: false });
   }
 };
 
@@ -192,39 +204,29 @@ const askForStatus = (sessionName: string): Response => {
   return new Response(null, { status: 204 });
 };
 
-const setHasDraft = (session: HeldSession, hasDraft: boolean) => {
-  const current = heldSessions.get(session.summary.sessionName);
-  if (current?.hookToken === session.hookToken) heldSessions.set(session.summary.sessionName, { ...current, hasDraft });
-};
-
 // The message counts as a draft until its Enter (an image paste waits a second
 // first), and Enter sends any draft along with it, so the box is empty after.
 const typeIntoSession = async (session: HeldSession, { text, hasImages }: TypedMessage): Promise<void> => {
-  setHasDraft(session, true);
+  const { sessionName } = session.summary;
+  updateHeldSession(sessionName, session.hookToken, { hasDraft: true });
   session.terminal.write(buildPastedText(text));
   if (hasImages) await Bun.sleep(IMAGE_PASTE_SETTLE_MS);
   session.terminal.write(ENTER_KEY);
-  setHasDraft(session, false);
+  updateHeldSession(sessionName, session.hookToken, { hasDraft: false });
 };
 
-const handleOutput = (sessionName: string, chunk: Uint8Array) => {
-  outputBySession.set(
-    sessionName,
-    appendOutput(outputBySession.get(sessionName) ?? new Uint8Array(), chunk, MAX_OUTPUT_BYTES),
-  );
-  lastOutputAtBySession.set(sessionName, Date.now());
-  outputListeners.get(sessionName)?.forEach((listener) => listener.enqueue(chunk));
+const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
+  const session = heldSessions.get(sessionName);
+  if (session?.hookToken !== token) return;
+  updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, MAX_OUTPUT_BYTES), lastOutputAtMs: Date.now() });
+  session.outputListeners.forEach((listener) => listener.enqueue(chunk));
 };
 
-const forgetSession = (sessionName: string) => {
+const forgetSession = (sessionName: string, token: string) => {
+  const session = heldSessions.get(sessionName);
+  if (session?.hookToken !== token) return;
   heldSessions.delete(sessionName);
-  outputBySession.delete(sessionName);
-  lastOutputAtBySession.delete(sessionName);
-  outputListeners.get(sessionName)?.forEach((listener) => listener.close());
-  outputListeners.delete(sessionName);
-  sessionsBeingRead.delete(sessionName);
-  sessionsBecomingReady.delete(sessionName);
-  sessionsWaitingToAsk.delete(sessionName);
+  session.outputListeners.forEach((listener) => listener.close());
   void rm(join(UPLOADS_FOLDER, sessionName), { recursive: true, force: true }).catch((error: unknown) =>
     log.warn(`host: couldn't delete ${sessionName}'s uploads: ${error}`),
   );
@@ -232,10 +234,21 @@ const forgetSession = (sessionName: string) => {
   broadcastSessions();
 };
 
-const startSession = async ({ sessionName, folderName, path }: StartSessionRequest): Promise<Response> => {
+const refuseNewSession = (sessionName: string): Response | null => {
   if (heldSessions.has(sessionName)) return new Response(`${sessionName} is already running`, { status: 409 });
   if (heldSessions.size >= MAX_SESSIONS) return new Response("too many sessions", { status: 429 });
+  return null;
+};
+
+const startSession = async ({ sessionName, folderName, path }: StartSessionRequest): Promise<Response> => {
+  const refusal = refuseNewSession(sessionName);
+  if (refusal) return refusal;
   await trustFolder(path);
+  // Checked again after the wait: two starts of the same name can both pass the
+  // first check, and the second would leave the first one's process running
+  // with no record. Spawning and saving the record below happen in one step.
+  const refusalAfterWait = refuseNewSession(sessionName);
+  if (refusalAfterWait) return refusalAfterWait;
 
   const hookCommand = `"${process.execPath}" "${HOOK_SCRIPT}"`;
   const hookToken = crypto.randomUUID();
@@ -253,7 +266,7 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
     {
       cwd: path,
       env: buildSessionEnv(process.env, hookEnv),
-      terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, chunk) },
+      terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, hookToken, chunk) },
     } as Parameters<typeof Bun.spawn>[1],
   );
   // Bun's terminal option adds this to the spawned process; its types don't list it yet.
@@ -270,8 +283,14 @@ const startSession = async ({ sessionName, folderName, path }: StartSessionReque
     statusLane: NO_STATUS_LANE,
     hookToken,
     hasDraft: false,
+    output: new Uint8Array(),
+    lastOutputAtMs: 0,
+    outputListeners: new Set(),
+    isBeingRead: false,
+    isBecomingReady: false,
+    isWaitingToAsk: false,
   });
-  void child.exited.then(() => forgetSession(sessionName)).catch((error: unknown) => log.warn(`host: couldn't clean up ${sessionName}: ${error}`));
+  void child.exited.then(() => forgetSession(sessionName, hookToken)).catch((error: unknown) => log.warn(`host: couldn't clean up ${sessionName}: ${error}`));
   log.event(`host: started session ${sessionName} in ${path}`);
   broadcastSessions();
   return new Response(null, { status: 201 });
@@ -326,13 +345,13 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
 
 // One read at a time per session, so the same lines are never read twice.
 const readAllNewEntries = () =>
-  [...heldSessions.keys()]
-    .filter((sessionName) => !sessionsBeingRead.has(sessionName))
-    .forEach((sessionName) => {
-      sessionsBeingRead.add(sessionName);
+  [...heldSessions.values()]
+    .filter((session) => !session.isBeingRead)
+    .forEach(({ summary: { sessionName }, hookToken }) => {
+      updateHeldSession(sessionName, hookToken, { isBeingRead: true });
       readNewEntries(sessionName)
         .catch((error: unknown) => log.warn(`host: couldn't read ${sessionName}'s conversation: ${error}`))
-        .finally(() => sessionsBeingRead.delete(sessionName));
+        .finally(() => updateHeldSession(sessionName, hookToken, { isBeingRead: false }));
     });
 
 // Once Claude Code's screen settles after it starts, the session is ready:
@@ -340,8 +359,9 @@ const readAllNewEntries = () =>
 const becomeReadyWhenQuiet = async (sessionName: string, token: string, giveUpAtMs: number): Promise<void> => {
   // Bail if the session is gone, or was replaced by a new instance with the same
   // name, so a stale loop never drives the replacement.
-  if (heldSessions.get(sessionName)?.hookToken !== token) return;
-  const quietForMs = Date.now() - (lastOutputAtBySession.get(sessionName) ?? 0);
+  const startingSession = heldSessions.get(sessionName);
+  if (startingSession?.hookToken !== token) return;
+  const quietForMs = Date.now() - startingSession.lastOutputAtMs;
   if (quietForMs < READY_QUIET_MS && Date.now() < giveUpAtMs) {
     await Bun.sleep(READY_CHECK_MS);
     return becomeReadyWhenQuiet(sessionName, token, giveUpAtMs);
@@ -369,11 +389,11 @@ const handleHook = (sessionName: string, hookDetailsText: string): string => {
 
   // Only one ready-loop per session instance, so a forged flood of SessionStart
   // events can't pile up uncancelled loops and exhaust the host's memory.
-  if (hookEvent === "SessionStart" && !sessionsBecomingReady.has(sessionName)) {
-    sessionsBecomingReady.add(sessionName);
+  if (hookEvent === "SessionStart" && !session.isBecomingReady) {
+    updateHeldSession(sessionName, session.hookToken, { isBecomingReady: true });
     void becomeReadyWhenQuiet(sessionName, session.hookToken, Date.now() + READY_LONGEST_WAIT_MS)
       .catch((error: unknown) => log.warn(`host: couldn't finish starting ${sessionName}: ${error}`))
-      .finally(() => sessionsBecomingReady.delete(sessionName));
+      .finally(() => updateHeldSession(sessionName, session.hookToken, { isBecomingReady: false }));
   }
 
   // Claude Code can start a new conversation file (like after /clear), so
@@ -448,15 +468,14 @@ const streamOf = <T>(
 
 // Starts with the recent output, so the attached terminal redraws the screen.
 const streamOutput = (sessionName: string): Response => {
-  if (!heldSessions.has(sessionName)) return new Response(`no session ${sessionName}`, { status: 404 });
-  const listeners = outputListeners.get(sessionName) ?? new Set();
-  outputListeners.set(sessionName, listeners);
+  const session = heldSessions.get(sessionName);
+  if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
   const stream = streamOf<Uint8Array>(
     (controller) => {
-      controller.enqueue(outputBySession.get(sessionName) ?? new Uint8Array());
-      listeners.add(controller);
+      controller.enqueue(session.output);
+      session.outputListeners.add(controller);
     },
-    (controller) => listeners.delete(controller),
+    (controller) => session.outputListeners.delete(controller),
   );
   return new Response(stream);
 };

@@ -46,7 +46,12 @@ test("buildHookSettings runs the hook command on every event", () => {
   // Pinned so a project's own disableAllHooks:true can't switch off enforcement.
   expect(settings.disableAllHooks).toBe(false);
   // Pinned so a project's own `env` can't blank the socket/token the hook reads.
-  expect(settings.env).toEqual({ TALOS_HOST_SOCKET: "/sock", TALOS_HOOK_TOKEN: "tok" });
+  expect(settings.env.TALOS_HOST_SOCKET).toBe("/sock");
+  expect(settings.env.TALOS_HOOK_TOKEN).toBe("tok");
+  // Interpreter/loader-hijack vars pinned empty so a project can't run e.g.
+  // `bun --version hook.ts` (exit before the hook) or inject a dylib.
+  expect(settings.env.BUN_OPTIONS).toBe("");
+  expect(settings.env.DYLD_INSERT_LIBRARIES).toBe("");
 });
 
 test("buildPastedText pastes the whole text as one piece", () => {

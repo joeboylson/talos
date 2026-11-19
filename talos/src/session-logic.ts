@@ -43,13 +43,34 @@ export const nextSessionState = (hookEvent: string, hookPayload: unknown): Sessi
 // own settings: without the pin, a session could write .claude/settings.local.json
 // with disableAllHooks:true to switch off the whole enforcement layer for the
 // next session in its folder.
+// Env vars an on-disk `env` block could set to hijack the hook's interpreter so
+// it exits before hook.ts runs — prepend bun/node args, inject a dylib, or attach
+// a debugger. Pinned empty in --settings (which outranks project settings) so a
+// session can't use them to make the hook self-disable and fail open. (A session
+// as the same OS user can still tamper the interpreter itself — the same-uid
+// residual behind #22; closing that needs separate uids.)
+const PINNED_EMPTY_HOOK_ENV = {
+  BUN_OPTIONS: "",
+  NODE_OPTIONS: "",
+  BUN_INSPECT: "",
+  BUN_INSPECT_CONNECT_TO: "",
+  DYLD_INSERT_LIBRARIES: "",
+  DYLD_LIBRARY_PATH: "",
+  LD_PRELOAD: "",
+  LD_LIBRARY_PATH: "",
+};
+
 export const buildHookSettings = (hookCommand: string, hookEnv: Record<string, string>): string => {
   const commandHook = [{ hooks: [{ type: "command", command: hookCommand }] }];
-  // Pin `env` here too: --settings outranks a project's own settings, so a
-  // session can't write .claude/settings.local.json with an `env` block that
-  // blanks the socket/token the hook reads to reach the host (which would make
-  // the hook self-disable and the enforcement fail open).
-  return JSON.stringify({ disableAllHooks: false, env: hookEnv, hooks: Object.fromEntries(HOOK_EVENTS.map((hookEvent) => [hookEvent, commandHook])) });
+  // Pin `env` too: --settings outranks a project's own settings, so a session
+  // can't write .claude/settings.local.json with an `env` block that blanks the
+  // socket/token the hook reads, or hijacks its interpreter — either of which
+  // would make the hook self-disable and the enforcement fail open.
+  return JSON.stringify({
+    disableAllHooks: false,
+    env: { ...PINNED_EMPTY_HOOK_ENV, ...hookEnv },
+    hooks: Object.fromEntries(HOOK_EVENTS.map((hookEvent) => [hookEvent, commandHook])),
+  });
 };
 
 // Bracketed paste: Claude Code takes the whole text as one message, even with

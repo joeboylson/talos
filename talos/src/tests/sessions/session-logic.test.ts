@@ -123,32 +123,46 @@ describe("resolveTranscriptItems", () => {
   const running = { kind: "tool", entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" } as const;
 
   test("a tool's end sends the tool again with how it went", () => {
-    const { entries, knownTools } = resolveTranscriptItems([{ kind: "tool-end", toolUseId: "t1", isFailed: false }], {
-      t1: running,
-    });
+    const { entries, knownTools } = resolveTranscriptItems([{ kind: "tool-end", toolUseId: "t1", isFailed: false }], new Map([["t1", running]]));
     expect(entries).toEqual([{ ...running, outcome: "done" }]);
-    expect(knownTools).toEqual({});
+    expect(knownTools.size).toBe(0);
   });
 
   test("a tool started and ended in the same read", () => {
-    const { entries } = resolveTranscriptItems([running, { kind: "tool-end", toolUseId: "t1", isFailed: true }], {});
+    const { entries } = resolveTranscriptItems([running, { kind: "tool-end", toolUseId: "t1", isFailed: true }], new Map());
     expect(entries).toEqual([running, { ...running, outcome: "failed" }]);
   });
 
   test("an unknown tool's end is dropped", () => {
-    expect(resolveTranscriptItems([{ kind: "tool-end", toolUseId: "zz", isFailed: false }], {}).entries).toEqual([]);
+    expect(resolveTranscriptItems([{ kind: "tool-end", toolUseId: "zz", isFailed: false }], new Map()).entries).toEqual([]);
+  });
+
+  test.each(["toString", "__proto__", "constructor"])("a tool end for %p that never started is dropped", (toolUseId) => {
+    expect(resolveTranscriptItems([{ kind: "tool-end", toolUseId, isFailed: false }], new Map()).entries).toEqual([]);
+  });
+
+  test("a tool called __proto__ is tracked like any other", () => {
+    const sneaky = { ...running, entryId: "__proto__" };
+    const { entries } = resolveTranscriptItems([sneaky, { kind: "tool-end", toolUseId: "__proto__", isFailed: false }], new Map());
+    expect(entries).toEqual([sneaky, { ...sneaky, outcome: "done" }]);
+  });
+
+  test("an entry the shared reader would turn down is dropped alone", () => {
+    const longId = { kind: "text", entryId: "x".repeat(201), text: "hi" } as const;
+    const fine = { kind: "text", entryId: "ok", text: "hi" } as const;
+    expect(resolveTranscriptItems([longId, fine], new Map()).entries).toEqual([fine]);
   });
 
   test("doesn't mutate the knownTools it was given", () => {
-    const knownTools = { t1: running };
+    const knownTools = new Map([["t1", running]]);
     resolveTranscriptItems([{ kind: "tool-end", toolUseId: "t1", isFailed: false }], knownTools);
-    expect(knownTools).toEqual({ t1: running });
+    expect([...knownTools]).toEqual([["t1", running]]);
   });
 
   test("stays linear on a large read (would be seconds if quadratic)", () => {
     const items = Array.from({ length: 50_000 }, (_unused, i) => ({ kind: "text" as const, entryId: `e${i}`, text: "x" }));
     const startMs = Date.now();
-    const { entries } = resolveTranscriptItems(items, {});
+    const { entries } = resolveTranscriptItems(items, new Map());
     expect(entries.length).toBe(50_000);
     expect(Date.now() - startMs).toBeLessThan(500);
   });

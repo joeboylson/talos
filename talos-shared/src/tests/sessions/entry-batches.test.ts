@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionEntry } from "talos-shared";
 import { batchEntriesBySize } from "../../entry-batches";
+import type { SessionEntry } from "../../sessions";
 
 const textEntry = (entryId: string, length: number): SessionEntry => ({ kind: "text", entryId, text: "x".repeat(length) });
 const sizeOf = (entry: SessionEntry) => Buffer.byteLength(JSON.stringify(entry));
@@ -38,8 +38,13 @@ describe("batchEntriesBySize", () => {
   test("stays linear on a large read (would be seconds if quadratic)", () => {
     const entries = Array.from({ length: 50_000 }, (_unused, i) => textEntry(`e${i}`, 10));
     const startMs = Date.now();
-    expect(batchEntriesBySize(entries, 4 * 1024 * 1024).length).toBe(1);
+    expect(batchEntriesBySize(entries, 4 * 1024 * 1024).length).toBe(100);
     expect(Date.now() - startMs).toBeLessThan(500);
+  });
+
+  test("holds at most MAX_ENTRIES_KEPT entries per batch", () => {
+    const entries = Array.from({ length: 1201 }, (_unused, i) => textEntry(`e${i}`, 1));
+    expect(batchEntriesBySize(entries, 4 * 1024 * 1024).map((batch) => batch.entries.length)).toEqual([500, 500, 201]);
   });
 
   test("no entries, no batches", () => {

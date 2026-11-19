@@ -1,10 +1,10 @@
+import { LIMITS } from "./limits";
 // Identifiers name things the same way everywhere (see docs/GLOSSARY.md):
 // talos:machines:work-mac. The page address (/machines/work-mac) and the
 // command (talos machines work-mac) are the same parts with other separators.
 
 export const IDENTIFIER_ROOT = "talos";
 const IDENTIFIER_SEPARATOR = ":";
-const MAX_NAME_LENGTH = 40;
 const FALLBACK_NAME = "unnamed";
 
 export const buildIdentifier = (parts: string[]): string => [IDENTIFIER_ROOT, ...parts].join(IDENTIFIER_SEPARATOR);
@@ -27,7 +27,7 @@ export const toIdentifierName = (text: string): string => {
     .replace(/['’]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, MAX_NAME_LENGTH)
+    .slice(0, LIMITS.maxIdentifierLength)
     .replace(/-+$/, "");
   return identifierName || FALLBACK_NAME;
 };

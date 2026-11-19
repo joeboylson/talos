@@ -1,11 +1,11 @@
-import { MAX_IMAGE_BASE64_LENGTH, type SentImage } from "talos-shared";
+import { LIMITS, type SentImage } from "talos-shared";
 import { JPEG_QUALITY, MAX_IMAGE_SIDE_PX } from "@/constants";
 
 // An image ready to send, and a link to show it on the page meanwhile.
 export type PreparedImage = SentImage & { previewUrl: string };
 
 const BASE64_BYTES_PER_CHARACTER = 3 / 4;
-const MAX_IMAGE_BYTES = Math.floor(MAX_IMAGE_BASE64_LENGTH * BASE64_BYTES_PER_CHARACTER);
+const MAX_IMAGE_BYTES = Math.floor(LIMITS.maxImageBase64Length * BASE64_BYTES_PER_CHARACTER);
 
 export const fitWithin = (width: number, height: number, maxSide: number): { width: number; height: number } => {
   const scale = Math.min(1, maxSide / Math.max(width, height));

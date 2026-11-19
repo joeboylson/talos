@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { isIdentifierName } from "../../identifiers";
 import { isSafeServerUrl } from "../../server-url";
 import { readMachineToServer, readPageToServer, readServerToMachine } from "../../message-readers";
-import { MAX_SENT_TEXT_LENGTH } from "../../sessions";
+import { LIMITS } from "../../limits";
 
 test.each([
   ["fix-login", true],
@@ -43,7 +43,7 @@ describe("readPageToServer", () => {
     ["a path as the folder name", { type: "start-session", machineId: "m1", folderName: "../x" }],
     ["no machine", { type: "stop-session", sessionName: "fix" }],
     ["text that isn't text", { type: "send-to-session", machineId: "m1", sessionName: "fix", text: { a: 1 } }],
-    ["text too long", { type: "send-to-session", machineId: "m1", sessionName: "fix", text: "x".repeat(MAX_SENT_TEXT_LENGTH + 1) }],
+    ["text too long", { type: "send-to-session", machineId: "m1", sessionName: "fix", text: "x".repeat(LIMITS.maxSentTextLength + 1) }],
     ["bad images", { type: "send-to-session", machineId: "m1", sessionName: "fix", text: "", images: [{ mediaType: "text/html", dataBase64: "" }] }],
     ["an unknown type", { type: "delete-everything", machineId: "m1" }],
     ["not an object", "ping"],

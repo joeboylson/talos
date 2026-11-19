@@ -4,10 +4,9 @@ import { basename } from "node:path";
 import { hostname } from "node:os";
 import {
   ENV_KEYS,
-  MAX_ENTRIES_BATCH_BYTES,
-  MAX_ENTRIES_KEPT,
-  batchEntriesBySize,
+  LIMITS,
   RECONNECT_DELAY_MS,
+  batchEntriesBySize,
   createLogger,
   httpOriginFromServerUrl,
   isSafeServerUrl,
@@ -19,7 +18,7 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RESEND_BYTES_PER_MS } from "./constants";
+import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE } from "./constants";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
 import { readFolders, renameFolder, saveFolders } from "./folders";
 import { ensureHostRunning, followHostEvents, postToHost } from "./host-client";
@@ -27,6 +26,7 @@ import { HOST_ROUTES, sessionRoute, type HostEvent } from "./host-protocol";
 import { startLocalStatusServer } from "./local-status-server";
 import { fetchMachineName, pairMachine } from "./pairing";
 import { connectToServer, type SendToServer } from "./server-connection";
+import { TALOS_LIMITS } from "./limits";
 
 // `talos` with no command: pair this machine if it isn't yet, connect to the
 // server, and stay connected.
@@ -62,7 +62,7 @@ export const runConnect = async (): Promise<void> => {
       return;
     }
     const keptEntries = entriesBySession[hostEvent.sessionName] ?? [];
-    const mergedEntries = mergeSessionEntries(keptEntries, hostEvent.entries, MAX_ENTRIES_KEPT);
+    const mergedEntries = mergeSessionEntries(keptEntries, hostEvent.entries, LIMITS.maxEntriesKept);
     entriesBySession = { ...entriesBySession, [hostEvent.sessionName]: mergedEntries };
   };
 
@@ -77,11 +77,11 @@ export const runConnect = async (): Promise<void> => {
     while (true) {
       const unsentEntries = (entriesBySession[sessionName] ?? []).filter((entry) => !sentEntries.has(entry));
       if (unsentEntries.length === 0) return true;
-      for (const batch of batchEntriesBySize(unsentEntries, MAX_ENTRIES_BATCH_BYTES)) {
+      for (const batch of batchEntriesBySize(unsentEntries, LIMITS.maxEntriesBatchBytes)) {
         if (sendToServer !== send) return false;
         send({ type: "session-entries", sessionName, entries: batch.entries });
         batch.entries.forEach((entry) => sentEntries.add(entry));
-        await Bun.sleep(batch.byteCount / RESEND_BYTES_PER_MS);
+        await Bun.sleep(batch.byteCount / TALOS_LIMITS.resendBytesPerMs);
       }
     }
   };
@@ -117,7 +117,7 @@ export const runConnect = async (): Promise<void> => {
     if (!sendToServer) return;
     if (hostEvent.type === "sessions") return sendToServer({ type: "sessions", sessions: hostEvent.sessions });
     if (sessionsAwaitingResend.has(hostEvent.sessionName)) return;
-    batchEntriesBySize(hostEvent.entries, MAX_ENTRIES_BATCH_BYTES).forEach((batch) =>
+    batchEntriesBySize(hostEvent.entries, LIMITS.maxEntriesBatchBytes).forEach((batch) =>
       sendToServer?.({ type: "session-entries", sessionName: hostEvent.sessionName, entries: batch.entries }),
     );
   };

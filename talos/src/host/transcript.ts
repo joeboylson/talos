@@ -1,10 +1,10 @@
 // Reading each session's saved conversation as Claude Code writes it.
-import { MAX_ENTRIES_KEPT, mergeSessionEntries } from "talos-shared";
-import { MAX_TRANSCRIPT_READ_BYTES } from "../constants";
+import { LIMITS, mergeSessionEntries } from "talos-shared";
 import { isPlainTranscriptFile } from "../transcript-file";
 import { readCompleteLines, readTranscriptLine, resolveTranscriptItems } from "../transcript-lines";
 import { log } from "./log";
 import { broadcast, heldSessions, updateHeldSession } from "./store";
+import { TALOS_LIMITS } from "../limits";
 
 const readNewEntries = async (sessionName: string): Promise<void> => {
   const transcript = heldSessions.get(sessionName)?.transcript;
@@ -19,7 +19,7 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
   // Read at most a bounded chunk per poll, so a session can't make one read
   // allocate and parse its whole (possibly huge) transcript at once and OOM or
   // stall the host. A big backlog drains over several polls.
-  const chunkEnd = transcript.readByteCount + Math.min(transcriptFile.size - transcript.readByteCount, MAX_TRANSCRIPT_READ_BYTES);
+  const chunkEnd = transcript.readByteCount + Math.min(transcriptFile.size - transcript.readByteCount, TALOS_LIMITS.maxTranscriptReadBytes);
   const newBytes = new Uint8Array(await transcriptFile.slice(transcript.readByteCount, chunkEnd).arrayBuffer());
   const { lines, usedByteCount } = readCompleteLines(newBytes);
   if (usedByteCount === 0) {
@@ -43,13 +43,13 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
   heldSessions.set(sessionName, {
     ...session,
     transcript: { ...transcript, readByteCount: transcript.readByteCount + usedByteCount, runningTools: knownTools },
-    entries: mergeSessionEntries(session.entries, entries, MAX_ENTRIES_KEPT),
+    entries: mergeSessionEntries(session.entries, entries, LIMITS.maxEntriesKept),
   });
   // One read can make more entries than a list may hold (a resumed session's
   // whole file), and an over-long list is turned down whole. Cut it the way the
   // kept list is cut, after a tool's end replaces its start, so talos gets every
   // entry the host keeps.
-  const sentEntries = mergeSessionEntries([], entries, MAX_ENTRIES_KEPT);
+  const sentEntries = mergeSessionEntries([], entries, LIMITS.maxEntriesKept);
   if (sentEntries.length > 0) broadcast({ type: "session-entries", sessionName, entries: sentEntries });
 };
 

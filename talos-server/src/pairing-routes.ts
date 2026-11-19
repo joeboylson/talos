@@ -9,11 +9,7 @@ import {
   type PairStartResponse,
 } from "talos-shared";
 import {
-  MAX_MACHINES_PER_PERSON,
-  MAX_WAITING_PAIRINGS,
   PAIRING_LIFETIME_MS,
-  PAIR_APPROVE_LIMIT,
-  PAIR_START_LIMIT,
 } from "./constants";
 import { createMachineKey, formatMachineKey } from "./machine-keys";
 import type { MachinesTable } from "./machines-table";
@@ -22,8 +18,8 @@ import { createUserCode, normalizeUserCode } from "./user-code";
 import { hashSecret } from "./utils/crypto";
 import { allowAttempt } from "./utils/rate-limit";
 import { readJsonBody, readStringField, textResponse } from "./utils/request";
+import { SERVER_LIMITS } from "./limits";
 
-const MAX_MACHINE_NAME_LENGTH = 64;
 
 type Approver = { personId: string; displayName: string };
 
@@ -51,7 +47,7 @@ export const createPairingRoutes = (
     waitingPairings = waitingPairings.filter((pairing) => pairing.expiresAtMs > nowMs);
   };
 
-  const takeAttempt = (timesByKey: Map<string, number[]>, key: string, limit: typeof PAIR_START_LIMIT): boolean => {
+  const takeAttempt = (timesByKey: Map<string, number[]>, key: string, limit: typeof SERVER_LIMITS.pairStart): boolean => {
     const { isAllowed, timesMs } = allowAttempt(timesByKey.get(key) ?? [], Date.now(), limit);
     // Drop a key once its window empties, so a flood of distinct addresses can't
     // grow these maps without bound.
@@ -63,18 +59,18 @@ export const createPairingRoutes = (
   // Starting a pairing needs no sign-in (the machine has no key yet), so
   // each address gets a few at a time, and the whole server a fixed number.
   const start = async (request: Request, clientAddress: string): Promise<Response> => {
-    if (!takeAttempt(startTimesByAddress, clientAddress, PAIR_START_LIMIT)) {
+    if (!takeAttempt(startTimesByAddress, clientAddress, SERVER_LIMITS.pairStart)) {
       log.warn(`turned away pairing requests from ${clientAddress}: too many`);
       return textResponse("Too many pairing requests; wait a few minutes", 429);
     }
     const machineName = readStringField(await readJsonBody(request), "machineName");
     if (!machineName) return textResponse("Missing machineName", 400);
-    if (machineName.length > MAX_MACHINE_NAME_LENGTH) return textResponse("machineName is too long", 400);
+    if (machineName.length > SERVER_LIMITS.maxMachineNameLength) return textResponse("machineName is too long", 400);
 
     const nowMs = Date.now();
     dropExpiredPairings(nowMs);
-    if (waitingPairings.length >= MAX_WAITING_PAIRINGS) {
-      log.warn(`turned away a pairing request from "${toIdentifierName(machineName)}": ${MAX_WAITING_PAIRINGS} machines are already waiting`);
+    if (waitingPairings.length >= SERVER_LIMITS.maxWaitingPairings) {
+      log.warn(`turned away a pairing request from "${toIdentifierName(machineName)}": ${SERVER_LIMITS.maxWaitingPairings} machines are already waiting`);
       return textResponse("Too many machines waiting", 429);
     }
 
@@ -110,7 +106,7 @@ export const createPairingRoutes = (
   const approve = async (request: Request): Promise<Response> => {
     const person = await checks.readTrustedPerson(request);
     if (!person) return textResponse("Not signed in", 401);
-    if (!takeAttempt(approveTimesByPerson, person.personId, PAIR_APPROVE_LIMIT)) {
+    if (!takeAttempt(approveTimesByPerson, person.personId, SERVER_LIMITS.pairApprove)) {
       log.warn(`${person.displayName} entered too many pairing codes`);
       return textResponse("Too many codes entered; wait a few minutes", 429);
     }
@@ -149,9 +145,9 @@ export const createPairingRoutes = (
     const ownMachineNames = (await machinesTable.listMachines())
       .filter((machine) => machine.ownerPersonId === approvedBy.personId)
       .map((machine) => machine.machineName);
-    if (ownMachineNames.length >= MAX_MACHINES_PER_PERSON) {
-      log.warn(`${approvedBy.displayName} already has ${MAX_MACHINES_PER_PERSON} machines; not adding another`);
-      return textResponse(`A person can have at most ${MAX_MACHINES_PER_PERSON} machines`, 409);
+    if (ownMachineNames.length >= SERVER_LIMITS.maxMachinesPerPerson) {
+      log.warn(`${approvedBy.displayName} already has ${SERVER_LIMITS.maxMachinesPerPerson} machines; not adding another`);
+      return textResponse(`A person can have at most ${SERVER_LIMITS.maxMachinesPerPerson} machines`, 409);
     }
     // The name is cleaned up for identifiers and made unique among that person's machines.
     const machineName = pickUniqueName(toIdentifierName(pairing.machineName), ownMachineNames);

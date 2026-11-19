@@ -3,9 +3,10 @@
 // else. Every lane change goes through stepStatusLane, a pure function, so the
 // rules live in one place and are tested as a table. The host only applies the
 // step it returns.
-import { MAX_STATUS_NOTE_LENGTH, REPORTED_STATUSES, type ReportedStatus, type SessionStatus } from "talos-shared";
-import { QUEUED_STATUS_TIMEOUT_MS, STATUS_TIMEOUT_MS, STATUS_TOOL_NAME } from "./constants";
+import { LIMITS, REPORTED_STATUSES, type ReportedStatus, type SessionStatus } from "talos-shared";
+import { STATUS_TOOL_NAME } from "./constants";
 import { removeControlCharacters } from "./terminal";
+import { TALOS_LIMITS } from "./limits";
 
 // none: no ask. queued: asked, starts when the session is idle and settled.
 // asking: the status turn is running. reported: answered, waiting for its Stop.
@@ -56,7 +57,7 @@ export const readStatusReport = (toolInput: unknown): { state: ReportedStatus; n
   const state: unknown = Reflect.get(toolInput, "state");
   const note: unknown = Reflect.get(toolInput, "note");
   const reportedState = REPORTED_STATUSES.find((choice) => choice === state);
-  const isShortNote = typeof note === "string" && note.length <= MAX_STATUS_NOTE_LENGTH;
+  const isShortNote = typeof note === "string" && note.length <= LIMITS.maxStatusNoteLength;
   if (!reportedState || !isShortNote) return null;
   return { state: reportedState, note: cleanStatusNote(note) };
 };
@@ -154,7 +155,7 @@ const isStatusTurnRunning = (lane: StatusLane): lane is Extract<StatusLane, { ki
 // longer, since it waits for the session's own work to finish first.
 const stepTick = (lane: StatusLane, nowMs: number): StatusLaneStep => {
   if (lane.kind === "none") return stay(lane);
-  const timeoutMs = lane.kind === "queued" ? QUEUED_STATUS_TIMEOUT_MS : STATUS_TIMEOUT_MS;
+  const timeoutMs = lane.kind === "queued" ? TALOS_LIMITS.queuedStatusTimeoutMs : TALOS_LIMITS.statusTimeoutMs;
   return nowMs - lane.askedAtMs > timeoutMs ? endStatusAsk(lane, nowMs) : stay(lane);
 };
 

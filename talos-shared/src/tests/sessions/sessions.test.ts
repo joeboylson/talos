@@ -1,15 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-  MAX_ENTRIES_KEPT,
   readSessionStatus,
-  MAX_ENTRY_TEXT_LENGTH,
-  MAX_IMAGE_BASE64_LENGTH,
-  MAX_IMAGES_PER_MESSAGE,
   mergeSessionEntries,
   readSentImages,
   readSessionEntries,
   readSessionList,
 } from "../../sessions";
+import { LIMITS } from "../../limits";
 
 describe("readSessionList", () => {
   test("keeps a good list, dropping anything extra", () => {
@@ -73,11 +70,11 @@ describe("readSessionEntries", () => {
   test.each([
     [null],
     [[{ kind: "text", entryId: "a", text: 2 }]],
-    [[{ kind: "text", entryId: "a", text: "x".repeat(MAX_ENTRY_TEXT_LENGTH + 1) }]],
+    [[{ kind: "text", entryId: "a", text: "x".repeat(LIMITS.maxEntryTextLength + 1) }]],
     [[{ kind: "prompt", entryId: "a", text: "hi", imageCount: -1 }]],
     [[{ kind: "tool", entryId: "a", toolName: "Bash", summary: "", outcome: "maybe" }]],
     [[{ kind: "other", entryId: "a" }]],
-    [Array.from({ length: MAX_ENTRIES_KEPT + 1 }, (_, index) => ({ kind: "text", entryId: `${index}`, text: "" }))],
+    [Array.from({ length: LIMITS.maxEntriesKept + 1 }, (_, index) => ({ kind: "text", entryId: `${index}`, text: "" }))],
   ])("rejects %#", (value) => {
     expect(readSessionEntries(value)).toBeNull();
   });
@@ -96,8 +93,8 @@ describe("readSentImages", () => {
 
   test.each([
     [[{ mediaType: "text/html", dataBase64: "AAAA" }]],
-    [[{ mediaType: "image/png", dataBase64: "x".repeat(MAX_IMAGE_BASE64_LENGTH + 1) }]],
-    [Array.from({ length: MAX_IMAGES_PER_MESSAGE + 1 }, () => ({ mediaType: "image/png", dataBase64: "AAAA" }))],
+    [[{ mediaType: "image/png", dataBase64: "x".repeat(LIMITS.maxImageBase64Length + 1) }]],
+    [Array.from({ length: LIMITS.maxImagesPerMessage + 1 }, () => ({ mediaType: "image/png", dataBase64: "AAAA" }))],
   ])("rejects %#", (value) => {
     expect(readSentImages(value)).toBeNull();
   });

@@ -1,14 +1,13 @@
 import { readFolderList } from "./folders";
 import { isIdentifierName } from "./identifiers";
 import type { MachineToServer, PageToServer, ServerToMachine } from "./messages";
-import { MAX_SENT_TEXT_LENGTH, readSentImages, readSessionEntries, readSessionList } from "./sessions";
+import { readSentImages, readSessionEntries, readSessionList } from "./sessions";
+import { LIMITS } from "./limits";
 
 // Every message is read field by field before anything acts on it. A message
 // that's wrong in any way is dropped whole: one bad field must never crash a
 // side or slip through as the wrong type.
 
-const MAX_ID_LENGTH = 200;
-const MAX_TYPED_NAME_LENGTH = 100;
 
 const fieldOf = (message: object, field: string): unknown => Reflect.get(message, field);
 
@@ -16,7 +15,7 @@ const isShortText = (value: unknown, maxLength: number): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= maxLength;
 
 const readText = (value: unknown): string | null =>
-  typeof value === "string" && value.length <= MAX_SENT_TEXT_LENGTH ? value : null;
+  typeof value === "string" && value.length <= LIMITS.maxSentTextLength ? value : null;
 
 const typeOf = (value: unknown): { message: object; type: unknown } | null =>
   typeof value === "object" && value !== null ? { message: value, type: fieldOf(value, "type") } : null;
@@ -28,16 +27,16 @@ export const readPageToServer = (value: unknown): PageToServer | null => {
   const machineId = fieldOf(message, "machineId");
   if (type === "ping") {
     if (machineId === undefined) return { type };
-    return isShortText(machineId, MAX_ID_LENGTH) ? { type, machineId } : null;
+    return isShortText(machineId, LIMITS.maxIdTextLength) ? { type, machineId } : null;
   }
-  if (!isShortText(machineId, MAX_ID_LENGTH)) return null;
+  if (!isShortText(machineId, LIMITS.maxIdTextLength)) return null;
 
   if (type === "start-session") {
     const folderName = fieldOf(message, "folderName");
     const sessionName = fieldOf(message, "sessionName");
     if (!isIdentifierName(folderName)) return null;
     if (sessionName === undefined) return { type, machineId, folderName };
-    return typeof sessionName === "string" && sessionName.length <= MAX_TYPED_NAME_LENGTH
+    return typeof sessionName === "string" && sessionName.length <= LIMITS.maxNameTextLength
       ? { type, machineId, folderName, sessionName }
       : null;
   }
@@ -59,7 +58,7 @@ export const readServerToMachine = (value: unknown): ServerToMachine | null => {
 
   if (type === "ping") {
     const id = fieldOf(message, "id");
-    return isShortText(id, MAX_ID_LENGTH) ? { type, id } : null;
+    return isShortText(id, LIMITS.maxIdTextLength) ? { type, id } : null;
   }
   if (type === "machine-name") {
     const machineName = fieldOf(message, "machineName");
@@ -68,7 +67,7 @@ export const readServerToMachine = (value: unknown): ServerToMachine | null => {
   if (type === "rename-folder") {
     const folderName = fieldOf(message, "folderName");
     const newFolderName = fieldOf(message, "newFolderName");
-    const isRename = isIdentifierName(folderName) && isShortText(newFolderName, MAX_TYPED_NAME_LENGTH);
+    const isRename = isIdentifierName(folderName) && isShortText(newFolderName, LIMITS.maxNameTextLength);
     return isRename ? { type, folderName, newFolderName } : null;
   }
 
@@ -93,7 +92,7 @@ export const readMachineToServer = (value: unknown): MachineToServer | null => {
 
   if (type === "pong") {
     const id = fieldOf(message, "id");
-    return isShortText(id, MAX_ID_LENGTH) ? { type, id } : null;
+    return isShortText(id, LIMITS.maxIdTextLength) ? { type, id } : null;
   }
   if (type === "folders") {
     const folders = readFolderList(fieldOf(message, "folders"));

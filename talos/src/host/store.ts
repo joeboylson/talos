@@ -3,9 +3,9 @@
 import type { Subprocess } from "bun";
 import type { SessionEntry, SessionSummary } from "talos-shared";
 import { createCoalescer } from "../coalescer";
-import { SESSIONS_BROADCAST_COALESCE_MS } from "../constants";
 import { encodeHostEvent, type HostEvent } from "../host-protocol";
 import type { StatusLane } from "../status-lane";
+import { TALOS_LIMITS } from "../limits";
 
 export type Terminal = { write: (data: string | Uint8Array) => void; resize: (cols: number, rows: number) => void };
 
@@ -70,5 +70,5 @@ export const broadcast = (hostEvent: HostEvent) => {
 // (host→machine→server) can't be flooded. The run sends the latest list.
 export const broadcastSessions = createCoalescer(
   () => broadcast({ type: "sessions", sessions: listSessions() }),
-  SESSIONS_BROADCAST_COALESCE_MS,
+  TALOS_LIMITS.sessionsBroadcastCoalesceMs,
 );

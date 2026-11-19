@@ -1,16 +1,13 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import {
-  MAX_ENTRIES_BATCH_BYTES,
-  MAX_ENTRIES_KEPT,
+  LIMITS,
   batchEntriesBySize,
-  SOCKET_INGRESS_MAX_BYTES,
-  SOCKET_INGRESS_WINDOW_MS,
   encode,
   mergeSessionEntries,
   parseJsonOrNull,
+  pickUniqueName,
   readMachineToServer,
   readPageToServer,
-  pickUniqueName,
   toIdentifierName,
   type Folder,
   type Logger,
@@ -23,12 +20,12 @@ import {
 } from "talos-shared";
 import {
   CLOSE_CODES,
-  MACHINE_LIST_RELAY_COALESCE_MS,
   NO_MACHINES_MESSAGE,
   PING_ANSWER_WAIT_MS,
 } from "./constants";
 import { allowBytes, type ByteWindow } from "./utils/rate-limit";
 import type { MachineRecord, MachinesTable } from "./machines-table";
+import { SERVER_LIMITS } from "./limits";
 
 export type SocketData =
   | { role: "machine"; machineId: string; machineName: string; ownerPersonId: string }
@@ -147,7 +144,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       const machines = machinesByOwner.get(personId);
       if (machines) return sendOwnerMachineList(personId, machines);
       sendMachineListToPages(personId).catch((error: unknown) => log.warn(`couldn't send ${personId}'s machine list: ${error}`));
-    }, MACHINE_LIST_RELAY_COALESCE_MS);
+    }, SERVER_LIMITS.machineListRelayCoalesceMs);
   };
 
   // A page that just opened gets every kept entry of the person's sessions.
@@ -159,7 +156,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
         // In batches: a session's whole kept history can be tens of MB, and one
         // message that big can be dropped, hiding the session from the page.
         const entries = entriesBySession.get(entriesKey(machineId, sessionName)) ?? [];
-        batchEntriesBySize(entries, MAX_ENTRIES_BATCH_BYTES).forEach((batch) =>
+        batchEntriesBySize(entries, LIMITS.maxEntriesBatchBytes).forEach((batch) =>
           pageSocket.send(encode<ServerToPage>({ type: "session-entries", machineId, sessionName, entries: batch.entries })),
         );
       });
@@ -303,7 +300,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     const hasSession = reportsByMachineId.get(machine.machineId)?.sessions.some((session) => session.sessionName === sessionName);
     if (!hasSession) return log.warn(`"${machine.machineName}" sent entries for a session it doesn't have`);
     const key = entriesKey(machine.machineId, sessionName);
-    entriesBySession.set(key, mergeSessionEntries(entriesBySession.get(key) ?? [], entries, MAX_ENTRIES_KEPT));
+    entriesBySession.set(key, mergeSessionEntries(entriesBySession.get(key) ?? [], entries, LIMITS.maxEntriesKept));
     log.detail(`session "${sessionName}" on "${machine.machineName}" has ${entries.length} new or changed entries`);
     sendToOwnerPages(machine.ownerPersonId, { type: "session-entries", machineId: machine.machineId, sessionName, entries });
   };
@@ -381,8 +378,8 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       // Drop before parsing if this socket is over its byte budget, so a flood of
       // large frames can't block the single server thread for every other owner.
       const { isAllowed, window } = allowBytes(socketByteWindows.get(socket), Date.now(), rawMessage.length, {
-        windowMs: SOCKET_INGRESS_WINDOW_MS,
-        maxBytes: SOCKET_INGRESS_MAX_BYTES,
+        windowMs: LIMITS.socketIngressWindowMs,
+        maxBytes: LIMITS.maxSocketIngressBytes,
       });
       socketByteWindows.set(socket, window);
       if (!isAllowed) return;

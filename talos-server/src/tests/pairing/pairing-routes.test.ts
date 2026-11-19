@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Logger } from "talos-shared";
-import { MAX_MACHINES_PER_PERSON, PAIR_START_LIMIT } from "../../constants";
 import type { MachineRecord, MachinesTable } from "../../machines-table";
 import { createPairingRoutes } from "../../pairing-routes";
 import type { RequestChecks } from "../../request-checks";
 import { allowAttempt, allowBytes, readClientAddress } from "../../utils/rate-limit";
+import { SERVER_LIMITS } from "../../limits";
 
 const ORIGIN = "https://talos.test";
 const people = { joe: { personId: "joe", signInId: "github-id:1", displayName: "joe" }, eve: { personId: "eve", signInId: "github-id:2", displayName: "eve" } };
@@ -92,14 +92,14 @@ describe("pairing", () => {
   test("one address can only start a few pairings at a time", async () => {
     const setup = setUp();
     const statuses = await Promise.all(
-      Array.from({ length: PAIR_START_LIMIT.maxAttempts + 1 }, () => setup.routes.start(setup.post({ machineName: "x" }), "6.6.6.6")),
+      Array.from({ length: SERVER_LIMITS.pairStart.maxAttempts + 1 }, () => setup.routes.start(setup.post({ machineName: "x" }), "6.6.6.6")),
     );
     expect(statuses.map((response) => response.status).at(-1)).toBe(429);
     expect((await setup.routes.start(setup.post({ machineName: "x" }), "1.1.1.1")).status).toBe(200);
   });
 
   test("a person can't have more than the machine limit", async () => {
-    const full = Array.from({ length: MAX_MACHINES_PER_PERSON }, (_, index) => ({
+    const full = Array.from({ length: SERVER_LIMITS.maxMachinesPerPerson }, (_, index) => ({
       machineId: `m${index}`, machineName: `m${index}`, ownerPersonId: "joe", keyHash: "h", pairedAtMs: 0,
     }));
     const setup = setUp(full);

@@ -6,8 +6,9 @@
 // report_status (nothing would record it) and lets everything else through, so
 // it can never hold Claude up.
 import { parseJsonOrNull } from "talos-shared";
-import { HOOK_TIMEOUT_MS, HOOK_TOKEN_HEADER, SESSION_ENV_KEYS } from "./constants";
+import { HOOK_TOKEN_HEADER, SESSION_ENV_KEYS } from "./constants";
 import { hookReplyWhenHostUnreachable } from "./status-lane";
+import { TALOS_LIMITS } from "./limits";
 
 const sessionName = process.env[SESSION_ENV_KEYS.sessionName];
 const hostSocket = process.env[SESSION_ENV_KEYS.hostSocket];
@@ -20,7 +21,7 @@ if (sessionName && hostSocket) {
     body: hookDetails,
     headers: hookToken ? { [HOOK_TOKEN_HEADER]: hookToken } : {},
     unix: hostSocket,
-    signal: AbortSignal.timeout(HOOK_TIMEOUT_MS),
+    signal: AbortSignal.timeout(TALOS_LIMITS.hookTimeoutMs),
   } as RequestInit)
     .then((response) => response.text())
     .catch(() => hookReplyWhenHostUnreachable(parseJsonOrNull(hookDetails)));

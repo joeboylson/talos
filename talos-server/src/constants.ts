@@ -13,7 +13,6 @@ export const SERVER_ENV_KEYS = {
 export const NO_STORE = { headers: { "Cache-Control": "no-store" } } as const;
 
 export const DEFAULT_SERVER_PORT = 7070;
-export const MIN_SESSION_SECRET_LENGTH = 32;
 export const DEFAULT_TABLE_PREFIX = "talos-";
 
 // The page's built files (production only): scripts and styles, named by
@@ -21,13 +20,6 @@ export const DEFAULT_TABLE_PREFIX = "talos-";
 export const PAGE_ASSETS_ROUTE = "/assets";
 export const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
-// Every HTTP request here is small JSON. The socket limits live in talos-shared,
-// since talos sizes and paces what it sends by them.
-export const MAX_REQUEST_BODY_BYTES = 64 * 1024;
-
-// A machine's session/folder updates are coalesced per owner into one table
-// scan + page broadcast per this window, so a burst (or a flood) can't amplify.
-export const MACHINE_LIST_RELAY_COALESCE_MS = 100;
 
 // AWS's load balancer calls this to check the server is up.
 export const HEALTH_ROUTE = "/health";
@@ -49,20 +41,12 @@ export const COOKIE_NAMES = {
   signInState: "talos_sign_in_state",
 } as const;
 
-const MINUTE_MS = 60 * 1000;
+export const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 export const SESSION_LIFETIME_MS = 7 * DAY_MS;
 export const SIGN_IN_STATE_LIFETIME_MS = 10 * MINUTE_MS;
 export const PAIRING_LIFETIME_MS = 10 * MINUTE_MS;
 
-// Starting a pairing needs no sign-in, so cap how many can wait at once.
-export const MAX_WAITING_PAIRINGS = 100;
-
-// How often one address may start a pairing, and one person enter a code.
-// Plenty for real use; too few to fill the queue or guess codes.
-export const PAIR_START_LIMIT = { windowMs: 10 * MINUTE_MS, maxAttempts: 10 };
-export const PAIR_APPROVE_LIMIT = { windowMs: 10 * MINUTE_MS, maxAttempts: 10 };
-export const MAX_MACHINES_PER_PERSON = 20;
 
 export const GITHUB_URLS = {
   authorize: "https://github.com/login/oauth/authorize",

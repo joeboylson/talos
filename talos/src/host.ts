@@ -33,6 +33,7 @@ import {
   HOST_SOCKET_MODE,
   IMAGE_PASTE_SETTLE_MS,
   MAX_OUTPUT_BYTES,
+  HOOK_MAX_BODY_BYTES,
   MAX_TRANSCRIPT_READ_BYTES,
   SESSIONS_BROADCAST_COALESCE_MS,
   READY_CHECK_MS,
@@ -599,6 +600,9 @@ const controlServeOptions = {
 // The only route a session can reach: its own Claude Code hooks.
 const hookServeOptions = {
   unix: HOST_HOOKS_SOCKET,
+  // Bounded so a session can't POST a huge body that blocks the host's one thread
+  // in JSON.parse long enough for other sessions' hooks to time out and fail open.
+  maxRequestBodySize: HOOK_MAX_BODY_BYTES,
   routes: {
     [HOST_ROUTES.health]: new Response("ok"),
     [HOST_ROUTES.hooks]: {

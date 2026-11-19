@@ -74,6 +74,11 @@ export const MAX_TRANSCRIPT_READ_BYTES = 4 * 1024 * 1024;
 // Rapid session state/status changes collapse into one roster broadcast per this
 // window, so a session flapping its state can't flood the host→server uplink.
 export const SESSIONS_BROADCAST_COALESCE_MS = 100;
+// A hook POST body is parsed synchronously on the host's one thread, so cap it:
+// a session can't send a huge body that JSON.parse blocks on for seconds (which
+// would make every other session's hook time out and fail open). Real hook bodies
+// are small; this leaves generous room for a large tool input.
+export const HOOK_MAX_BODY_BYTES = 4 * 1024 * 1024;
 export const MAX_TOOL_SUMMARY_LENGTH = 300;
 export const MAX_TOOL_NAME_LENGTH = 100;
 

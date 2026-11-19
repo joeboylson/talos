@@ -35,7 +35,6 @@ import {
   MAX_OUTPUT_BYTES,
   MAX_TRANSCRIPT_READ_BYTES,
   SESSIONS_BROADCAST_COALESCE_MS,
-  NEWLINE_BYTE,
   READY_CHECK_MS,
   READY_LONGEST_WAIT_MS,
   READY_QUIET_MS,
@@ -273,20 +272,25 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
   if (!(await transcriptFile.exists()) || transcriptFile.size <= transcript.readByteCount) return;
 
   // Read at most a bounded chunk per poll, so a session can't make one read
-  // allocate and parse its whole (possibly huge) transcript at once and stall the
-  // host. A big backlog drains over several polls. The fallback covers the rare
-  // case of a single line longer than the cap, which would otherwise never find a
-  // newline and stall: read the whole remainder for that one line.
-  const remaining = transcriptFile.size - transcript.readByteCount;
-  const chunkEnd = transcript.readByteCount + Math.min(remaining, MAX_TRANSCRIPT_READ_BYTES);
-  const cappedBytes = new Uint8Array(await transcriptFile.slice(transcript.readByteCount, chunkEnd).arrayBuffer());
-  const hasCompleteLine = cappedBytes.lastIndexOf(NEWLINE_BYTE) !== -1;
-  const newBytes =
-    hasCompleteLine || chunkEnd >= transcriptFile.size
-      ? cappedBytes
-      : new Uint8Array(await transcriptFile.slice(transcript.readByteCount).arrayBuffer());
+  // allocate and parse its whole (possibly huge) transcript at once and OOM or
+  // stall the host. A big backlog drains over several polls.
+  const chunkEnd = transcript.readByteCount + Math.min(transcriptFile.size - transcript.readByteCount, MAX_TRANSCRIPT_READ_BYTES);
+  const newBytes = new Uint8Array(await transcriptFile.slice(transcript.readByteCount, chunkEnd).arrayBuffer());
   const { lines, usedByteCount } = readCompleteLines(newBytes);
-  if (usedByteCount === 0) return;
+  if (usedByteCount === 0) {
+    // No complete line in the chunk. If the file has already grown past it, a
+    // single line is longer than the cap (pathological) — skip the chunk instead
+    // of reading the whole remainder, so one huge line can't OOM the host; its
+    // fragments then fail to parse and drop. Otherwise it's an incomplete trailing
+    // line still being written: wait for the next poll.
+    if (chunkEnd < transcriptFile.size) {
+      const current = heldSessions.get(sessionName);
+      if (current?.transcript?.path === transcript.path) {
+        heldSessions.set(sessionName, { ...current, transcript: { ...current.transcript, readByteCount: chunkEnd } });
+      }
+    }
+    return;
+  }
   const { entries, knownTools } = resolveTranscriptItems(lines.flatMap(readTranscriptLine), transcript.runningTools);
 
   const session = heldSessions.get(sessionName);

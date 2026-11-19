@@ -625,13 +625,19 @@ Bun.serve(hookServeOptions as unknown as Parameters<typeof Bun.serve>[0]);
 await chmod(HOST_SOCKET, HOST_SOCKET_MODE);
 await chmod(HOST_HOOKS_SOCKET, HOST_SOCKET_MODE);
 setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
-// A status request that is never answered becomes "no response".
+// The backstop that ends a status turn the host can't otherwise clear: a turn
+// is cleared once it has been in flight (active or wanted) past the timeout.
+// This always fires — even when the turn already reported but never reached a
+// Stop (e.g. the session was interrupted), which would otherwise strand `active`
+// true and leave the session un-askable and over-enforced. A turn that never
+// reported is still "pending", so it also becomes "no response".
 setInterval(() => {
   const nowMs = Date.now();
   for (const [sessionName, session] of heldSessions) {
-    const isStuckPending = session.summary.status?.state === "pending" && nowMs - session.statusLane.askedAtMs > STATUS_TIMEOUT_MS;
-    if (!isStuckPending) continue;
-    setSessionStatus(sessionName, { state: "no-response", note: "", atMs: nowMs });
+    const lane = session.statusLane;
+    const timedOut = (lane.active || lane.wanted) && nowMs - lane.askedAtMs > STATUS_TIMEOUT_MS;
+    if (!timedOut) continue;
+    if (session.summary.status?.state === "pending") setSessionStatus(sessionName, { state: "no-response", note: "", atMs: nowMs });
     updateStatusLane(sessionName, { active: false, wanted: false });
   }
 }, STATUS_CHECK_MS);

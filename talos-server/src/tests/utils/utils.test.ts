@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildCookie, buildExpiredCookie, readCookie } from "../../utils/cookies";
+import { buildCookie, buildExpiredCookie, cookieName, readCookie } from "../../utils/cookies";
 import { hashSecret, isSameSecret } from "../../utils/crypto";
 import { readStringField } from "../../utils/request";
 
@@ -8,6 +8,15 @@ test("buildCookie sets the safe flags", () => {
     "talos_session=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=90",
   );
   expect(buildCookie("talos_session", "abc", { maxAgeMs: 1000, isSecure: true })).toEndWith("; Secure");
+});
+
+test("cookieName uses the __Host- prefix only when secure (blocks sibling cookie tossing)", () => {
+  // Secure (prod): host-only, so a *.on.aws sibling can't override it with a Domain cookie.
+  expect(cookieName("talos_session", true)).toBe("__Host-talos_session");
+  // A __Host- cookie must have no Domain; buildCookie never emits one.
+  expect(buildCookie(cookieName("talos_session", true), "x", { maxAgeMs: 1000, isSecure: true })).not.toContain("Domain");
+  // Plain-http dev: __Host- is invalid without Secure, so keep the bare name.
+  expect(cookieName("talos_session", false)).toBe("talos_session");
 });
 
 test("buildExpiredCookie clears the value", () => {

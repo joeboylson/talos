@@ -8,7 +8,7 @@ import { createSessionToken, type SessionPerson } from "./session";
 import type { SettingsTable } from "./settings-table";
 import { decideSignIn } from "./sign-in-decision";
 import { buildGithubSignInId, type SignInsTable } from "./sign-ins-table";
-import { buildCookie, buildExpiredCookie, readCookie } from "./utils/cookies";
+import { buildCookie, buildExpiredCookie, cookieName, readCookie } from "./utils/cookies";
 import { createRandomSecret, isSameSecret } from "./utils/crypto";
 import { textResponse } from "./utils/request";
 
@@ -30,12 +30,12 @@ export const createAuthRoutes = (
   log: Logger,
 ) => {
   const isSecure = config.publicOrigin.startsWith("https:");
-  const clearStateCookie = buildExpiredCookie(COOKIE_NAMES.signInState, isSecure);
+  const clearStateCookie = buildExpiredCookie(cookieName(COOKIE_NAMES.signInState, isSecure), isSecure);
 
   const signIn = (): Response => {
     const signInState = createRandomSecret();
     const signInUrl = buildGithubSignInUrl(config.githubClientId, config.signInCallbackUrl, signInState);
-    const stateCookie = buildCookie(COOKIE_NAMES.signInState, signInState, {
+    const stateCookie = buildCookie(cookieName(COOKIE_NAMES.signInState, isSecure), signInState, {
       maxAgeMs: SIGN_IN_STATE_LIFETIME_MS,
       isSecure,
     });
@@ -71,7 +71,7 @@ export const createAuthRoutes = (
     const callbackParams = new URL(request.url).searchParams;
     const code = callbackParams.get("code");
     const returnedState = callbackParams.get("state");
-    const expectedState = readCookie(request.headers.get("cookie"), COOKIE_NAMES.signInState);
+    const expectedState = readCookie(request.headers.get("cookie"), cookieName(COOKIE_NAMES.signInState, isSecure));
     // A matching state proves this sign-in started on this server, not on another site.
     const isStateValid = Boolean(returnedState && expectedState && isSameSecret(returnedState, expectedState));
     if (!code || !isStateValid) {
@@ -94,7 +94,7 @@ export const createAuthRoutes = (
     const issuedAtMs = Date.now();
     const sessionTimes = { issuedAtMs, expiresAtMs: issuedAtMs + SESSION_LIFETIME_MS };
     const sessionToken = createSessionToken(person, sessionTimes, config.sessionSecret);
-    const sessionCookie = buildCookie(COOKIE_NAMES.session, sessionToken, { maxAgeMs: SESSION_LIFETIME_MS, isSecure });
+    const sessionCookie = buildCookie(cookieName(COOKIE_NAMES.session, isSecure), sessionToken, { maxAgeMs: SESSION_LIFETIME_MS, isSecure });
     return redirectTo(HOME_PAGE_PATH, [sessionCookie, clearStateCookie]);
   };
 
@@ -105,7 +105,7 @@ export const createAuthRoutes = (
     await signInsTable.endSessions(person.signInId, Date.now());
     onSignedOut(person.personId);
     log.event(`signed out everywhere: ${person.displayName}`);
-    const headers = { "Set-Cookie": buildExpiredCookie(COOKIE_NAMES.session, isSecure) };
+    const headers = { "Set-Cookie": buildExpiredCookie(cookieName(COOKIE_NAMES.session, isSecure), isSecure) };
     return new Response(null, { status: 204, headers });
   };
 

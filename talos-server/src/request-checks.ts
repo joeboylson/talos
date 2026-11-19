@@ -6,7 +6,7 @@ import { readSessionClaim, type SessionClaim, type SessionPerson } from "./sessi
 // can be closed once the session would no longer be accepted.
 export type SignedInPerson = SessionPerson & { expiresAtMs: number };
 import { buildGithubSignInId, type SignInRecord, type SignInsTable } from "./sign-ins-table";
-import { readCookie } from "./utils/cookies";
+import { cookieName, readCookie } from "./utils/cookies";
 
 // A signed cookie alone isn't enough: its sign-in must still exist, belong to
 // the same person, and not have been signed out since the cookie was made.
@@ -17,7 +17,8 @@ export const createRequestChecks = (config: ServerConfig, signInsTable: SignInsT
   const adminSignInId = buildGithubSignInId(config.adminGithubId);
 
   const readSignedInPerson = async (request: Request): Promise<SignedInPerson | null> => {
-    const sessionToken = readCookie(request.headers.get("cookie"), COOKIE_NAMES.session);
+    const isSecure = config.publicOrigin.startsWith("https:");
+    const sessionToken = readCookie(request.headers.get("cookie"), cookieName(COOKIE_NAMES.session, isSecure));
     const claim = readSessionClaim(sessionToken, config.sessionSecret, Date.now());
     if (!claim) return null;
     if (!isClaimStillValid(claim, await signInsTable.findSignIn(claim.signInId))) return null;

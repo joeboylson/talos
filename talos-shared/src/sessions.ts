@@ -40,7 +40,12 @@ export const MAX_IMAGES_PER_MESSAGE = 4;
 export const MAX_IMAGE_BASE64_LENGTH = 3_000_000;
 
 export const MAX_SESSIONS = 50;
-export const MAX_ENTRY_TEXT_LENGTH = 100_000;
+// Longer text is cut to this. It keeps a session's kept entries (up to
+// MAX_ENTRIES_KEPT of them) to a few MB on the host, in talos and on the server.
+export const MAX_ENTRY_TEXT_LENGTH = 20_000;
+// A message typed on the page can be longer (a pasted log): it goes once to
+// the session and isn't kept.
+export const MAX_SENT_TEXT_LENGTH = 100_000;
 // Each side keeps this many of a session's latest entries, and sends at most
 // this many at once.
 export const MAX_ENTRIES_KEPT = 500;

@@ -1,7 +1,7 @@
 import { readFolderList } from "./folders";
 import { isIdentifierName } from "./identifiers";
 import type { MachineToServer, PageToServer, ServerToMachine } from "./messages";
-import { MAX_ENTRY_TEXT_LENGTH, readSentImages, readSessionEntries, readSessionList } from "./sessions";
+import { MAX_SENT_TEXT_LENGTH, readSentImages, readSessionEntries, readSessionList } from "./sessions";
 
 // Every message is read field by field before anything acts on it. A message
 // that's wrong in any way is dropped whole: one bad field must never crash a
@@ -16,7 +16,7 @@ const isShortText = (value: unknown, maxLength: number): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= maxLength;
 
 const readText = (value: unknown): string | null =>
-  typeof value === "string" && value.length <= MAX_ENTRY_TEXT_LENGTH ? value : null;
+  typeof value === "string" && value.length <= MAX_SENT_TEXT_LENGTH ? value : null;
 
 const typeOf = (value: unknown): { message: object; type: unknown } | null =>
   typeof value === "object" && value !== null ? { message: value, type: fieldOf(value, "type") } : null;

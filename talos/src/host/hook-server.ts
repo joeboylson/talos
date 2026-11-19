@@ -41,10 +41,13 @@ const handleHook = (sessionName: string, hookDetailsText: string): string => {
   if (isNewTranscript && current) {
     heldSessions.set(sessionName, { ...current, transcript: { path: transcriptPath, readByteCount: 0, runningTools: new Map() } });
   }
-  // A Stop the lane blocked keeps the turn going, so the session isn't idle.
+  // A Stop the lane blocked keeps the turn going, so the session isn't idle. A
+  // turn that ends on an open decision is waiting for the person, not idle.
   const blockedStop = hookEvent === "Stop" && decision !== "";
   const nextState = nextSessionState(hookEvent, hookDetails);
-  if (nextState && !blockedStop) setSessionState(sessionName, nextState);
+  const hasOpenDecision = heldSessions.get(sessionName)?.summary.decision !== undefined;
+  const shownState = nextState === "idle" && hasOpenDecision ? "needs-you" : nextState;
+  if (shownState && !blockedStop) setSessionState(sessionName, shownState);
   return decision;
 };
 

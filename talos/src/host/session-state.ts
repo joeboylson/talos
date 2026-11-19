@@ -1,10 +1,18 @@
 // A session's state and its status lane: every change to either goes through here.
-import type { SessionState } from "talos-shared";
+import type { SessionState, SessionSummary } from "talos-shared";
 import { READY_CHECK_MS, READY_QUIET_MS } from "../constants";
-import { STATUS_REQUEST_PROMPT, stepStatusLane, type StatusLaneEvent } from "../status-lane";
+import { STATUS_REQUEST_PROMPT, stepStatusLane, type StatusLaneEvent, type StatusLaneStep } from "../status-lane";
 import { ENTER_KEY, buildPastedText } from "../terminal";
 import { log } from "./log";
 import { broadcastSessions, heldSessions, updateHeldSession } from "./store";
+
+const applyDecisionChange = (summary: SessionSummary, change: StatusLaneStep["decisionChange"]): SessionSummary => {
+  if (change === null) return summary;
+  if (change !== "clear") return { ...summary, decision: change };
+  if (!summary.decision) return summary;
+  const { decision: _answered, ...withoutDecision } = summary;
+  return withoutDecision;
+};
 
 // Every status lane change goes through here: step the lane, then apply what
 // the step says (new status, typed request) and return the hook's reply.
@@ -12,9 +20,10 @@ export const applyStatusLaneEvent = (sessionName: string, event: StatusLaneEvent
   const session = heldSessions.get(sessionName);
   if (!session) return "";
   const step = stepStatusLane(session.statusLane, event, Date.now());
-  const summary = step.statusChange ? { ...session.summary, status: step.statusChange } : session.summary;
+  const withStatus = step.statusChange ? { ...session.summary, status: step.statusChange } : session.summary;
+  const summary = applyDecisionChange(withStatus, step.decisionChange);
   heldSessions.set(sessionName, { ...session, statusLane: step.lane, summary });
-  if (step.statusChange) broadcastSessions();
+  if (summary !== session.summary) broadcastSessions();
   if (step.shouldTypeRequest) {
     session.terminal.write(buildPastedText(STATUS_REQUEST_PROMPT));
     session.terminal.write(ENTER_KEY);
@@ -22,13 +31,18 @@ export const applyStatusLaneEvent = (sessionName: string, event: StatusLaneEvent
   return step.hookReply;
 };
 
+// A session can be asked for a status at an idle input box: idle, or done with
+// its turn and waiting on the person's answer to a decision (which stays open).
+const canBeAsked = (summary: SessionSummary): boolean =>
+  summary.state === "idle" || (summary.state === "needs-you" && summary.decision !== undefined);
+
 export const setSessionState = (sessionName: string, state: SessionState) => {
   const session = heldSessions.get(sessionName);
   if (!session || session.summary.state === state) return;
   heldSessions.set(sessionName, { ...session, summary: { ...session.summary, state } });
   log.detail(`host: ${sessionName} is ${state}`);
   broadcastSessions();
-  if (state === "idle") void startQueuedAskWhenSettled(sessionName, session.hookToken);
+  if (canBeAsked({ ...session.summary, state })) void startQueuedAskWhenSettled(sessionName, session.hookToken);
 };
 
 // A queued status request is typed only once the session is idle and its screen
@@ -48,7 +62,7 @@ const startQueuedAskWhenSettled = async (sessionName: string, token: string): Pr
   try {
     while (true) {
       const session = heldSessions.get(sessionName);
-      const isStillWaiting = session?.hookToken === token && session.statusLane.kind === "queued" && session.summary.state === "idle";
+      const isStillWaiting = session?.hookToken === token && session.statusLane.kind === "queued" && canBeAsked(session.summary);
       if (!isStillWaiting) return;
       const quietForMs = Date.now() - session.lastOutputAtMs;
       if (quietForMs >= READY_QUIET_MS) return void applyStatusLaneEvent(sessionName, { type: "idle", hasDraft: session.hasDraft });
@@ -67,6 +81,6 @@ export const askForStatus = (sessionName: string): Response => {
   const session = heldSessions.get(sessionName);
   if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
   applyStatusLaneEvent(sessionName, { type: "ask" });
-  if (session.summary.state === "idle") void startQueuedAskWhenSettled(sessionName, session.hookToken);
+  if (canBeAsked(session.summary)) void startQueuedAskWhenSettled(sessionName, session.hookToken);
   return new Response(null, { status: 204 });
 };

@@ -1,12 +1,13 @@
-// The status lane: when someone asks a session for an update, the host types a
-// request, and the session must answer by calling report_status and nothing
-// else. Every lane change goes through stepStatusLane, a pure function, so the
-// rules live in one place and are tested as a table. The host only applies the
-// step it returns.
-import { LIMITS, REPORTED_STATUSES, type ReportedStatus, type SessionStatus } from "talos-shared";
-import { STATUS_TOOL_NAME } from "./constants";
-import { removeControlCharacters } from "./terminal";
+// A session's turns run in one of two lanes. In the prose lane (an ordinary chat
+// turn) it may call any tool, plus the structured tools whose turn is "prose",
+// like ask_decision. In the status lane, a status turn the host starts when
+// someone asks for an update, it may call report_status and nothing else.
+// Every lane change goes through stepStatusLane, a pure function, so the rules
+// live in one place and are tested as a table. The host only applies the step
+// it returns.
+import type { SessionDecision, SessionStatus } from "talos-shared";
 import { TALOS_LIMITS } from "./limits";
+import { STATUS_TOOL, findStructuredTool, type StructuredRecord, type StructuredTool } from "./structured-tools";
 
 // none: no ask. queued: asked, starts when the session is idle and settled.
 // asking: the status turn is running. reported: answered, waiting for its Stop.
@@ -27,40 +28,34 @@ export type StatusLaneEvent =
   | { type: "idle"; hasDraft: boolean }
   | { type: "pre-tool-use"; toolName: string; toolInput: unknown; isSubagent: boolean }
   | { type: "stop" }
+  | { type: "prompt-submitted"; prompt: string }
   | { type: "person-typed"; isTurnChanging: boolean }
   | { type: "tick" };
 
-// hookReply is the hook's stdout for Claude Code ("" = no decision).
-export type StatusLaneStep = { lane: StatusLane; hookReply: string; statusChange: SessionStatus | null; shouldTypeRequest: boolean };
+// hookReply is the hook's stdout for Claude Code ("" = no decision). A null
+// change leaves that field alone; decisionChange "clear" removes an open one.
+export type StatusLaneStep = {
+  lane: StatusLane;
+  hookReply: string;
+  statusChange: SessionStatus | null;
+  decisionChange: SessionDecision | "clear" | null;
+  shouldTypeRequest: boolean;
+};
 
 export const STATUS_REQUEST_PROMPT =
   "Give a status update on this session by calling report_status once, with your state and one short line. Do not do anything else.";
 
-const ONLY_REPORT_REASON = "This is a status update — only report_status is allowed this turn.";
-const NOT_NOW_REASON = "Not a status update; report_status can't be called now.";
-const BAD_REPORT_REASON = `Call report_status with state (${REPORTED_STATUSES.join("/")}) and one short line.`;
-const FORCE_REPORT_REASON = "Call report_status with your state and one short line before finishing.";
-const HOST_UNREACHABLE_REASON = "talos can't record a status right now.";
+const ONLY_REPORT_REASON = `This is a status update — only ${STATUS_TOOL.bareName} is allowed this turn.`;
+const FORCE_REPORT_REASON = `Call ${STATUS_TOOL.bareName} with your state and one short line before finishing.`;
+const HOST_UNREACHABLE_REASON = "talos can't record that right now.";
+const notNowReason = (tool: StructuredTool) => `${tool.bareName} can't be called now.`;
+const notThisSessionReason = (tool: StructuredTool) => `Only the session itself can call ${tool.bareName}, not a sub-agent.`;
 
 const allowToolDecision = (): string =>
   JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } });
 const denyToolDecision = (reason: string): string =>
   JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
 const blockStopDecision = (reason: string): string => JSON.stringify({ decision: "block", reason });
-
-// A note lands in a shared table row and the logs, so it can't carry terminal
-// escapes or line breaks.
-const cleanStatusNote = (note: string): string => removeControlCharacters(note).replace(/\s+/g, " ").trim();
-
-export const readStatusReport = (toolInput: unknown): { state: ReportedStatus; note: string } | null => {
-  if (typeof toolInput !== "object" || toolInput === null) return null;
-  const state: unknown = Reflect.get(toolInput, "state");
-  const note: unknown = Reflect.get(toolInput, "note");
-  const reportedState = REPORTED_STATUSES.find((choice) => choice === state);
-  const isShortNote = typeof note === "string" && note.length <= LIMITS.maxStatusNoteLength;
-  if (!reportedState || !isShortNote) return null;
-  return { state: reportedState, note: cleanStatusNote(note) };
-};
 
 const fieldOf = (value: unknown, field: string): unknown =>
   typeof value === "object" && value !== null ? Reflect.get(value, field) : undefined;
@@ -69,6 +64,7 @@ const fieldOf = (value: unknown, field: string): unknown =>
 export const readStatusLaneEvent = (hookDetails: unknown): StatusLaneEvent | null => {
   const hookEvent = fieldOf(hookDetails, "hook_event_name");
   if (hookEvent === "Stop") return { type: "stop" };
+  if (hookEvent === "UserPromptSubmit") return { type: "prompt-submitted", prompt: String(fieldOf(hookDetails, "prompt") ?? "") };
   if (hookEvent !== "PreToolUse") return null;
   return {
     type: "pre-tool-use",
@@ -78,20 +74,28 @@ export const readStatusLaneEvent = (hookDetails: unknown): StatusLaneEvent | nul
   };
 };
 
-// What hook.ts prints when it can't reach the host: deny report_status, so no
-// status call runs that nobody records. Every other tool runs, so a host crash
-// doesn't freeze the sessions.
+// What hook.ts prints when it can't reach the host: deny every structured
+// tool, so no answer is given that nobody records. Every other tool runs, so a
+// host crash doesn't freeze the sessions.
 export const hookReplyWhenHostUnreachable = (hookDetails: unknown): string => {
   const event = readStatusLaneEvent(hookDetails);
-  const isStatusCall = event?.type === "pre-tool-use" && event.toolName === STATUS_TOOL_NAME;
-  return isStatusCall ? denyToolDecision(HOST_UNREACHABLE_REASON) : "";
+  const isStructuredCall = event?.type === "pre-tool-use" && findStructuredTool(event.toolName) !== undefined;
+  return isStructuredCall ? denyToolDecision(HOST_UNREACHABLE_REASON) : "";
 };
 
-const stay = (lane: StatusLane, hookReply = ""): StatusLaneStep => ({ lane, hookReply, statusChange: null, shouldTypeRequest: false });
+const stay = (lane: StatusLane, hookReply = ""): StatusLaneStep => ({
+  lane,
+  hookReply,
+  statusChange: null,
+  decisionChange: null,
+  shouldTypeRequest: false,
+});
+
+const withRecord = (step: StatusLaneStep, record: StructuredRecord): StatusLaneStep =>
+  record.kind === "status" ? { ...step, statusChange: record.status } : { ...step, decisionChange: record.decision };
 
 const startStatusTurn = (nowMs: number, statusChange: SessionStatus | null): StatusLaneStep => ({
-  lane: { kind: "asking", askedAtMs: nowMs, hasForcedStop: false },
-  hookReply: "",
+  ...stay({ kind: "asking", askedAtMs: nowMs, hasForcedStop: false }),
   statusChange,
   shouldTypeRequest: true,
 });
@@ -103,25 +107,35 @@ const startStatusTurn = (nowMs: number, statusChange: SessionStatus | null): Sta
 const stepAsk = (lane: StatusLane, nowMs: number): StatusLaneStep => {
   if (lane.kind !== "none") return stay(lane);
   const pending: SessionStatus = { state: "pending", note: "", atMs: nowMs };
-  return { lane: { kind: "queued", askedAtMs: nowMs }, hookReply: "", statusChange: pending, shouldTypeRequest: false };
+  return { ...stay({ kind: "queued", askedAtMs: nowMs }), statusChange: pending };
+};
+
+// In a status turn only a "status" tool runs. A turn may record its answer
+// more than once; the last one stands.
+const stepStatusTurnTool = (
+  lane: Extract<StatusLane, { kind: "asking" | "reported" }>,
+  tool: StructuredTool | undefined,
+  toolInput: unknown,
+  nowMs: number,
+): StatusLaneStep => {
+  if (tool?.turn !== "status") return stay(lane, denyToolDecision(ONLY_REPORT_REASON));
+  const record = tool.readInput(toolInput, nowMs);
+  if (!record) return stay(lane, denyToolDecision(tool.badInputReason));
+  return withRecord(stay({ kind: "reported", askedAtMs: lane.askedAtMs }, allowToolDecision()), record);
 };
 
 const stepPreToolUse = (lane: StatusLane, event: Extract<StatusLaneEvent, { type: "pre-tool-use" }>, nowMs: number): StatusLaneStep => {
-  const isStatusTool = event.toolName === STATUS_TOOL_NAME;
+  const tool = findStructuredTool(event.toolName);
   // A sub-agent can't start in a status turn (its tool is denied there), so one
-  // running now is chat work started earlier: it keeps every tool but
-  // report_status, whose report wouldn't be this session's answer.
-  if (event.isSubagent) return isStatusTool ? stay(lane, denyToolDecision(NOT_NOW_REASON)) : stay(lane);
-  if (!isStatusTurnRunning(lane)) return isStatusTool ? stay(lane, denyToolDecision(NOT_NOW_REASON)) : stay(lane);
-  if (!isStatusTool) return stay(lane, denyToolDecision(ONLY_REPORT_REASON));
-  const report = readStatusReport(event.toolInput);
-  if (!report) return stay(lane, denyToolDecision(BAD_REPORT_REASON));
-  return {
-    lane: { kind: "reported", askedAtMs: lane.askedAtMs },
-    hookReply: allowToolDecision(),
-    statusChange: { ...report, atMs: nowMs },
-    shouldTypeRequest: false,
-  };
+  // running now is chat work started earlier: it keeps every tool but the
+  // structured ones, whose answer wouldn't be this session's own.
+  if (event.isSubagent) return tool ? stay(lane, denyToolDecision(notThisSessionReason(tool))) : stay(lane);
+  if (isStatusTurnRunning(lane)) return stepStatusTurnTool(lane, tool, event.toolInput, nowMs);
+  if (!tool) return stay(lane);
+  if (tool.turn !== "prose") return stay(lane, denyToolDecision(notNowReason(tool)));
+  const record = tool.readInput(event.toolInput, nowMs);
+  if (!record) return stay(lane, denyToolDecision(tool.badInputReason));
+  return withRecord(stay(lane, allowToolDecision()), record);
 };
 
 // Only a report ends the turn. An unreported Stop is blocked once to force the
@@ -135,10 +149,8 @@ const stepStop = (lane: StatusLane): StatusLaneStep => {
 
 // An unanswered ask becomes "no response"; a reported one keeps its status.
 const endStatusAsk = (lane: StatusLane, nowMs: number): StatusLaneStep => ({
-  lane: NO_STATUS_LANE,
-  hookReply: "",
+  ...stay(NO_STATUS_LANE),
   statusChange: lane.kind === "reported" ? null : { state: "no-response", note: "", atMs: nowMs },
-  shouldTypeRequest: false,
 });
 
 // The status request is pasted and sent with Enter, so with unsent text in the
@@ -170,11 +182,21 @@ const stepPersonTyped = (lane: StatusLane, isTurnChanging: boolean, nowMs: numbe
   return endsAsk ? endStatusAsk(lane, nowMs) : stay(lane);
 };
 
+// A prompt Claude Code submits is the person's answer to an open decision, so it
+// clears it; keys alone aren't (Enter also answers a permission prompt or picks
+// from a menu). The status request talos types isn't an answer. A session can
+// forge this for itself, which only clears its own question.
+const stepPromptSubmitted = (lane: StatusLane, prompt: string): StatusLaneStep => {
+  const isStatusRequest = prompt.trim() === STATUS_REQUEST_PROMPT;
+  return isStatusRequest ? stay(lane) : { ...stay(lane), decisionChange: "clear" };
+};
+
 export const stepStatusLane = (lane: StatusLane, event: StatusLaneEvent, nowMs: number): StatusLaneStep => {
   if (event.type === "ask") return stepAsk(lane, nowMs);
   if (event.type === "idle") return stepIdle(lane, event.hasDraft, nowMs);
   if (event.type === "pre-tool-use") return stepPreToolUse(lane, event, nowMs);
   if (event.type === "stop") return stepStop(lane);
   if (event.type === "person-typed") return stepPersonTyped(lane, event.isTurnChanging, nowMs);
+  if (event.type === "prompt-submitted") return stepPromptSubmitted(lane, event.prompt);
   return stepTick(lane, nowMs);
 };

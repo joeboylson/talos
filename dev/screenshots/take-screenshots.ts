@@ -32,7 +32,13 @@ const pairMachine = async (machineName: string): Promise<string> => {
   return (await postJson("/api/pair/collect", { pairingId })).machineKey;
 };
 
-type MadeUpSession = { sessionName: string; folderName: string; state: string; status?: { state: string; note: string; atMs: number } };
+type MadeUpSession = {
+  sessionName: string;
+  folderName: string;
+  state: string;
+  status?: { state: string; note: string; atMs: number };
+  decision?: { question: string; choices: string[]; atMs: number };
+};
 type MadeUpEntries = { sessionName: string; entries: unknown[] };
 
 // Connects like talos: reports its folders and sessions, sends session
@@ -106,7 +112,12 @@ const atlas = await connectMachine(
   [
     { sessionName: "fix-login", folderName: "talos", state: "idle", status: { state: "done", note: "Fixed sign-in; tests pass.", atMs: 1 } },
     { sessionName: "new-homepage", folderName: "website", state: "working", status: { state: "working", note: "Laying out the hero section.", atMs: 1 } },
-    { sessionName: "deploy", folderName: "talos", state: "needs-you" },
+    {
+      sessionName: "deploy",
+      folderName: "talos",
+      state: "needs-you",
+      decision: { question: "Deploy to staging first, or straight to production?", choices: ["Staging first", "Production"], atMs: 1 },
+    },
   ],
   [
     {
@@ -142,6 +153,7 @@ await takeShot({ name: "sessions-dark", path: "/sessions", dark: true });
 await takeShot({ name: "start-session-dialog", path: "/sessions", before: clickButton("Start a session") });
 await takeShot({ name: "session", path: "/sessions/atlas/fix-login" });
 await takeShot({ name: "session-dark", path: "/sessions/atlas/fix-login", dark: true });
+await takeShot({ name: "session-decision", path: "/sessions/atlas/deploy" });
 await takeShot({ name: "settings", path: "/settings" });
 
 atlas.close();

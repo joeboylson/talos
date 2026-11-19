@@ -11,8 +11,8 @@ import {
   HOST_SOCKET_MODE,
   MCP_CONFIG_FILE,
   STATUS_CHECK_MS,
-  STATUS_MCP_SERVER_KEY,
-  STATUS_TOOL_SCRIPT,
+  TALOS_MCP_SERVER_KEY,
+  TALOS_TOOLS_SCRIPT,
   TRANSCRIPT_CHECK_MS,
 } from "../constants";
 import { controlServeOptions } from "./control-server";
@@ -27,10 +27,10 @@ await Promise.all([rm(HOST_SOCKET, { force: true }), rm(HOST_HOOKS_SOCKET, { for
 // hook socket instead, so a prompt-injected session can't reach the routes that
 // drive other sessions.
 await mkdir(CREDENTIALS_FOLDER, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
-// The MCP config that gives every session the report_status tool.
+// The MCP config that gives every session talos's structured tools.
 await Bun.write(
   MCP_CONFIG_FILE,
-  JSON.stringify({ mcpServers: { [STATUS_MCP_SERVER_KEY]: { command: process.execPath, args: [STATUS_TOOL_SCRIPT] } } }),
+  JSON.stringify({ mcpServers: { [TALOS_MCP_SERVER_KEY]: { command: process.execPath, args: [TALOS_TOOLS_SCRIPT] } } }),
 );
 
 Bun.serve(controlServeOptions as unknown as Parameters<typeof Bun.serve>[0]);

@@ -4,6 +4,7 @@ import {
   mergeSessionEntries,
   readSentImages,
   readSessionEntries,
+  readSessionDecision,
   readSessionList,
 } from "../../sessions";
 import { LIMITS } from "../../limits";
@@ -50,6 +51,30 @@ describe("readSessionStatus / list status", () => {
       { sessionName: "fix", folderName: "talos", state: "idle" },
     ]);
     expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", status: { state: "bad" } }])).toBeNull();
+  });
+});
+
+describe("readSessionDecision / list decision", () => {
+  const ok = { question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 5 };
+  test("reads a decision", () => {
+    expect(readSessionDecision(ok)).toEqual(ok);
+  });
+  test.each([
+    ["one choice", { ...ok, choices: ["Postgres"] }],
+    ["five choices", { ...ok, choices: ["a", "b", "c", "d", "e"] }],
+    ["an empty choice", { ...ok, choices: ["Postgres", ""] }],
+    ["a choice too long", { ...ok, choices: ["Postgres", "x".repeat(LIMITS.maxDecisionChoiceLength + 1)] }],
+    ["an empty question", { ...ok, question: "" }],
+    ["a question too long", { ...ok, question: "x".repeat(LIMITS.maxDecisionQuestionLength + 1) }],
+    ["no time", { question: ok.question, choices: ok.choices }],
+  ])("turns down %s", (_name, value) => {
+    expect(readSessionDecision(value)).toBeNull();
+  });
+  test("readSessionList keeps a valid decision and drops a session with a bad one", () => {
+    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "needs-you", decision: ok }])).toEqual([
+      { sessionName: "fix", folderName: "talos", state: "needs-you", decision: ok },
+    ]);
+    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "needs-you", decision: { question: "?" } }])).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import { LoaderCircleIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { SessionEntry } from "talos-shared";
+import { DecisionCard } from "@/components/decision-card";
 import { MessageComposer } from "@/components/message-composer";
 import { SessionEntryView, WaitingPromptBubble } from "@/components/session-entry";
 import { SessionStateBadge } from "@/components/session-state-badge";
@@ -19,7 +20,7 @@ type SessionViewProps = {
 export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend }: SessionViewProps) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastEntry = entries.at(-1);
-  const scrollTrigger = `${entries.length}:${lastEntry?.entryId}:${lastEntry?.kind === "tool" ? lastEntry.outcome : ""}:${waitingPrompts.length}`;
+  const scrollTrigger = `${entries.length}:${lastEntry?.entryId}:${lastEntry?.kind === "tool" ? lastEntry.outcome : ""}:${waitingPrompts.length}:${sessionRow?.decision?.atMs}`;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -44,6 +45,7 @@ export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend }: Ses
         {isWorking && (
           <LoaderCircleIcon className="size-4 animate-spin text-muted-foreground" aria-label="Working" role="status" />
         )}
+        {sessionRow.decision && <DecisionCard decision={sessionRow.decision} onChoose={(choice) => onSend(choice, [])} />}
         <div ref={bottomRef} />
       </div>
       <MessageComposer onSend={onSend} />

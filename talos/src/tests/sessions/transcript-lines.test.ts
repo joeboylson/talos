@@ -1,59 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-  appendOutput,
-  buildSessionEnv,
-  buildHookSettings,
-  buildMessageWithImages,
-  buildPastedText,
-  nextSessionState,
+  allowTranscriptSwitch,
   readCommandPrompt,
   readCompleteLines,
-  removeControlCharacters,
   readTranscriptLine,
   resolveTranscriptItems,
   summarizeToolInput,
-  createCoalescer,
-  hookTokenAuthorized,
-  isDraftChangingKeys,
-  isDraftClearingKeys,
-  isTurnChangingKeys,
-  allowTranscriptSwitch,
-} from "../../session-logic";
-
-describe("nextSessionState", () => {
-  test.each([
-    ["SessionStart", {}, null],
-    ["Stop", {}, "idle"],
-    ["UserPromptSubmit", {}, "working"],
-    ["PostToolUse", {}, "working"],
-    ["Notification", { message: "Claude needs your permission to use Bash" }, "needs-you"],
-    ["Notification", { notification_type: "permission_prompt" }, "needs-you"],
-    ["Notification", { notification_type: "idle_prompt" }, null],
-    ["Notification", { message: "Claude is waiting for your input" }, null],
-    ["SessionEnd", {}, null],
-  ] as const)("%s %p → %p", (hookEvent, payload, expected) => {
-    expect(nextSessionState(hookEvent, payload)).toBe(expected);
-  });
-});
-
-test("buildHookSettings runs the hook command on every event", () => {
-  const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"', { TALOS_HOST_SOCKET: "/sock", TALOS_HOOK_TOKEN: "tok" }));
-  expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"]);
-  expect(settings.hooks.Stop).toEqual([{ hooks: [{ type: "command", command: '"/bin/bun" "/talos/hook.ts"' }] }]);
-  // Pinned so a project's own disableAllHooks:true can't switch off enforcement.
-  expect(settings.disableAllHooks).toBe(false);
-  // Pinned so a project's own `env` can't blank the socket/token the hook reads.
-  expect(settings.env.TALOS_HOST_SOCKET).toBe("/sock");
-  expect(settings.env.TALOS_HOOK_TOKEN).toBe("tok");
-  // Interpreter/loader-hijack vars pinned empty so a project can't run e.g.
-  // `bun --version hook.ts` (exit before the hook) or inject a dylib.
-  expect(settings.env.BUN_OPTIONS).toBe("");
-  expect(settings.env.DYLD_INSERT_LIBRARIES).toBe("");
-});
-
-test("buildPastedText pastes the whole text as one piece", () => {
-  expect(buildPastedText("line one\nline two")).toBe("\x1b[200~line one\nline two\x1b[201~");
-});
+} from "../../transcript-lines";
 
 describe("readTranscriptLine", () => {
   const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
@@ -196,121 +149,6 @@ test.each([
   [null, ""],
 ])("summarizeToolInput %#", (input, summary) => {
   expect(summarizeToolInput(input)).toBe(summary);
-});
-
-test("buildMessageWithImages puts each image's path after the text", () => {
-  expect(buildMessageWithImages(" look ", ["/u/a.png", "/u/b.png"])).toBe("look\n\n/u/a.png\n\n/u/b.png");
-  expect(buildMessageWithImages("", ["/u/a.png"])).toBe("/u/a.png");
-});
-
-test("buildSessionEnv drops Claude Code's own session marks and keeps everything else", () => {
-  const env = { PATH: "/bin", CLAUDECODE: "1", CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_USE_BEDROCK: "1", CLAUDE_EFFORT: "high" };
-  expect(buildSessionEnv(env, { TALOS_SESSION_NAME: "fix" })).toEqual({
-    PATH: "/bin",
-    CLAUDE_CODE_USE_BEDROCK: "1",
-    CLAUDE_EFFORT: "high",
-    TALOS_SESSION_NAME: "fix",
-  });
-});
-
-test("appendOutput keeps only the most recent bytes", () => {
-  const output = appendOutput(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]), 4);
-  expect([...output]).toEqual([2, 3, 4, 5]);
-  expect([...appendOutput(new Uint8Array(), new Uint8Array([1]), 4)]).toEqual([1]);
-});
-
-test("a message can't end the paste early and type keystrokes", () => {
-  const sneaky = "hello\x1b[201~\r!rm -rf ~\r";
-  expect(buildPastedText(sneaky)).toBe("\x1b[200~hello[201~!rm -rf ~\x1b[201~");
-});
-
-test("removeControlCharacters keeps line breaks and tabs only", () => {
-  expect(removeControlCharacters("a\nb\tc\x00d\x07e\x9bf\x7fg")).toBe("a\nb\tcdefg");
-});
-
-
-describe("createCoalescer", () => {
-  test("collapses a burst into one run per window, then re-arms", () => {
-    let runs = 0;
-    const scheduled: (() => void)[] = [];
-    const coalesced = createCoalescer(
-      () => { runs += 1; },
-      100,
-      (fn) => scheduled.push(fn),
-    );
-    for (let i = 0; i < 50; i += 1) coalesced(); // a burst of 50 calls
-    expect(scheduled.length).toBe(1); // only one run scheduled
-    scheduled[0](); // the window elapses
-    expect(runs).toBe(1);
-    coalesced(); // a new call after the run re-arms
-    expect(scheduled.length).toBe(2);
-  });
-});
-
-describe("isTurnChangingKeys", () => {
-  test.each([
-    ["Enter", "\r", true],
-    ["a typed line and Enter", "fix it\r", true],
-    ["a lone Esc", "\x1b", true],
-    ["Ctrl-C", "\x03", true],
-    ["a double Esc", "\x1b\x1b", true],
-    ["Esc in kitty key encoding", "\x1b[27u", true],
-    ["Ctrl-C in kitty key encoding", "\x1b[99;5u", true],
-    ["Ctrl-C in modifyOtherKeys encoding", "\x1b[27;5;99~", true],
-    ["an arrow key", "\x1b[A", false],
-    ["Page Up", "\x1b[5~", false],
-    ["plain letters", "abc", false],
-    ["nothing", "", false],
-  ])("%s → %p", (_name, keys, expected) => {
-    expect(isTurnChangingKeys(new TextEncoder().encode(keys))).toBe(expected);
-  });
-});
-
-describe("isDraftChangingKeys", () => {
-  test.each([
-    ["a letter", "a", true],
-    ["a pasted line", "fix the build", true],
-    ["Backspace", "\x7f", true],
-    ["Up, recalling an old message", "\x1b[A", true],
-    ["Down in application mode", "\x1bOB", true],
-    ["a pasted block", "\x1b[200~two\rlines\x1b[201~", true],
-    ["letters glued after Left", "\x1b[Dabc", true],
-    ["a letter glued after a focus report", "\x1b[Ia", true],
-    ["Left", "\x1b[D", false],
-    ["a kitty key report", "\x1b[?1u", false],
-    ["a focus-in report", "\x1b[I", false],
-    ["a cursor position report", "\x1b[12;40R", false],
-    ["nothing", "", false],
-  ])("%s → %p", (_name, keys, expected) => {
-    expect(isDraftChangingKeys(new TextEncoder().encode(keys))).toBe(expected);
-  });
-});
-
-describe("isDraftClearingKeys", () => {
-  test.each([
-    ["Enter", "\r", true],
-    ["a line and Enter", "fix it\r", true],
-    ["Ctrl-C", "\x03", true],
-    ["Ctrl-C in kitty key encoding", "\x1b[99;5u", true],
-    ["Option-Enter, which only adds a line", "\x1b\r", false],
-    ["a pasted block with a line break", "\x1b[200~two\rlines\x1b[201~", false],
-    ["a letter", "a", false],
-    ["nothing", "", false],
-  ])("%s → %p", (_name, keys, expected) => {
-    expect(isDraftClearingKeys(new TextEncoder().encode(keys))).toBe(expected);
-  });
-});
-
-describe("hookTokenAuthorized", () => {
-  test.each([
-    ["the token matches", "tok-abc", "tok-abc", true],
-    ["the token differs (another session)", "tok-victim", "tok-mine", false],
-    ["no token header", null, "tok-abc", false],
-    ["an empty token", "", "tok-abc", false],
-    ["the session has no token", "tok-abc", undefined, false],
-  ])("%s → %p", (_name, provided, expected, result) => {
-    expect(hookTokenAuthorized(provided as string | null, expected as string | undefined)).toBe(result);
-  });
 });
 
 describe("allowTranscriptSwitch", () => {

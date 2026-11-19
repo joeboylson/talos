@@ -5,7 +5,7 @@
 // step it returns.
 import { MAX_STATUS_NOTE_LENGTH, REPORTED_STATUSES, type ReportedStatus, type SessionStatus } from "talos-shared";
 import { QUEUED_STATUS_TIMEOUT_MS, STATUS_TIMEOUT_MS, STATUS_TOOL_NAME } from "./constants";
-import { removeControlCharacters } from "./session-logic";
+import { removeControlCharacters } from "./terminal";
 
 // none: no ask. queued: asked, starts when the session is idle and settled.
 // asking: the status turn is running. reported: answered, waiting for its Stop.
@@ -21,7 +21,7 @@ export const NO_STATUS_LANE: StatusLane = { kind: "none" };
 
 export type StatusLaneEvent =
   | { type: "ask" }
-  // The session is idle and its screen has settled (see host.ts), so a request
+  // The session is idle and its screen has settled (see host/session-state.ts), so a request
   // typed now starts a turn of its own.
   | { type: "idle"; hasDraft: boolean }
   | { type: "pre-tool-use"; toolName: string; toolInput: unknown; isSubagent: boolean }

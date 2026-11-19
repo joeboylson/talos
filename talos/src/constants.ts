@@ -24,7 +24,7 @@ export const HOST_SOCKET = join(CREDENTIALS_FOLDER, "host.sock");
 export const HOST_HOOKS_SOCKET = join(CREDENTIALS_FOLDER, "host-hooks.sock");
 export const HOST_SOCKET_MODE = 0o600;
 export const HOST_LOG = join(CREDENTIALS_FOLDER, "host.log");
-export const HOST_SCRIPT = new URL("./host.ts", import.meta.url).pathname;
+export const HOST_SCRIPT = new URL("./host/entry.ts", import.meta.url).pathname;
 export const HOOK_SCRIPT = new URL("./hook.ts", import.meta.url).pathname;
 
 // The report_status MCP server (see status-tool.ts), passed to every session

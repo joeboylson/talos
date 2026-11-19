@@ -20,6 +20,10 @@ export const LIMITS = {
   // Each side keeps this many of a session's latest entries, and sends at most
   // this many at once.
   maxEntriesKept: 500,
+  // And no more than this much text across them, newest kept: with up to 50
+  // sessions a machine and 20 machines a person, the server holds at most this
+  // times 1,000 for one person, and sends it all to each page that opens.
+  maxKeptEntryTextLength: 200_000,
   // Longer text is cut to this. It keeps a session's kept entries to a few MB on
   // the host, in talos and on the server.
   maxEntryTextLength: 20_000,

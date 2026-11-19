@@ -98,6 +98,7 @@ export const MessageComposer = ({ onSend }: MessageComposerProps) => {
         />
         <Textarea
           value={typedText}
+          maxLength={LIMITS.maxSentTextLength}
           onChange={(event) => setTypedText(event.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}

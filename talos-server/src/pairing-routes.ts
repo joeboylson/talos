@@ -29,6 +29,7 @@ type WaitingPairing = {
   machineName: string;
   expiresAtMs: number;
   approvedBy: Approver | null;
+  clientAddress: string;
 };
 
 export const createPairingRoutes = (
@@ -69,6 +70,11 @@ export const createPairingRoutes = (
 
     const nowMs = Date.now();
     dropExpiredPairings(nowMs);
+    const waitingFromAddress = waitingPairings.filter((pairing) => pairing.clientAddress === clientAddress).length;
+    if (waitingFromAddress >= SERVER_LIMITS.maxWaitingPairingsPerAddress) {
+      log.warn(`turned away a pairing request from ${clientAddress}: it already has machines waiting`);
+      return textResponse("Too many pairing requests; wait a few minutes", 429);
+    }
     if (waitingPairings.length >= SERVER_LIMITS.maxWaitingPairings) {
       log.warn(`turned away a pairing request from "${toIdentifierName(machineName)}": ${SERVER_LIMITS.maxWaitingPairings} machines are already waiting`);
       return textResponse("Too many machines waiting", 429);
@@ -80,6 +86,7 @@ export const createPairingRoutes = (
       machineName,
       expiresAtMs: nowMs + PAIRING_LIFETIME_MS,
       approvedBy: null,
+      clientAddress,
     };
     waitingPairings = [...waitingPairings, pairing];
     // Never the code itself: anyone who can read the logs could use it.

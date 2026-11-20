@@ -29,7 +29,15 @@ single functions.
   does that: it gives a module the data it needs (like the machine list, or the
   pairings waiting) and stores what the module hands back.
 - **Tested alone.** Each block has its own tests that run without the rest of
-  the app.
+  the app, and one check script inside it that typechecks it and runs its tests
+  and its examples' free tests. Everywhere talos is tested calls that script, so
+  the module's own repo could run the same one.
+- **Shown by examples.** Each module has small examples, inside it, of how to use
+  it for something that isn't talos. An example uses the module's `index.ts`
+  plus its own helpers (in `examples/kit/`), brings its own data (a dummy
+  project, a JSON file, a SQLite database, whatever fits), runs with one
+  command, keeps its run in a folder you can open, and has its own tests. Talos
+  uses the module through the same calls the examples do.
 - **Split only along a real edge.** A block exists because what goes in and out
   of it can be described on its own. A block that only passes calls through
   to another isn't worth having.
@@ -40,18 +48,22 @@ single functions.
 Each block below is listed as what goes in → what comes out.
 
 - **`talos-sessions`** (created). Runs Claude Code and gets output back from it.
-  - In, when the session runner starts: a folder check, a logger, the kinds of
-    output talos defines, and what a normal turn may send.
-  - In, while it runs: start a session in a folder, send it a message or keys,
-    stop it, resize it, ask it for a kind of output, answer an open output by
-    its id.
-  - Out: each session's state, its asks (state and latest answer per kind),
-    its open outputs, its conversation as entries (outputs and dropped markers
-    included), notices like a dropped answer, and its raw terminal output.
+  - In, when the session runner starts: its home (the folder it keeps its own
+    files in), a folder check, a logger, the kinds of output the program
+    defines, and what a prose turn may send.
+  - In, through its plain calls (`connectToSessions`): start a session in a
+    folder, send it a message or keys, stop it, resize it, ask it for a kind of
+    output, answer an open output by its id, attach a terminal.
+  - Out: results and refusals for each call; each session's state, its asks
+    (state and latest answer per kind), its open outputs, its conversation as
+    entries in conversation order (outputs and dropped markers included),
+    notices like a dropped answer, and its raw terminal output.
   - Holds: the session runner, the hook script, the MCP server, the lane and
     output rules, held answers, the transcript reader, and its own copies of
     the shapes and limits it shares with `talos-shared`.
-  - Lives in: `talos/src/talos-sessions/`, tests in its own `tests/`.
+  - Shown by: `examples/receipts`, `examples/recipes`, `examples/explorer`.
+  - Lives in: `talos/src/talos-sessions/`, tests in its own `tests/` and each
+    example's `tests/`, all run by its `check.sh`.
 - **`talos-machine-link`** (not created). Keeps a machine connected to the
   server.
   - In: the machine's key, the server's address, messages to send.

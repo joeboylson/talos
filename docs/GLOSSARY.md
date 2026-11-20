@@ -102,6 +102,34 @@ something.
   has settled, then typed as `Answer to <id>: <choice>`. The message is
   `answer-output`.
 
+## Using a module
+
+- **home**: the folder a module keeps its own files in, handed to it by the
+  program using it. Talos's is `~/.talos`; an example's is its `run/` folder.
+- **plain calls**: how a program uses `talos-sessions` (`connectToSessions`):
+  start, send, ask, answer, keys, stop, follow, attach.
+- **result**: what a plain call gives back: done, or a **refusal**, which holds
+  a short fixed **code** a program can check (like `closed`) and a reason to
+  show.
+- **notice**: something the session runner tells a program didn't happen, like
+  a dropped answer.
+- **folder check**: the program's rule for which folders a session may start in.
+- **kind** and **asked-for turn** belong to the module: any program passes its
+  own kinds in, not only talos.
+- **check script**: the one script inside a module that typechecks it and runs
+  its tests and its examples' free tests (`check.sh`).
+- **example**: a small program inside a module that shows how to use it for
+  something that isn't talos, with its own data and tests.
+- **kit**: the helpers a module's examples share (`examples/kit/`).
+- **view**: an example's pure part: what the screen shows for what's happened,
+  and what to do for a key.
+- **live**, **recording** and **replay**: the modes an example runs in. Live uses
+  real Claude; a recording saves a live run; a replay plays one back with no
+  Claude.
+- **live check**: an example's check against a real run, by hand, since it
+  costs Claude turns.
+- **watchdog**: what stops an example's session runner when the example is gone.
+
 ## Identifiers
 
 Every thing has an identifier: `talos:` and then kind and name pairs,

@@ -54,6 +54,11 @@ type ModuleLayout = {
 
 const findBoundaryBreaks = (tree: SourceTree, layout: ModuleLayout): string[] => {
   const indexFile = join(layout.moduleFolder, "index.ts");
+  // An example uses the module only through index.ts, plus the kit and its own files.
+  const examplesFolder = join(layout.moduleFolder, "examples");
+  const kitFolder = join(examplesFolder, "kit");
+  const exampleOf = (file: string): string | null =>
+    isInside(examplesFolder, file) && !isInside(kitFolder, file) ? (relative(examplesFolder, file).split("/")[0] ?? null) : null;
   const fileBreaks = [...tree.entries()].flatMap(([file, source]) => {
     const fileInModule = isInside(layout.moduleFolder, file);
     return specifiersIn(source, SPECIFIER_PATTERNS).flatMap((specifier) => {
@@ -67,6 +72,9 @@ const findBoundaryBreaks = (tree: SourceTree, layout: ModuleLayout): string[] =>
         ([folder, targets]) => isInside(folder, file) && targets.includes(target),
       );
       if (!fileInModule && targetInModule && target !== indexFile && !isAllowedReachIn) return [`${file} reaches into ${target}`];
+      if (exampleOf(file) && targetInModule && target !== indexFile && !isInside(kitFolder, target) && exampleOf(target) !== exampleOf(file)) {
+        return [`${file} reaches into ${target}`];
+      }
       if (fileInModule && !targetInModule && !isInside(layout.utilsFolder, target)) return [`${file} reaches out to ${target}`];
       return [];
     });
@@ -125,6 +133,10 @@ describe("module boundaries", () => {
       ["/s/dev/check.ts", `import { a } from "../mod/inner"; import { b } from "../mod/run";`],
       // Split, so this file doesn't match its own check.
       ["/s/tool.ts", "const m = await imp" + "ort(`./mod/${name}`);"],
+      ["/s/mod/examples/kit/view.ts", `import { x } from "../../index";`],
+      ["/s/mod/examples/shop/main.ts", `import { v } from "./view"; import { k } from "../kit/view"; import { i } from "../../inner"; import { o } from "../other/view";`],
+      ["/s/mod/examples/shop/view.ts", ``],
+      ["/s/mod/examples/other/view.ts", ``],
     ]);
     expect(findBoundaryBreaks(tree, layout)).toEqual([
       "/s/app.ts reaches into /s/mod/inner.ts",
@@ -132,6 +144,8 @@ describe("module boundaries", () => {
       "/s/mod/inner.ts reaches out to /s/app.ts",
       "/s/mod/run.ts reaches out to /s/other.ts",
       "/s/dev/check.ts reaches into /s/mod/run.ts",
+      "/s/mod/examples/shop/main.ts reaches into /s/mod/inner.ts",
+      "/s/mod/examples/shop/main.ts reaches into /s/mod/examples/other/view.ts",
       "/s/tool.ts imports from a template",
       "index.ts reaches the script /s/mod/hook.ts",
     ]);

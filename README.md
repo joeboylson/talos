@@ -32,9 +32,30 @@ nothing else.
   answers each ping with a pong. It also answers questions about its own
   machine on 127.0.0.1:7071, which the page uses to show a "This machine"
   panel when it's open on a machine running talos.
-- `talos-shared/`: the message types and helpers both sides use.
+- `talos-shared/`: the message types and helpers talos's own programs share
+  (talos, the server and the page). Modules don't use it.
 
 All three are TypeScript, run with [Bun](https://bun.com).
+
+## Modules
+
+Talos is being split into blocks, one job each, each with fixed inputs and
+outputs and its own tests. Each is a folder in the app for now. Why and how:
+[docs/MODULES.md](docs/MODULES.md).
+
+| Module | Job | Status |
+| --- | --- | --- |
+| `talos-sessions` | Run Claude Code and get its conversation and structured answers back | Not created (next) |
+| `talos-machine-link` | Keep a machine connected to the server | Not created |
+| `talos-relay` | The server's live hub between machines and pages | Not created |
+| `talos-pairing` | Give a new machine its key | Not created |
+| `talos-sign-in` | Sign people in | Not created |
+| `talos-utils` | General helpers more than one module needs; knows nothing about talos | Not created (only once a second module needs a helper) |
+
+Each module stands on its own: it depends on nothing else in talos, except
+`talos-utils` if it needs a helper. `talos-shared` isn't a module: it's what
+talos's own programs share (talos, the server, the page), and modules never
+import it.
 
 ## Running it
 
@@ -71,7 +92,7 @@ Every command lives here. Names follow the glossary
 | `talos sessions`                           | Lists this machine's Claude sessions.                                             |
 | `talos sessions <session> attach`          | Shows a session's terminal in yours, to watch or type. Ctrl-\\ leaves it running. |
 | `talos sessions <session> stop`            | Ends a session.                                                                   |
-| `talos host stop`                          | Ends the session host and every session in it.                                    |
+| `talos host stop`                          | Ends the session runner and every session in it.                                  |
 | `talos help`                               | Lists these commands.                                                             |
 
 Folders belong to the machine the command runs on. They're kept there (in
@@ -79,7 +100,7 @@ Folders belong to the machine the command runs on. They're kept there (in
 away. The page lists them under Folders, where they (and machines) can be
 renamed too.
 
-Sessions run in the session host, a background program `talos` starts on
+Sessions run in the session runner, a background program `talos` starts on
 each machine. It holds Claude Code's terminals, so sessions keep running
 when `talos` restarts (it restarts on every save in development). After
 changing anything in `talos/src/host/` or `talos/src/hook.ts`, run

@@ -38,12 +38,45 @@ docs. Use these and no others.
   turn, where any tool runs, plus the structured tools meant for chat (like
   ask_decision). A status turn is one talos starts to ask for a status, where only
   report_status runs.
-- **session host**: the background program on each machine that holds the
-  sessions' terminals, so they outlive `talos` restarts.
 - **attach**: show a session's terminal in your own, to watch or type.
-- **server**: `talos-server`, the one central program.
+
+## Programs
+
+Name a program by where it runs and what it does. Don't call any of them a
+"client": the page, `talos` and the session runner are each a client of
+something.
+
+- **server**: `talos-server`, the one central program, on AWS.
 - **page**: the website the server shows (`talos-web`), in a browser or the
   desktop app.
+- **talos**: the main program on each machine. It connects to the server and
+  passes commands on to the session runner. It restarts freely (on every save,
+  in development).
+- **session runner**: the background program on each machine that keeps the
+  sessions running, answers their hooks and reads their conversations. It
+  outlives `talos` restarts. The code still calls it the "host" (`host/`,
+  `talos host stop`) until it's renamed.
+- **hook**: a check Claude Code makes with the session runner at set moments,
+  such as before each tool runs and when a turn stops. The session runner's
+  answer can allow or deny the tool, or keep the turn going.
+
+## How talos is built
+
+- **module**: a block of talos with one job, fixed inputs and outputs, and its
+  own tests, used only through its `index.ts`. Named `talos-<job>`. See
+  [MODULES.md](MODULES.md).
+- **`talos-utils`**: general helpers more than one module needs. It knows
+  nothing about talos and could stand on its own; a module may import it and
+  nothing else in talos.
+- **specific layer**: talos's own code that wires the modules together and
+  decides what's talos-specific, such as which output kinds exist and their
+  rules. It includes `talos-shared`, the package talos's own programs share;
+  modules never import it.
+- **output**: what a turn hands back. **Prose** is a session's ordinary
+  conversation. A structured output has fixed fields, of a **kind** like status
+  or decision.
+- **optional output**: a structured output a session may send during a prose
+  turn, like a decision, as its specific layer allows.
 
 ## Identifiers
 

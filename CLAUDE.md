@@ -1,5 +1,13 @@
 @AGENTS.md
 
+## Not production yet
+
+Yes, there's a "production" instance: the server on AWS, and one machine
+paired to it. Only Joe uses it for now, and nobody relies on it, so breaking it
+between commits is fine. Don't hold changes back for backward compatibility,
+deploy order or machines left on an older version; change shapes and protocols
+freely and let a restart pick them up.
+
 <!-- BEGIN AWS Agent Toolkit rules -->
 # AWS Guidance for the new AWS experience
 

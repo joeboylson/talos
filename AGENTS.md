@@ -16,7 +16,29 @@ screenshots with it.
 
 Every command goes in the README's Commands section: each `talos` command
 and each `make` target, with a line on what it does. Add, change or remove a
-command there in the same change that adds, changes or removes it. Name
-things with the words in [docs/GLOSSARY.md](docs/GLOSSARY.md).
+command there in the same change that adds, changes or removes it.
+
+Name things, and talk about the system, with the words in
+[docs/GLOSSARY.md](docs/GLOSSARY.md). Add a word there before using a new one.
 
 Follow the commit rules in [docs/COMMITS.md](docs/COMMITS.md).
+
+## Modules
+
+Build behavior inside modules: blocks with one job, fixed inputs and outputs,
+and their own tests, used only through their `index.ts`. They're folders in
+the app for now, written so each could become its own package later. Talos is
+the layer that wires them together. See [docs/MODULES.md](docs/MODULES.md).
+
+- `talos-sessions`: run Claude Code and get its conversation and structured answers back. Not created (next).
+- `talos-machine-link`: keep a machine connected to the server. Not created.
+- `talos-relay`: the server's live hub between machines and pages. Not created.
+- `talos-pairing`: give a new machine its key. Not created.
+- `talos-sign-in`: sign people in. Not created.
+- `talos-utils`: general helpers more than one module needs, knowing nothing about talos. Not created (only once a second module needs a helper).
+
+Each module stands on its own: it depends on nothing else in talos, except
+`talos-utils` if it needs a helper.
+
+`talos-shared` isn't a module. It's what talos's own programs share, and no
+module imports it.

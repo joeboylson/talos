@@ -2,6 +2,13 @@
 
 The plan for tasks, boards, templates and loops. None of this is built yet; it's the direction for what comes next.
 
+**This is a brainstorm, and it follows the session design.** It came from
+spitballing ideas with Claude. Its core ideas should stay, but its details change
+as the session design (`talos-sessions`, see [MODULES.md](MODULES.md)) takes
+shape. That design work comes first: where the two disagree, the session design
+wins, and this file gets updated to match. The corrections so far are listed
+below.
+
 [github.com/joeboylson/talos](https://github.com/joeboylson/talos)
 
 Start, watch and control Claude sessions on all your machines from one website.
@@ -10,6 +17,44 @@ Start, watch and control Claude sessions on all your machines from one website.
 
 - **Prose:** the open conversation where a session does its work.
 - **Structured:** short messages with fixed fields, like a status update or a decision, that a program can read and act on.
+
+## Corrections from the session design
+
+These change the answers below. Where they disagree, these win.
+
+- **Lanes are now one turn shape.** Every turn has an **output** it must give
+  back, and **optional outputs** it may also send:
+  `{ output: "prose", optional: ["decision"] }` for a normal turn, and
+  `{ output: "status", optional: [] }` to ask for a status. Prose is one kind of
+  output; the others are structured, of a **kind** like status or decision.
+- **The kinds belong to talos, not the session module (87).** Everything in 87
+  that a session "reports in a fixed format" becomes an output kind defined in
+  talos's specific layer, with its own fields: blocked, waiting, finished,
+  permission requests, sub-tasks, moving a task, dev comments, links. The
+  session module itself knows no kinds.
+- **Every output gets an id, and answers come back tied to it (8, 61).**
+  - The session runner makes a fresh id during the tool call, and the session
+    sees it in the tool's reply.
+  - An answer goes back as `Answer to <id>: <answer>`, so any number of
+    questions can be open at once. Talos presses Esc before typing it.
+  - A question lasts one turn: it closes when the session's next turn ends.
+  - The decision card shows only once the session's turn has really ended.
+- **Commands only come through prose.** A field that gets typed into a session
+  (like a decision's choices) must say whether it may hold a command (`/`, `!`,
+  `#`, `@`). Fields that are only shown, like comments or notes, can mention
+  anything.
+- **Repeating prompts don't fit yet (13, 14).** A status turn may only give
+  back its output, with no other tools. A repeating prompt has to do real work
+  with tools, then hand back a required result kept outside the conversation.
+  The turn shape needs to grow for this when loops get built.
+- **Answers that aren't messages from a person (3, 16–18, 86).** These include a
+  permission request, a blocked task answered by the session above it, and a
+  finished sub-task. They come back the same way: tied to the output's id. They
+  can come from talos or another session, not only from a person. The answer
+  form needs to say who it's from when this gets built.
+- **Names.** The program that keeps sessions running is the **session runner**
+  (it was called the "host"), and talos on a machine relays between it and the
+  server. See [GLOSSARY.md](GLOSSARY.md).
 
 <!-- Q&A section: always keep this at the bottom of the page. -->
 

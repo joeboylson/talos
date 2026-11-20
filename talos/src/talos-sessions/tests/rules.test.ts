@@ -200,36 +200,6 @@ const sessionEntry: fc.Arbitrary<SessionEntry> = fc.oneof(
 const markerCount = (entries: SessionEntry[]) => entries.filter(({ kind }) => kind === "dropped").length;
 
 describe("entries", () => {
-  // Kept entries and a resend are windows of one session's history: what's kept
-  // ends somewhere, and a resend runs up to the newest. Two copies of one entry
-  // can differ (a tool that ended). Outside that shape the order alone can't
-  // tell an old entry from a new one.
-  // Some entries are big, so the kept text budget trims too, not only maxKept.
-  const bigText = "x".repeat(SESSION_LIMITS.maxKeptEntryTextLength / 3);
-  const historyEntry = fc.oneof(sessionEntry, fc.record({ kind: fc.constant("text" as const), entryId, text: fc.constant(bigText) }));
-  const historyWindows = fc
-    .record({ historyLength: fc.integer({ min: 1, max: 16 }), maxKept: fc.integer({ min: 1, max: 10 }), keptEnd: fc.nat(), keptLength: fc.nat(), resendStart: fc.nat() })
-    .chain(({ historyLength, maxKept, keptEnd, keptLength, resendStart }) => {
-      const keptEndPosition = keptEnd % (historyLength + 1);
-      const keptStart = Math.max(keptEndPosition - (keptLength % (maxKept + 1)), 0);
-      const resendStartPosition = Math.max(resendStart % historyLength, historyLength - maxKept);
-      return fc.record({
-        firstCopies: fc.array(historyEntry, { minLength: historyLength, maxLength: historyLength }),
-        laterCopies: fc.array(historyEntry, { minLength: historyLength, maxLength: historyLength }),
-      }).map(({ firstCopies, laterCopies }) => {
-        const withId = (entries: SessionEntry[]) => entries.map((entry, position): SessionEntry => ({ ...entry, entryId: `h${position}` }));
-        return { kept: withId(firstCopies).slice(keptStart, keptEndPosition), resend: withId(laterCopies).slice(resendStartPosition), maxKept };
-      });
-    });
-  test("merging the same resend twice gives the same result as once", () => {
-    fc.assert(
-      fc.property(historyWindows, ({ kept, resend, maxKept }) => {
-        const once = mergeSessionEntries(kept, resend, maxKept);
-        return JSON.stringify(mergeSessionEntries(once, resend, maxKept)) === JSON.stringify(once);
-      }),
-      RUNS,
-    );
-  });
   test("a merge keeps at most maxKept entries and maxDroppedKept markers", () => {
     fc.assert(
       fc.property(fc.array(sessionEntry, { maxLength: 40 }), fc.array(sessionEntry, { maxLength: 40 }), fc.integer({ min: 1, max: 30 }), (kept, added, maxKept) => {

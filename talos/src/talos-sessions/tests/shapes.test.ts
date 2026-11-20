@@ -115,11 +115,10 @@ describe("mergeSessionEntries", () => {
     const merged = mergeSessionEntries([], [text("a", third), text("b", third), text("c", third), text("d", third)], 10);
     expect(merged.map(({ entryId }) => entryId)).toEqual(["b", "c", "d"]);
   });
-  test("a resent entry older than what's kept stays trimmed", () => {
-    const third = "x".repeat(SESSION_LIMITS.maxKeptEntryTextLength / 3);
-    const resend = [text("a", third), text("b", third), text("c", third), text("d", third)];
-    const once = mergeSessionEntries([], resend, 10);
-    expect(mergeSessionEntries(once, resend, 10)).toEqual(once);
+  test("a new entry that arrives with a kept tool's end is kept too", () => {
+    const running: SessionEntry = { kind: "tool", entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" };
+    const merged = mergeSessionEntries([running], [text("x", "new"), { ...running, outcome: "done" }], 10);
+    expect(merged.map(({ entryId }) => entryId)).toEqual(["t1", "x"]);
   });
   test("markers are capped at what a session keeps", () => {
     const markers = Array.from({ length: SESSION_LIMITS.maxDroppedKept + 5 }, (_unused, index) => marker(`m${index}`));

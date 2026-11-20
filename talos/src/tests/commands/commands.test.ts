@@ -50,12 +50,12 @@ test("help lists every command", () => {
 });
 
 test.each([
-  ["~/code/talos", "/work/here", "/home/joe", "/home/joe/code/talos"],
-  ["~", "/work/here", "/home/joe", "/home/joe"],
-  [".", "/work/here", "/home/joe", "/work/here"],
-  ["../other", "/work/here", "/home/joe", "/work/other"],
-  ["/abs/path/", "/work/here", "/home/joe", "/abs/path"],
-  ["~not-home", "/work/here", "/home/joe", "/work/here/~not-home"],
-])("resolveFolderPath(%p) is %p", (typedPath, currentFolder, homeFolder, expected) => {
+  ["~/code/talos", "/home/joe/code/talos", "/work/here", "/home/joe"],
+  ["~", "/home/joe", "/work/here", "/home/joe"],
+  [".", "/work/here", "/work/here", "/home/joe"],
+  ["../other", "/work/other", "/work/here", "/home/joe"],
+  ["/abs/path/", "/abs/path", "/work/here", "/home/joe"],
+  ["~not-home", "/work/here/~not-home", "/work/here", "/home/joe"],
+])("resolveFolderPath(%p) is %p", (typedPath, expected, currentFolder, homeFolder) => {
   expect(resolveFolderPath(typedPath, currentFolder, homeFolder)).toBe(expected);
 });

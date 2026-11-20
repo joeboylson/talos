@@ -101,10 +101,14 @@ describe("resolveTranscriptItems", () => {
     expect(entries).toEqual([sneaky, { ...sneaky, outcome: "done" }]);
   });
 
-  test("an entry the shared reader would turn down is dropped alone", () => {
+  test("an entry that fails its check becomes a dropped marker, and its data is handed back to keep aside", () => {
     const longId = { kind: "text", entryId: "x".repeat(201), text: "hi" } as const;
     const fine = { kind: "text", entryId: "ok", text: "hi" } as const;
-    expect(resolveTranscriptItems([longId, fine], new Map()).entries).toEqual([fine]);
+    const { entries, rejected } = resolveTranscriptItems([longId, fine], new Map());
+    expect(entries[0]).toMatchObject({ kind: "dropped", droppedKind: "text" });
+    expect(entries[0]?.entryId).toMatch(/^dropped:/);
+    expect(entries[1]).toEqual(fine);
+    expect(rejected).toEqual([longId]);
   });
 
   test("doesn't mutate the knownTools it was given", () => {

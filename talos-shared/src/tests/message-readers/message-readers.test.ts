@@ -85,6 +85,9 @@ describe("readMachineToServer", () => {
     const message = { type: "session-entries", sessionName: "fix", entries: [{ kind: "text", entryId: "a", text: "hi" }] };
     expect(readMachineToServer(message) as unknown).toEqual(message);
   });
+  test("leaves an oddly named session out of a session list", () => {
+    expect(readMachineToServer({ type: "sessions", sessions: [{ sessionName: "a b", folderName: "talos", state: "idle" }] }) as unknown).toEqual({ type: "sessions", sessions: [] });
+  });
   test("keeps a short error", () => {
     expect(readMachineToServer({ type: "error", message: "That question has closed" }) as unknown).toEqual({ type: "error", message: "That question has closed" });
   });
@@ -92,7 +95,6 @@ describe("readMachineToServer", () => {
   test.each([
     ["entries for an oddly named session", { type: "session-entries", sessionName: "../x", entries: [] }],
     ["a folder with an odd name", { type: "folders", folders: [{ folderName: "../x", path: "/tmp" }] }],
-    ["a session list with an odd name", { type: "sessions", sessions: [{ sessionName: "a b", folderName: "talos", state: "idle" }] }],
     ["a pong with no id", { type: "pong" }],
     ["an error too long to show", { type: "error", message: "x".repeat(LIMITS.maxMachineErrorLength + 1) }],
   ])("drops %s", (_name, message) => {

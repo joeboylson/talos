@@ -3,6 +3,7 @@ import { mergeSessionEntries } from "../shapes";
 import { isPlainTranscriptFile } from "../transcript/transcript-file";
 import { readCompleteLines, readTranscriptLine, resolveTranscriptItems } from "../transcript/transcript-lines";
 import { log } from "./inputs";
+import { quarantine } from "./quarantine";
 import { broadcast, heldSessions, updateHeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
@@ -36,7 +37,8 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
     }
     return;
   }
-  const { entries, knownTools } = resolveTranscriptItems(lines.flatMap(readTranscriptLine), transcript.runningTools);
+  const { entries, knownTools, rejected } = resolveTranscriptItems(lines.flatMap(readTranscriptLine), transcript.runningTools);
+  quarantine(sessionName, rejected);
 
   const session = heldSessions.get(sessionName);
   if (!session || session.transcript?.path !== transcript.path) return;

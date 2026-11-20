@@ -16,12 +16,16 @@ describe("readSessionList", () => {
     ]);
   });
 
+  test("rejects what isn't a list", () => {
+    expect(readSessionList(null)).toBeNull();
+  });
+
   test.each([
-    [null],
-    [[{ sessionName: "fix", folderName: "talos", state: "asleep" }]],
-    [[{ sessionName: 1, folderName: "talos", state: "idle" }]],
-  ])("rejects %#", (value) => {
-    expect(readSessionList(value)).toBeNull();
+    [{ sessionName: "fix", folderName: "talos", state: "asleep" }],
+    [{ sessionName: 1, folderName: "talos", state: "idle" }],
+  ])("leaves out a bad session, keeping the rest %#", (bad) => {
+    const good = { sessionName: "ok", folderName: "talos", state: "idle" };
+    expect(readSessionList([bad, good]) as unknown).toEqual([good]);
   });
 });
 
@@ -50,7 +54,7 @@ describe("readSessionStatus / list status", () => {
     expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle" }])).toEqual([
       { sessionName: "fix", folderName: "talos", state: "idle" },
     ]);
-    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", status: { state: "bad" } }])).toBeNull();
+    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", status: { state: "bad" } }])).toEqual([]);
   });
 });
 
@@ -75,7 +79,7 @@ describe("readSessionDecision / list decision", () => {
     expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "needs-you", decision: ok }])).toEqual([
       { sessionName: "fix", folderName: "talos", state: "needs-you", decision: ok },
     ]);
-    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "needs-you", decision: { question: "?" } }])).toBeNull();
+    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "needs-you", decision: { question: "?" } }])).toEqual([]);
   });
 });
 
@@ -95,14 +99,37 @@ describe("readSessionEntries", () => {
 
   test.each([
     [null],
-    [[{ kind: "text", entryId: "a", text: 2 }]],
-    [[{ kind: "text", entryId: "a", text: "x".repeat(LIMITS.maxEntryTextLength + 1) }]],
-    [[{ kind: "prompt", entryId: "a", text: "hi", imageCount: -1 }]],
-    [[{ kind: "tool", entryId: "a", toolName: "Bash", summary: "", outcome: "maybe" }]],
-    [[{ kind: "other", entryId: "a" }]],
     [Array.from({ length: LIMITS.maxEntriesKept + 1 }, (_, index) => ({ kind: "text", entryId: `${index}`, text: "" }))],
-  ])("rejects %#", (value) => {
+  ])("rejects what isn't a list of entries %#", (value) => {
     expect(readSessionEntries(value)).toBeNull();
+  });
+
+  test.each([
+    [{ kind: "text", entryId: "a", text: 2 }, "text"],
+    [{ kind: "text", entryId: "a", text: "x".repeat(LIMITS.maxEntryTextLength + 1) }, "text"],
+    [{ kind: "prompt", entryId: "a", text: "hi", imageCount: -1 }, "prompt"],
+    [{ kind: "tool", entryId: "a", toolName: "Bash", summary: "", outcome: "maybe" }, "tool"],
+    [{ kind: "other", entryId: "a" }, "other"],
+  ])("puts a dropped marker in place of a bad entry, keeping the rest %#", (bad, droppedKind) => {
+    const good = { kind: "text", entryId: "b", text: "hi" };
+    expect(readSessionEntries([bad, good]) as unknown).toEqual([{ kind: "dropped", entryId: "a", droppedKind, reason: "failed its check" }, good]);
+  });
+
+  test("a bad entry with no readable id gets the same marker id each time it's sent", () => {
+    const bad = { kind: "text", entryId: 5, text: "hi" };
+    const first = readSessionEntries([bad])?.[0];
+    expect(first?.entryId).toMatch(/^dropped:/);
+    expect(readSessionEntries([bad])?.[0]).toEqual(first);
+  });
+
+  test("markers are capped per batch and per session, so they can't push out real entries", () => {
+    const bad = Array.from({ length: LIMITS.maxDroppedPerBatch + 5 }, (_, index) => ({ kind: "text", entryId: `bad${index}`, text: 1 }));
+    expect(readSessionEntries(bad)?.length).toBe(LIMITS.maxDroppedPerBatch);
+    const markers = Array.from({ length: LIMITS.maxDroppedKept + 5 }, (_, index) => ({ kind: "dropped" as const, entryId: `m${index}`, droppedKind: "text", reason: "x" }));
+    const good = { kind: "text" as const, entryId: "g", text: "hi" };
+    const merged = mergeSessionEntries([good], markers, LIMITS.maxEntriesKept);
+    expect(merged.filter((entry) => entry.kind === "dropped").length).toBe(LIMITS.maxDroppedKept);
+    expect(merged[0]).toEqual(good);
   });
 });
 

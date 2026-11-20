@@ -5,6 +5,8 @@
 export const COPIED_LIMITS = {
   maxSessions: 50,
   maxEntriesKept: 500,
+  maxDroppedPerBatch: 10,
+  maxDroppedKept: 20,
   maxKeptEntryTextLength: 200_000,
   maxEntryTextLength: 20_000,
   maxToolSummaryLength: 1000,
@@ -55,6 +57,8 @@ export const SESSION_LIMITS = {
   // Outputs waiting for an answer per session; past it, the oldest closes. Each
   // output's fields are capped too, so the session list stays small.
   maxOpenOutputs: 20,
+  // The file that keeps items dropped for failing their check.
+  maxQuarantineBytes: 1024 * 1024,
   maxOutputFieldsBytes: 8 * 1024,
   // Past this, a starting session is typed into even if its screen hasn't settled.
   readyLongestWaitMs: 15_000,

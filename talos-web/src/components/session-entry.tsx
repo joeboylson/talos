@@ -1,4 +1,4 @@
-import { CircleCheckIcon, CircleXIcon, ImageIcon, LoaderCircleIcon } from "lucide-react";
+import { CircleCheckIcon, CircleXIcon, EyeOffIcon, ImageIcon, LoaderCircleIcon } from "lucide-react";
 import type { SessionEntry, ToolOutcome } from "talos-shared";
 import { MarkdownText } from "@/components/markdown-text";
 import type { WaitingPrompt } from "@/session-rows";
@@ -60,9 +60,18 @@ const ToolRow = ({ entry }: { entry: Extract<SessionEntry, { kind: "tool" }> }) 
   );
 };
 
+// Something was here, but it failed its check, so only its kind is shown.
+const DroppedRow = ({ entry }: { entry: Extract<SessionEntry, { kind: "dropped" }> }) => (
+  <div className="flex items-center gap-2 text-xs text-muted-foreground" title={entry.reason}>
+    <EyeOffIcon className="size-3.5 shrink-0" aria-label="Not shown" />
+    <span className="font-mono">{entry.droppedKind}</span>
+  </div>
+);
+
 export const SessionEntryView = ({ entry }: { entry: SessionEntry }) => {
   if (entry.kind === "prompt") return <PromptBubble text={entry.text} imageCount={entry.imageCount} />;
   if (entry.kind === "tool") return <ToolRow entry={entry} />;
+  if (entry.kind === "dropped") return <DroppedRow entry={entry} />;
   return (
     <div className="max-w-[85%]">
       <MarkdownText text={entry.text} />

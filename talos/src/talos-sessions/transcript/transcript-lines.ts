@@ -1,7 +1,7 @@
 import { dirname } from "node:path";
 import { parseJsonOrNull } from "../json";
 import { SESSION_LIMITS } from "../limits";
-import { readSessionEntry, type SessionEntry } from "../shapes";
+import { capDroppedMarkers, readSessionEntry, toDroppedMarker, type SessionEntry } from "../shapes";
 import { TOOL_SUMMARY_SHOWN_LENGTH, NEWLINE_BYTE } from "../constants";
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
@@ -119,12 +119,12 @@ export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
 // session's whole file) could block the single-threaded session runner for seconds.
 // Tools are kept in a Map: a tool id comes from the transcript, and one named
 // like an object's own property (toString, __proto__) would break a plain object.
-// Only entries the shared reader accepts are returned, since one bad entry makes
-// the reader turn down the whole list it arrives in, hiding the conversation.
+// An entry that fails its check is replaced by a dropped marker, and handed back
+// in rejected so its data can be kept aside, never sent.
 export const resolveTranscriptItems = (
   items: TranscriptItem[],
   knownTools: ReadonlyMap<string, ToolEntry>,
-): { entries: SessionEntry[]; knownTools: Map<string, ToolEntry> } => {
+): { entries: SessionEntry[]; knownTools: Map<string, ToolEntry>; rejected: SessionEntry[] } => {
   const entries: SessionEntry[] = [];
   const stillRunning = new Map(knownTools);
   for (const item of items) {
@@ -146,8 +146,9 @@ export const resolveTranscriptItems = (
       entries.push({ ...endedTool, outcome: item.isFailed ? "failed" : "done" });
     }
   }
-  const validEntries = entries.filter((entry) => readSessionEntry(entry) !== null);
-  return { entries: validEntries, knownTools: stillRunning };
+  const rejected = entries.filter((entry) => readSessionEntry(entry) === null);
+  const checkedEntries = entries.map((entry) => readSessionEntry(entry) ?? toDroppedMarker(entry, "too long or malformed"));
+  return { entries: capDroppedMarkers(checkedEntries, SESSION_LIMITS.maxDroppedPerBatch), knownTools: stillRunning, rejected };
 };
 
 // A line Claude Code is still writing has no newline yet, so it waits for

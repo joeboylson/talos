@@ -20,6 +20,10 @@ export const LIMITS = {
   // Each side keeps this many of a session's latest entries, and sends at most
   // this many at once.
   maxEntriesKept: 500,
+  // Dropped markers per batch of entries and per session, so a flood of bad
+  // items can't push out real ones.
+  maxDroppedPerBatch: 10,
+  maxDroppedKept: 20,
   // And no more than this much text across them, newest kept: with up to 50
   // sessions a machine and 20 machines a person, the server holds at most this
   // times 1,000 for one person, and sends it all to each page that opens.

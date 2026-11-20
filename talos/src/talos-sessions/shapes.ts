@@ -32,7 +32,10 @@ export type ToolOutcome = (typeof TOOL_OUTCOMES)[number];
 export type SessionEntry =
   | { kind: "prompt"; entryId: string; text: string; imageCount: number }
   | { kind: "text"; entryId: string; text: string }
-  | { kind: "tool"; entryId: string; toolName: string; summary: string; outcome: ToolOutcome };
+  | { kind: "tool"; entryId: string; toolName: string; summary: string; outcome: ToolOutcome }
+  // Stands in for an item that failed its check, so the other end sees something
+  // was there. The bad data itself never travels.
+  | { kind: "dropped"; entryId: string; droppedKind: string; reason: string };
 
 // An image sent with a message, as base64.
 export const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
@@ -90,8 +93,8 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
     isIdentifierName(fieldOf(item, "sessionName")) &&
     isIdentifierName(fieldOf(item, "folderName")) &&
     isOneOf(SESSION_STATES, fieldOf(item, "state"));
-  if (!value.every(isSession)) return null;
-  return value.map((item) => {
+  // Each session is checked on its own: a bad one is left out, not the whole list.
+  return value.filter(isSession).map((item) => {
     const { sessionName, folderName, state } = item as SessionSummary;
     return { sessionName, folderName, state, asks: readAsks(fieldOf(item as object, "asks")), openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")) };
   });
@@ -127,13 +130,50 @@ export const readSessionEntry = (item: unknown): SessionEntry | null => {
       isOneOf(TOOL_OUTCOMES, outcome);
     return isTool ? { kind, entryId, toolName, summary, outcome } : null;
   }
+  if (kind === "dropped") {
+    const droppedKind = fieldOf(item, "droppedKind");
+    const reason = fieldOf(item, "reason");
+    const isMarker = isTextUpTo(droppedKind, LIMITS.maxNameTextLength) && isTextUpTo(reason, LIMITS.maxNameTextLength);
+    return isMarker ? { kind, entryId, droppedKind, reason } : null;
+  }
   return null;
 };
 
+// A short, stable hash (FNV-1a), so the same bad item gets the same marker id
+// each time it's sent and resends don't pile up markers.
+const hashOf = (text: string): string => {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193);
+  return (hash >>> 0).toString(16);
+};
+const MAX_HASHED_LENGTH = 10_000;
+
+// The marker for a bad item: its own id if it has a readable one, so a good
+// copy sent later replaces it.
+export const toDroppedMarker = (item: unknown, reason: string): SessionEntry => {
+  const entryId = typeof item === "object" && item !== null ? fieldOf(item, "entryId") : undefined;
+  const kind = typeof item === "object" && item !== null ? fieldOf(item, "kind") : undefined;
+  const hasReadableId = typeof entryId === "string" && entryId.length > 0 && entryId.length <= LIMITS.maxIdTextLength;
+  return {
+    kind: "dropped",
+    entryId: hasReadableId ? entryId : `dropped:${hashOf(String(JSON.stringify(item) ?? "").slice(0, MAX_HASHED_LENGTH))}`,
+    droppedKind: isTextUpTo(kind, LIMITS.maxNameTextLength) ? kind : "unknown",
+    reason: reason.slice(0, LIMITS.maxNameTextLength),
+  };
+};
+
+// Markers past the cap are left out, so a flood of bad items can't push out real ones.
+export const capDroppedMarkers = (entries: SessionEntry[], maxMarkers: number): SessionEntry[] => {
+  const markerIds = entries.filter((entry) => entry.kind === "dropped").map((entry) => entry.entryId);
+  const keptMarkerIds = new Set(markerIds.slice(-maxMarkers));
+  return markerIds.length <= maxMarkers ? entries : entries.filter((entry) => entry.kind !== "dropped" || keptMarkerIds.has(entry.entryId));
+};
+
+// Each entry is checked on its own: a bad one becomes a dropped marker in its place.
 export const readSessionEntries = (value: unknown): SessionEntry[] | null => {
   if (!Array.isArray(value) || value.length > LIMITS.maxEntriesKept) return null;
-  const entries = value.map(readSessionEntry);
-  return entries.every((entry) => entry !== null) ? (entries as SessionEntry[]) : null;
+  const entries = value.map((item: unknown) => readSessionEntry(item) ?? toDroppedMarker(item, "failed its check"));
+  return capDroppedMarkers(entries, LIMITS.maxDroppedPerBatch);
 };
 
 export const readSentImages = (value: unknown): SentImage[] | null => {
@@ -150,8 +190,11 @@ export const readSentImages = (value: unknown): SentImage[] | null => {
 
 const hasEntryId = (entry: SessionEntry): boolean => typeof entry?.entryId === "string";
 
-const entryTextLength = (entry: SessionEntry): number =>
-  entry.kind === "tool" ? entry.toolName.length + entry.summary.length : entry.text.length;
+const entryTextLength = (entry: SessionEntry): number => {
+  if (entry.kind === "tool") return entry.toolName.length + entry.summary.length;
+  if (entry.kind === "dropped") return entry.reason.length;
+  return entry.text.length;
+};
 
 // The newest entries whose text fits the kept budget. Entries keep their
 // objects (talos's resend relies on an unchanged entry staying the same object).
@@ -172,5 +215,5 @@ export const mergeSessionEntries = (keptEntries: SessionEntry[], newEntries: Ses
   const keptIds = new Set(keptEntries.map((entry) => entry.entryId));
   const updatedEntries = keptEntries.map((entry) => newEntryById.get(entry.entryId) ?? entry);
   const addedEntries = [...newEntryById.values()].filter((entry) => !keptIds.has(entry.entryId));
-  return keepNewestWithinTextBudget([...updatedEntries, ...addedEntries].slice(-maxKept));
+  return capDroppedMarkers(keepNewestWithinTextBudget([...updatedEntries, ...addedEntries].slice(-maxKept)), LIMITS.maxDroppedKept);
 };

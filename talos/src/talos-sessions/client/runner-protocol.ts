@@ -10,6 +10,29 @@ export type RunnerEvent =
   // Something the owner asked for that didn't happen, like a held answer dropped.
   | { type: "notice"; sessionName: string; message: string };
 
+// What the session runner sends when it turns a request down: a fixed code a
+// program can check, and a reason to show. A malformed request isn't a refusal:
+// it's a bug in the caller, answered with 400 and plain text.
+export const REFUSAL_CODES = [
+  "no-such-session",
+  "already-running",
+  "too-many-sessions",
+  "folder-not-allowed",
+  "already-asking",
+  "closed",
+  "not-a-choice",
+  "not-sendable",
+] as const;
+export type RefusalCode = (typeof REFUSAL_CODES)[number];
+export type Refusal = { code: RefusalCode; reason: string };
+
+export const readRefusal = (value: unknown): Refusal | null => {
+  const code = typeof value === "object" && value !== null ? Reflect.get(value, "code") : undefined;
+  const reason = typeof value === "object" && value !== null ? Reflect.get(value, "reason") : undefined;
+  const knownCode = REFUSAL_CODES.find((known) => known === code);
+  return knownCode && typeof reason === "string" ? { code: knownCode, reason } : null;
+};
+
 export type StartSessionRequest = { sessionName: string; folderName: string; path: string };
 
 export const RUNNER_ROUTES = {

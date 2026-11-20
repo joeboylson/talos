@@ -44,11 +44,12 @@ export const ensureRunnerRunning = async (home: string, runnerScript: string): P
   await waitForRunner(home, Date.now() + RUNNER_START_TIMEOUT_MS);
 };
 
-// Calls onEvent for each event until the session runner goes away; then resolves.
+// Calls onEvent for each event until the session runner goes away or the signal
+// aborts; then resolves.
 // Bun gives up on a request after 5 quiet minutes; this stream is quiet
 // whenever nothing happens, so its limit is turned off.
-export const followRunnerEvents = async (home: string, onEvent: (runnerEvent: RunnerEvent) => void): Promise<void> => {
-  const response = await runnerFetch(home, RUNNER_ROUTES.events, { timeout: false } as RequestInit);
+export const followRunnerEvents = async (home: string, onEvent: (runnerEvent: RunnerEvent) => void, signal?: AbortSignal): Promise<void> => {
+  const response = await runnerFetch(home, RUNNER_ROUTES.events, { timeout: false, signal } as RequestInit);
   if (!response.body) return;
   const decoder = new TextDecoder();
   type LineReader = { read: () => Promise<{ done: boolean; value?: Uint8Array }> };

@@ -17,9 +17,12 @@ import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
 import { log, paths } from "./inputs";
+import { refuse } from "./refuse";
+
+const SESSION_EXIT_WAIT_MS = 5000;
 import { typeIntoSession } from "./messages";
 import { applyLaneEvent, setSessionState } from "./session-state";
-import { broadcastSessions, heldSessions, sendToListeners, updateHeldSession, type Terminal } from "./store";
+import { broadcastSessions, heldSessions, sendToListeners, updateHeldSession, type HeldSession, type Terminal } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
@@ -42,8 +45,8 @@ const forgetSession = (sessionName: string, token: string) => {
 };
 
 const refuseNewSession = (sessionName: string): Response | null => {
-  if (heldSessions.has(sessionName)) return new Response(`${sessionName} is already running`, { status: 409 });
-  if (heldSessions.size >= SESSION_LIMITS.maxSessions) return new Response("too many sessions", { status: 429 });
+  if (heldSessions.has(sessionName)) return refuse("already-running", `${sessionName} is already running`);
+  if (heldSessions.size >= SESSION_LIMITS.maxSessions) return refuse("too-many-sessions", "too many sessions", 429);
   return null;
 };
 
@@ -131,4 +134,16 @@ export const becomeReadyWhenQuiet = async (sessionName: string, token: string, g
   if (hasQueuedMessages) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   setSessionState(sessionName, hasQueuedMessages ? "working" : "idle");
   for (const message of session.queuedMessages) await typeIntoSession(session, message);
+};
+
+// Ends a session and waits until its Claude process is gone, so whatever comes
+// after (like putting trust back) can't be undone by a session still closing.
+// One that won't go within the wait is killed outright.
+export const endSession = async (session: HeldSession): Promise<void> => {
+  session.child.kill();
+  const hasExited = await Promise.race([session.child.exited.then(() => true), Bun.sleep(SESSION_EXIT_WAIT_MS).then(() => false)]);
+  if (!hasExited) {
+    session.child.kill("SIGKILL");
+    await session.child.exited;
+  }
 };

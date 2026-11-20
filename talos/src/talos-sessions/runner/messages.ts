@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { SentImage } from "../shapes";
 import { HOME_MODE, IMAGE_PASTE_SETTLE_MS, UPLOAD_FILE_MODE } from "../constants";
 import { paths } from "./inputs";
+import { noSuchSession } from "./refuse";
 import { ENTER_KEY, buildMessageWithImages, buildPastedText } from "../terminal";
 import { applyLaneEvent } from "./session-state";
 import { heldSessions, updateHeldSession, type HeldSession, type TypedMessage } from "./store";
@@ -41,10 +42,10 @@ const saveImages = async (sessionName: string, images: SentImage[]): Promise<str
 };
 
 export const sendToSession = async (sessionName: string, text: string, images: SentImage[]): Promise<Response> => {
-  if (!heldSessions.has(sessionName)) return new Response(`no session ${sessionName}`, { status: 404 });
+  if (!heldSessions.has(sessionName)) return noSuchSession(sessionName);
   const message = { text: buildMessageWithImages(text, await saveImages(sessionName, images)), hasImages: images.length > 0 };
   const session = heldSessions.get(sessionName);
-  if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
+  if (!session) return noSuchSession(sessionName);
   if (session.summary.state === "starting") {
     heldSessions.set(sessionName, { ...session, queuedMessages: [...session.queuedMessages, message] });
   } else {

@@ -59,16 +59,24 @@ describe("removeAnsweredPrompt", () => {
     expect(removeAnsweredPrompt([waiting("look", 1), waiting("look", 2)], saved("look", 2))).toEqual([waiting("look", 1)]);
     expect(removeAnsweredPrompt([waiting("", 1)], saved("", 1))).toEqual([]);
   });
+
+  test("a saved message with fewer images leaves one with more waiting", () => {
+    expect(removeAnsweredPrompt([waiting("look", 2)], saved("look", 1))).toEqual([waiting("look", 2)]);
+  });
+
+  test("matches a saved message that ends in spaces or a new line", () => {
+    expect(removeAnsweredPrompt([waiting("hi")], saved("hi \n"))).toEqual([]);
+  });
 });
 
 test("buildSessionRows carries a session's reported status", () => {
   const rows = buildSessionRows(MACHINES);
   const fix = rows.find((r) => r.sessionName === "fix-login");
   expect(fix?.status).toEqual({ state: "stuck", note: "blocked on the API", atMs: 1 });
-  const other = rows.find((r) => r.sessionName === "new-homepage");
-  expect(other?.status).toBeUndefined();
+  const withoutStatus = rows.find((r) => r.sessionName === "web");
+  expect(withoutStatus).toBeDefined();
+  expect(withoutStatus).not.toHaveProperty("status");
 });
-
 
 test("buildSessionRows carries a session's open decision", () => {
   const decision = { id: "d1", question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 2 };

@@ -1,0 +1,12 @@
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[]}"}
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[{\"sessionName\":\"example\",\"folderName\":\"work\",\"state\":\"starting\",\"asks\":{},\"openOutputs\":[]}]}"}
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[{\"sessionName\":\"example\",\"folderName\":\"work\",\"state\":\"idle\",\"asks\":{},\"openOutputs\":[]}]}"}
+{"type":"key","key":"Show revenue per month in 2025 as a bar chart."}
+{"type":"key","key":"\r"}
+{"type":"result","action":{"do":"send","text":"Show revenue per month in 2025 as a bar chart."},"result":{"ok":true}}
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[{\"sessionName\":\"example\",\"folderName\":\"work\",\"state\":\"working\",\"asks\":{},\"openOutputs\":[]}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"prompt\",\"entryId\":\"id-1\",\"text\":\"Show revenue per month in 2025 as a bar chart.\",\"imageCount\":0,\"position\":0}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"tool\",\"entryId\":\"toolu_016PcktxuepfMHysJ2n3TG3d\",\"toolName\":\"Bash\",\"summary\":\"Query monthly revenue for 2025\",\"outcome\":\"done\",\"position\":1},{\"kind\":\"tool\",\"entryId\":\"toolu_01UsKv8972fHHKWkf8S5EfY1\",\"toolName\":\"ToolSearch\",\"summary\":\"select:mcp__talos__send_chart\",\"outcome\":\"done\",\"position\":2}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"output\",\"entryId\":\"id-2\",\"outputKind\":\"chart\",\"fields\":{\"title\":\"Revenue per month, 2025\",\"type\":\"bar\",\"labels\":[\"Jan\",\"Feb\",\"Mar\",\"Apr\",\"May\",\"Jun\",\"Jul\",\"Aug\",\"Sep\",\"Oct\",\"Nov\",\"Dec\"],\"series\":[{\"name\":\"Revenue\",\"values\":[7793,6290,10627,10891,12601,11530,8034,11815,14425,14650,18168,20702]}]},\"position\":3}]}"}
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[{\"sessionName\":\"example\",\"folderName\":\"work\",\"state\":\"idle\",\"asks\":{},\"openOutputs\":[]}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"text\",\"entryId\":\"id-3:0\",\"text\":\"I've drawn the bar chart of monthly 2025 revenue. Revenue grew through the year, from a low of $6,290 in February to a high of $20,702 in December, for a total of $147,526. July fell to $8,034, then sales climbed every month to year end.\",\"position\":4}]}"}

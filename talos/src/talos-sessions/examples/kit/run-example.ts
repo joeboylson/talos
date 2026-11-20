@@ -8,7 +8,7 @@ import { readRecording, recordEvent, saveRecording, toInput, type RecordedLine }
 import type { Action, ExampleView, Input } from "./view";
 import { CTRL_C } from "./view";
 
-const SESSION_NAME = "example";
+export const SESSION_NAME = "example";
 const REPLAY_STEP_MS = 120;
 
 type Mode = "live" | "record" | "replay";
@@ -19,18 +19,22 @@ const readMode = (): Mode => {
 };
 
 const draw = <State>(view: ExampleView<State>, state: State) => {
-  const lines = view.render(state, process.stdout.columns || 80);
+  // The newest lines that fit: the conversation scrolls up as it grows.
+  const lines = view.render(state, process.stdout.columns || 80).slice(-(process.stdout.rows || 40));
   process.stdout.write(`\x1b[2J\x1b[H${lines.join("\r\n")}`);
 };
 
 // A fresh run/ (the last run's is cleared), with its own copy of data/ in
 // run/work, which is all Claude may work in.
-const prepareRun = (exampleFolder: string) => {
+export const prepareRun = (exampleFolder: string) => {
   const home = join(exampleFolder, "run");
   rmSync(home, { recursive: true, force: true });
   const work = join(home, "work");
   mkdirSync(home, { recursive: true, mode: 0o700 });
   cpSync(join(exampleFolder, "data"), work, { recursive: true });
+  // Its own git repository, so Claude Code keeps the session runner's answers
+  // (trust, CLAUDE.md imports) for this folder, not for the repo around it.
+  Bun.spawnSync(["git", "init", "--quiet", work]);
   return { home, work };
 };
 

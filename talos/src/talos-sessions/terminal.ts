@@ -13,7 +13,7 @@ export const removeControlCharacters = (text: string): string => text.replace(CO
 
 // Keys from an attached terminal that start the next turn: Enter sends a
 // message, and Esc or Ctrl-C interrupts. Arrow keys, scrolling and other escape
-// sequences don't, so they mustn't end a running status turn.
+// sequences don't, so they mustn't end a running asked-for turn.
 const ENTER_BYTE = 0x0d;
 const ESC_BYTE = 0x1b;
 const CTRL_C_BYTE = 0x03;

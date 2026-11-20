@@ -2,7 +2,7 @@ import type { SessionState } from "../shapes";
 
 // Claude Code's hook events that move a session between states. They also
 // carry where the session's conversation is saved.
-// PreToolUse and Stop also carry the status lane's decision back (see status-lane.ts).
+// PreToolUse and Stop also carry the lane's decision back (see lanes/lane.ts).
 export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop"] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 

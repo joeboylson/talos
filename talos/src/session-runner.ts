@@ -3,6 +3,7 @@
 // can't cross from one process to another.
 import { ENV_KEYS, createLogger, readLogsMode } from "talos-shared";
 import { readFolders } from "./folders";
+import { OUTPUT_KINDS, PROSE_TURN } from "./session-outputs";
 import { runSessionRunner } from "./talos-sessions";
 
 await runSessionRunner({
@@ -10,4 +11,6 @@ await runSessionRunner({
   // Read fresh on every start, so a folder added or removed counts at once.
   isAllowedFolder: async (folderName, path) =>
     (await readFolders()).some((folder) => folder.folderName === folderName && folder.path === path),
+  kinds: OUTPUT_KINDS,
+  proseTurn: PROSE_TURN,
 });

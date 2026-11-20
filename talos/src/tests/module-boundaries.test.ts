@@ -90,10 +90,7 @@ const TALOS_SESSIONS: ModuleLayout = {
 
 describe("module boundaries", () => {
   test("talos-sessions is used only through its index.ts and stands on its own", () => {
-    // shortcut: status and decision still live in these files until they move to
-    // talos's session-outputs.ts (plan step 5); that step deletes this filter.
-    const notYetCut = (found: string): boolean => /(structured-tools|lanes\/status-lane|tests\/status-lane\.test)\.ts imports talos-shared$/.test(found);
-    expect(findBoundaryBreaks(readSourceTree(SOURCE_ROOT), TALOS_SESSIONS).filter((found) => !notYetCut(found))).toEqual([]);
+    expect(findBoundaryBreaks(readSourceTree(SOURCE_ROOT), TALOS_SESSIONS)).toEqual([]);
   });
 
   test("the check catches each kind of break", () => {

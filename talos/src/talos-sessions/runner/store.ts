@@ -4,7 +4,7 @@ import type { Subprocess } from "bun";
 import type { SessionEntry, SessionSummary } from "../shapes";
 import { createCoalescer } from "../coalescer";
 import { encodeRunnerEvent, type RunnerEvent } from "../client/runner-protocol";
-import type { StatusLane } from "../lanes/status-lane";
+import type { Lane } from "../lanes/lane";
 import { SESSION_LIMITS } from "../limits";
 
 export type Terminal = { write: (data: string | Uint8Array) => void; resize: (cols: number, rows: number) => void };
@@ -26,15 +26,15 @@ export type HeldSession = {
   queuedMessages: TypedMessage[];
   transcript: Transcript | null;
   entries: SessionEntry[];
-  statusLane: StatusLane;
+  lane: Lane;
   // Proves a hook POST on the shared hooks socket came from this session.
   hookToken: string;
   // Unsent text the person left in Claude Code's input box from an attached
-  // terminal. The status request mustn't be pasted onto it.
+  // terminal. A request talos types mustn't be pasted onto it.
   hasDraft: boolean;
   // The session's last turn has ended (talos's Stop came, or it just started),
   // as opposed to "needs you" for a permission prompt mid-turn. Only then may a
-  // status request be typed: Enter in a permission prompt would approve it.
+  // request be typed: Enter in a permission prompt would approve it.
   isTurnOver: boolean;
   // The most recent terminal output, so someone attaching sees the screen, and
   // when it last changed, to tell when the screen has settled.
@@ -45,7 +45,7 @@ export type HeldSession = {
   outputListeners: Set<ReadableStreamDefaultController<Uint8Array>>;
   // One of each loop at a time: a transcript read, so lines aren't read twice; a
   // ready wait, so a forged flood of SessionStart events can't pile up loops; and
-  // a settle wait for a queued status ask.
+  // a settle wait for a queued ask.
   isBeingRead: boolean;
   isBecomingReady: boolean;
   isWaitingToAsk: boolean;
@@ -76,7 +76,7 @@ export const sendToListeners = <T>(listeners: Set<ReadableStreamDefaultControlle
 
 export const broadcast = (runnerEvent: RunnerEvent) => sendToListeners(eventListeners, encodeRunnerEvent(runnerEvent));
 
-// Coalesced: rapid state/status changes (a session can flap its own state via
+// Coalesced: rapid state and ask changes (a session can flap its own state via
 // forged hooks) collapse into one roster broadcast per window, so the uplink
 // (runner → talos → server) can't be flooded. The run sends the latest list.
 export const broadcastSessions = createCoalescer(

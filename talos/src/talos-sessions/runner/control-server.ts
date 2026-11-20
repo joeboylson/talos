@@ -10,7 +10,7 @@ import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "..
 import { startSession } from "./lifecycle";
 import { isAllowedFolder, log } from "./inputs";
 import { sendToSession } from "./messages";
-import { applyStatusLaneEvent, askForStatus } from "./session-state";
+import { applyLaneEvent, askForOutput } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
 import { eventListeners, heldSessions, listSessions } from "./store";
 
@@ -121,8 +121,8 @@ export const controlServeOptions = {
         return new Response(null, { status: 204 });
       },
     },
-    [`${RUNNER_ROUTES.sessions}/:sessionName/ask-update`]: {
-      POST: (request: BunRequest) => askForStatus(sessionNameOf(request)),
+    [`${RUNNER_ROUTES.sessions}/:sessionName/ask`]: {
+      POST: async (request: BunRequest) => askForOutput(sessionNameOf(request), (await readJson(request)).kind),
     },
     [`${RUNNER_ROUTES.sessions}/:sessionName/output`]: {
       GET: (request: BunRequest) => streamOutput(sessionNameOf(request)),
@@ -139,7 +139,7 @@ export const controlServeOptions = {
         const isDraftChanging = isDraftChangingKeys(keys);
         const hasDraft = isDraftClearingKeys(keys) ? false : isDraftChanging || session.hasDraft;
         heldSessions.set(session.summary.sessionName, { ...session, hasDraft });
-        if (isTurnChanging || isDraftChanging) applyStatusLaneEvent(session.summary.sessionName, { type: "person-typed", isTurnChanging });
+        if (isTurnChanging || isDraftChanging) applyLaneEvent(session.summary.sessionName, { type: "person-typed", isTurnChanging });
         session.terminal.write(keys);
         return new Response(null, { status: 204 });
       },

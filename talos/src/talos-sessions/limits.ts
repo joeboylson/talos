@@ -38,7 +38,7 @@ export const SESSION_LIMITS = {
   maxControlBodyBytes: LIMITS.maxSocketMessageBytes,
   // Enough recent output to redraw Claude Code's screen for someone attaching.
   maxOutputBytes: 256 * 1024,
-  // Rapid session state/status changes collapse into one roster broadcast per this
+  // Rapid session state and ask changes collapse into one roster broadcast per this
   // window, so a session flapping its state can't flood the runner → talos uplink.
   sessionsBroadcastCoalesceMs: 100,
   // The hook script must never hold Claude up. A hook connection that hasn't
@@ -54,10 +54,10 @@ export const SESSION_LIMITS = {
   maxSessionOpenFiles: 2048,
   // Past this, a starting session is typed into even if its screen hasn't settled.
   readyLongestWaitMs: 15_000,
-  // A status request that goes unanswered this long becomes "no response".
-  statusTimeoutMs: 60_000,
+  // An asked-for turn that goes unanswered this long becomes "no response".
+  askTimeoutMs: 60_000,
   // An ask queued behind a busy session waits this long for it to go idle: long
   // enough for real work, short enough that a session stuck waiting on the person
   // doesn't block asks for good.
-  queuedStatusTimeoutMs: 30 * 60_000,
+  queuedAskTimeoutMs: 30 * 60_000,
 } as const;

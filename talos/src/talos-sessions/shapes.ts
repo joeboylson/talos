@@ -7,13 +7,20 @@ import { COPIED_LIMITS as LIMITS } from "./limits";
 export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
 
-// status and decision are talos's kinds; talos's session-bridge.ts checks them.
+// For each kind asked for: where the latest ask stands, and its latest answer.
+export const ASK_STATES = ["asking", "answered", "no-response"] as const;
+export type AskState = (typeof ASK_STATES)[number];
+export type Ask = { state: AskState; atMs: number; latest?: Record<string, unknown> };
+// An output the session sent that waits for the person's answer.
+export type OpenOutput = { kind: string; fields: Record<string, unknown>; atMs: number };
+
+// The fields are talos's kinds' own; talos's session-bridge.ts checks them.
 export type SessionSummary = {
   sessionName: string;
   folderName: string;
   state: SessionState;
-  status?: unknown;
-  decision?: unknown;
+  asks: Record<string, Ask>;
+  openOutputs: OpenOutput[];
 };
 
 // One thing in a session's conversation, read from Claude Code's saved
@@ -47,6 +54,33 @@ const IDENTIFIER_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const isIdentifierName = (value: unknown): value is string =>
   typeof value === "string" && value.length <= LIMITS.maxIdentifierLength && IDENTIFIER_NAME.test(value);
 
+const isFields = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+// A bad ask or open output is left out rather than turning down the whole list.
+const readAsks = (value: unknown): Record<string, Ask> => {
+  if (!isFields(value)) return {};
+  const readAsk = (ask: unknown): Ask | null => {
+    if (!isFields(ask)) return null;
+    const { state, atMs, latest } = ask;
+    if (!isOneOf(ASK_STATES, state) || typeof atMs !== "number") return null;
+    return isFields(latest) ? { state, atMs, latest } : { state, atMs };
+  };
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([kind, ask]) => {
+      const read = readAsk(ask);
+      return read && isTextUpTo(kind, LIMITS.maxNameTextLength) ? [[kind, read]] : [];
+    }),
+  );
+};
+
+const readOpenOutputs = (value: unknown): OpenOutput[] =>
+  (Array.isArray(value) ? value : []).flatMap((output: unknown) => {
+    if (!isFields(output)) return [];
+    const { kind, fields, atMs } = output;
+    return isTextUpTo(kind, LIMITS.maxNameTextLength) && isFields(fields) && typeof atMs === "number" ? [{ kind, fields, atMs }] : [];
+  });
+
 export const readSessionList = (value: unknown): SessionSummary[] | null => {
   if (!Array.isArray(value) || value.length > LIMITS.maxSessions) return null;
   const isSession = (item: unknown): boolean =>
@@ -57,8 +91,8 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
     isOneOf(SESSION_STATES, fieldOf(item, "state"));
   if (!value.every(isSession)) return null;
   return value.map((item) => {
-    const { sessionName, folderName, state, status, decision } = item as SessionSummary;
-    return { sessionName, folderName, state, ...(status !== undefined && { status }), ...(decision !== undefined && { decision }) };
+    const { sessionName, folderName, state } = item as SessionSummary;
+    return { sessionName, folderName, state, asks: readAsks(fieldOf(item as object, "asks")), openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")) };
   });
 };
 

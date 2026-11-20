@@ -1,38 +1,52 @@
-// A session's state and its status lane: every change to either goes through here.
+// A session's state and its lane: every change to either goes through here.
 import type { SessionState, SessionSummary } from "../shapes";
 import { READY_CHECK_MS, READY_QUIET_MS } from "../constants";
-import { STATUS_REQUEST_PROMPT, stepStatusLane, type StatusLaneEvent, type StatusLaneStep } from "../lanes/status-lane";
+import { findKind } from "../kinds";
+import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
 import { ENTER_KEY, buildPastedText } from "../terminal";
-import { log } from "./inputs";
+import { catalog, log } from "./inputs";
 import { broadcastSessions, heldSessions, updateHeldSession } from "./store";
 
-const applyDecisionChange = (summary: SessionSummary, change: StatusLaneStep["decisionChange"]): SessionSummary => {
-  if (change === null) return summary;
-  // The first open question stands until it's answered, so its choices can't
-  // change under the person's click.
-  if (change !== "clear") return summary.decision ? summary : { ...summary, decision: change };
-  if (!summary.decision) return summary;
-  const { decision: _answered, ...withoutDecision } = summary;
-  return withoutDecision;
+// What a step changes in the summary: an ask's state, its latest answer, and the
+// open outputs. The first open output of a kind stands until it's answered, so
+// its choices can't change under the person's click.
+const applyStep = (summary: SessionSummary, step: LaneStep): SessionSummary => {
+  const { recorded, askChange } = step;
+  const asks = askChange
+    ? {
+        ...summary.asks,
+        [askChange.kind]: {
+          ...summary.asks[askChange.kind],
+          state: askChange.state,
+          atMs: askChange.atMs,
+          ...(askChange.state === "answered" && recorded && { latest: recorded.fields }),
+        },
+      }
+    : summary.asks;
+  const keptOutputs = step.closesOpenOutputs ? [] : summary.openOutputs;
+  const waits = recorded !== null && askChange === null && findKind(catalog(), recorded.kind)?.waits === true;
+  const isNewOpenOutput = waits && !keptOutputs.some((output) => output.kind === recorded.kind);
+  const openOutputs = isNewOpenOutput ? [...keptOutputs, recorded] : keptOutputs;
+  const isUnchanged = asks === summary.asks && openOutputs === summary.openOutputs;
+  return isUnchanged ? summary : { ...summary, asks, openOutputs };
 };
 
-// Every status lane change goes through here: step the lane, then apply what
-// the step says (new status, typed request) and return the hook's reply.
-export const applyStatusLaneEvent = (sessionName: string, event: StatusLaneEvent): string => {
+// Every lane change goes through here: step the lane, then apply what the step
+// says (an answer, a typed request) and return the hook's reply.
+export const applyLaneEvent = (sessionName: string, event: LaneEvent): string => {
   const session = heldSessions.get(sessionName);
   if (!session) return "";
-  const step = stepStatusLane(session.statusLane, event, Date.now());
-  const withStatus = step.statusChange ? { ...session.summary, status: step.statusChange } : session.summary;
-  const summary = applyDecisionChange(withStatus, step.decisionChange);
-  heldSessions.set(sessionName, { ...session, statusLane: step.lane, summary });
+  const step = stepLane(session.lane, event, Date.now(), catalog());
+  const summary = applyStep(session.summary, step);
+  heldSessions.set(sessionName, { ...session, lane: step.lane, summary });
   if (summary !== session.summary) broadcastSessions();
-  if (step.shouldTypeRequest) {
-    session.terminal.write(buildPastedText(STATUS_REQUEST_PROMPT));
+  if (step.requestToType) {
+    session.terminal.write(buildPastedText(step.requestToType));
     session.terminal.write(ENTER_KEY);
   }
   // A lane left waiting to settle while the turn is already over gets its wait
   // now, not only when the session's state next changes.
-  const isWaitingToSettle = step.lane.kind === "queued" || step.lane.kind === "reported";
+  const isWaitingToSettle = step.lane.stage === "queued" || step.lane.stage === "answered";
   if (isWaitingToSettle && session.isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);
   return step.hookReply;
 };
@@ -48,7 +62,7 @@ export const setSessionState = (sessionName: string, state: SessionState, isTurn
   if (isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);
 };
 
-// A queued status request is typed, and a finished status turn ends, only once
+// A queued request is typed, and a finished asked-for turn ends, only once
 // the session's turn is over and its screen has been still for a moment. talos counts a session idle on its own Stop
 // decision, but Claude Code also runs the person's own Stop hooks, and one can
 // block the Stop and keep the turn going. A request typed then is folded into
@@ -65,25 +79,25 @@ const stepLaneWhenSettled = async (sessionName: string, token: string): Promise<
   try {
     while (true) {
       const session = heldSessions.get(sessionName);
-      const isWaitingLane = session?.statusLane.kind === "queued" || session?.statusLane.kind === "reported";
+      const isWaitingLane = session?.lane.stage === "queued" || session?.lane.stage === "answered";
       const isStillWaiting = session?.hookToken === token && isWaitingLane && session.isTurnOver;
       if (!isStillWaiting) return;
       const quietForMs = Date.now() - session.lastOutputAtMs;
-      if (quietForMs >= READY_QUIET_MS) return void applyStatusLaneEvent(sessionName, { type: "settled", hasDraft: session.hasDraft });
+      if (quietForMs >= READY_QUIET_MS) return void applyLaneEvent(sessionName, { type: "settled", hasDraft: session.hasDraft });
       await Bun.sleep(READY_CHECK_MS);
     }
   } catch (error) {
     // Logged, not thrown: Bun quits on an unhandled rejection, which would end
     // every session the session runner holds.
-    log.warn(`runner: couldn't start ${sessionName}'s status ask: ${error}`);
+    log.warn(`runner: couldn't start ${sessionName}'s ask: ${error}`);
   } finally {
     updateHeldSession(sessionName, token, { isWaitingToAsk: false });
   }
 };
 
-export const askForStatus = (sessionName: string): Response => {
-  const session = heldSessions.get(sessionName);
-  if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
-  applyStatusLaneEvent(sessionName, { type: "ask" });
+export const askForOutput = (sessionName: string, kind: unknown): Response => {
+  if (!heldSessions.has(sessionName)) return new Response(`no session ${sessionName}`, { status: 404 });
+  if (typeof kind !== "string" || !findKind(catalog(), kind)?.requestText) return new Response("expected a kind talos can ask for", { status: 400 });
+  applyLaneEvent(sessionName, { type: "ask", kind });
   return new Response(null, { status: 204 });
 };

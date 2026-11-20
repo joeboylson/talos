@@ -10,7 +10,7 @@ import {
   RUNNER_SOCKET,
   RUNNER_SOCKET_MODE,
   MCP_CONFIG_FILE,
-  STATUS_CHECK_MS,
+  ASK_CHECK_MS,
   TALOS_MCP_SERVER_KEY,
   TOOLS_SERVER_SCRIPT,
   TRANSCRIPT_CHECK_MS,
@@ -18,7 +18,7 @@ import {
 import { controlServeOptions } from "./control-server";
 import { startHookServer } from "./hook-server";
 import { log, useRunnerInputs, type RunnerInputs } from "./inputs";
-import { applyStatusLaneEvent } from "./session-state";
+import { applyLaneEvent } from "./session-state";
 import { heldSessions } from "./store";
 import { readAllNewEntries } from "./transcript";
 
@@ -40,6 +40,6 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   await chmod(RUNNER_SOCKET, RUNNER_SOCKET_MODE);
   await chmod(RUNNER_HOOKS_SOCKET, RUNNER_SOCKET_MODE);
   setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
-  setInterval(() => [...heldSessions.keys()].forEach((sessionName) => applyStatusLaneEvent(sessionName, { type: "tick" })), STATUS_CHECK_MS);
+  setInterval(() => [...heldSessions.keys()].forEach((sessionName) => applyLaneEvent(sessionName, { type: "tick" })), ASK_CHECK_MS);
   log.event(`runner: listening on ${RUNNER_SOCKET}`);
 };

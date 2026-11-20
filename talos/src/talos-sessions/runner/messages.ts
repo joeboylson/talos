@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { SentImage } from "../shapes";
 import { TALOS_FOLDER_MODE, IMAGE_PASTE_SETTLE_MS, UPLOAD_FILE_MODE, UPLOADS_FOLDER } from "../constants";
 import { ENTER_KEY, buildMessageWithImages, buildPastedText } from "../terminal";
-import { applyStatusLaneEvent } from "./session-state";
+import { applyLaneEvent } from "./session-state";
 import { heldSessions, updateHeldSession, type HeldSession, type TypedMessage } from "./store";
 
 // The message counts as a draft until its Enter (an image paste waits a second
@@ -47,7 +47,7 @@ export const sendToSession = async (sessionName: string, text: string, images: S
   if (session.summary.state === "starting") {
     heldSessions.set(sessionName, { ...session, queuedMessages: [...session.queuedMessages, message] });
   } else {
-    applyStatusLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
+    applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
     await typeIntoSession(session, message);
   }
   return new Response(null, { status: 204 });

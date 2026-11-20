@@ -20,6 +20,16 @@ describe("the hooks socket's line exchange", () => {
   ])("a request that's %s is turned down", (_name, line) => {
     expect(readHookRequest(line)).toBeNull();
   });
+  test("the MCP server's ask for its tools, and the answers to it, come back as they went", () => {
+    const ask = { sessionName: "fix", token: "t", wants: "kinds" as const };
+    expect(readHookRequest(encodeHookLine(ask).trimEnd())).toEqual(ask);
+    const tools = { kind: "tools" as const, tools: [{ name: "send_poll", description: "d", inputSchema: { type: "object" }, reply: "Recorded." }] };
+    expect(readHookAnswer(encodeHookLine(tools).trimEnd())).toEqual(tools);
+    expect(readHookAnswer(encodeHookLine({ kind: "refused" }).trimEnd())).toEqual({ kind: "refused" });
+  });
+  test("a tools answer with one bad tool is turned down whole", () => {
+    expect(readHookAnswer(JSON.stringify({ kind: "tools", tools: [{ name: "x", description: "d", inputSchema: null, reply: "r" }] }))).toBeNull();
+  });
   test("an unknown answer is turned down", () => {
     expect(readHookAnswer(JSON.stringify({ kind: "maybe" }))).toBeNull();
   });

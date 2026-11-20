@@ -16,11 +16,11 @@ import {
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
 import { buildHookSettings } from "../claude/session-hooks";
-import { NO_STATUS_LANE } from "../lanes/status-lane";
+import { NO_LANE } from "../lanes/lane";
 import { appendOutput } from "../terminal";
 import { log } from "./inputs";
 import { typeIntoSession } from "./messages";
-import { applyStatusLaneEvent, setSessionState } from "./session-state";
+import { applyLaneEvent, setSessionState } from "./session-state";
 import { broadcastSessions, heldSessions, sendToListeners, updateHeldSession, type Terminal } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
@@ -83,14 +83,14 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
   const terminal = (child as unknown as { terminal: Terminal }).terminal;
 
   heldSessions.set(sessionName, {
-    summary: { sessionName, folderName, state: "starting" },
+    summary: { sessionName, folderName, state: "starting", asks: {}, openOutputs: [] },
     path,
     child,
     terminal,
     queuedMessages: [],
     transcript: null,
     entries: [],
-    statusLane: NO_STATUS_LANE,
+    lane: NO_LANE,
     hookToken,
     hasDraft: false,
     isTurnOver: false,
@@ -126,7 +126,7 @@ export const becomeReadyWhenQuiet = async (sessionName: string, token: string, g
   // The session is then working, not idle, so a new ask waits for their Stop
   // instead of landing on top of them.
   const hasQueuedMessages = session.queuedMessages.length > 0;
-  if (hasQueuedMessages) applyStatusLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
+  if (hasQueuedMessages) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   setSessionState(sessionName, hasQueuedMessages ? "working" : "idle");
   for (const message of session.queuedMessages) await typeIntoSession(session, message);
 };

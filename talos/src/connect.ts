@@ -23,6 +23,7 @@ import { forgetCredentials, readCredentials, saveCredentials } from "./credentia
 import { readFolders, renameFolder, saveFolders } from "./folders";
 import { RUNNER_ROUTES, ensureRunnerRunning, followRunnerEvents, postToRunner, sessionRoute } from "./talos-sessions";
 import { toSharedEvent, type SharedRunnerEvent } from "./session-bridge";
+import { STATUS_KIND } from "./session-outputs";
 import { startLocalStatusServer } from "./local-status-server";
 import { fetchMachineName, pairMachine } from "./pairing";
 import { connectToServer, type SendToServer } from "./server-connection";
@@ -161,7 +162,7 @@ export const runConnect = async (): Promise<void> => {
       return;
     }
     if (message.type === "ask-for-update") {
-      await postToRunner(sessionRoute(message.sessionName, "ask-update"), {});
+      await postToRunner(sessionRoute(message.sessionName, "ask"), { kind: STATUS_KIND.kind });
       return;
     }
     if (message.type === "machine-name") {

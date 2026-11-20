@@ -1,13 +1,13 @@
 // The hooks socket: the only routes a session can reach, its own Claude Code hooks.
 import type { Socket } from "bun";
 import { RUNNER_HOOKS_SOCKET, NEWLINE_BYTE } from "../constants";
-import { encodeHookLine, readHookRequest, type HookAnswer } from "../client/runner-protocol";
+import { encodeHookLine, readHookRequest, type HookAnswer, type ListedTool } from "../client/runner-protocol";
 import { hookTokenAuthorized, nextSessionState } from "../claude/session-hooks";
-import { readStatusLaneEvent } from "../lanes/status-lane";
+import { readLaneEvent } from "../lanes/lane";
 import { allowTranscriptSwitch } from "../transcript/transcript-lines";
 import { becomeReadyWhenQuiet } from "./lifecycle";
-import { log } from "./inputs";
-import { applyStatusLaneEvent, setSessionState } from "./session-state";
+import { catalog, log } from "./inputs";
+import { applyLaneEvent, setSessionState } from "./session-state";
 import { heldSessions, updateHeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
@@ -19,8 +19,8 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   const hookDetails: unknown = JSON.parse(hookDetailsText || "{}");
   const hookEvent = String(Reflect.get(hookDetails as object, "hook_event_name") ?? "");
 
-  const statusLaneEvent = readStatusLaneEvent(hookDetails);
-  const decision = statusLaneEvent ? applyStatusLaneEvent(sessionName, statusLaneEvent) : "";
+  const laneEvent = readLaneEvent(hookDetails);
+  const decision = laneEvent ? applyLaneEvent(sessionName, laneEvent) : "";
 
   // Only one ready-loop per session instance, so a forged flood of SessionStart
   // events can't pile up uncancelled loops and exhaust the session runner's memory.
@@ -44,29 +44,34 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
     heldSessions.set(sessionName, { ...current, transcript: { path: transcriptPath, readByteCount: 0, runningTools: new Map() } });
   }
   // A Stop the lane blocked keeps the turn going, so the session isn't idle. A
-  // turn that ends on an open decision is waiting for the person, not idle.
+  // turn that ends on an open output is waiting for the person, not idle.
   const blockedStop = hookEvent === "Stop" && decision !== "";
   const nextState = nextSessionState(hookEvent, hookDetails);
-  const hasOpenDecision = heldSessions.get(sessionName)?.summary.decision !== undefined;
+  const hasOpenOutput = (heldSessions.get(sessionName)?.summary.openOutputs.length ?? 0) > 0;
   const isTurnOver = nextState === "idle";
-  const shownState = isTurnOver && hasOpenDecision ? "needs-you" : nextState;
+  const shownState = isTurnOver && hasOpenOutput ? "needs-you" : nextState;
   if (shownState && !blockedStop) setSessionState(sessionName, shownState, isTurnOver);
   return decision;
 };
+
+// The tools a session's MCP server lists. The kinds live only here, so the tools
+// offered and the tools checked can't drift.
+const listedTools = (): ListedTool[] =>
+  catalog().kinds.map(({ toolName, description, inputSchema, acceptedReply }) => ({ name: toolName, description, inputSchema, reply: acceptedReply }));
 
 // The answer to one hook request. The token check and the hook's handling run
 // in one step, so a session replaced under the same name can't be acted on.
 const answerHookRequest = (line: string): HookAnswer => {
   const request = readHookRequest(line);
   if (!request) return { kind: "reply", reply: "" };
-  const { sessionName, token, details } = request;
-  if (!hookTokenAuthorized(token, heldSessions.get(sessionName)?.hookToken)) {
-    log.warn(`runner: ignored a hook for "${sessionName}" with a bad token`);
-    return { kind: "reply", reply: "" };
-  }
+  const { sessionName, token } = request;
+  const isAuthorized = hookTokenAuthorized(token, heldSessions.get(sessionName)?.hookToken);
+  if (!isAuthorized) log.warn(`runner: ignored a hook for "${sessionName}" with a bad token`);
+  if ("wants" in request) return isAuthorized ? { kind: "tools", tools: listedTools() } : { kind: "refused" };
+  if (!isAuthorized) return { kind: "reply", reply: "" };
   try {
     // The hook script prints this to Claude Code; empty means no decision.
-    return { kind: "reply", reply: handleHook(sessionName, token, details) };
+    return { kind: "reply", reply: handleHook(sessionName, token, request.details) };
   } catch (error) {
     log.warn(`runner: couldn't handle a hook: ${error}`);
     return { kind: "reply", reply: "" };

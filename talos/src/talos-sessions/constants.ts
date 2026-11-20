@@ -29,8 +29,8 @@ export const TOOLS_SERVER_SCRIPT = new URL("./tools-server.ts", import.meta.url)
 export const TALOS_MCP_SERVER_KEY = "talos";
 export const MCP_CONFIG_FILE = join(TALOS_FOLDER, "mcp-config.json");
 
-// How often the session runner checks for status requests that have timed out.
-export const STATUS_CHECK_MS = 5_000;
+// How often the session runner checks for asks that have timed out.
+export const ASK_CHECK_MS = 5_000;
 export const RUNNER_START_TIMEOUT_MS = 5000;
 export const RUNNER_START_CHECK_MS = 100;
 

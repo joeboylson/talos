@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
+  capDroppedMarkers,
   readSessionStatus,
   mergeSessionEntries,
   readSentImages,
   readSessionEntries,
   readSessionDecision,
+  readSessionEntry,
   readSessionList,
   openDecisionOf,
   statusOf,
+  toDroppedMarker,
+  type SessionEntry,
   type SessionSummary,
 } from "../../sessions";
 import { LIMITS } from "../../limits";
@@ -204,5 +208,122 @@ describe("mergeSessionEntries", () => {
   test("an entry without a string id is skipped (defends the page's raw decode)", () => {
     const bad = { kind: "text", text: "no id" } as unknown as typeof text;
     expect(mergeSessionEntries([text], [bad], 10)).toEqual([text]);
+  });
+});
+
+const textOf = (entryId: string, length = 0): SessionEntry => ({ kind: "text", entryId, text: "x".repeat(length) });
+const markerOf = (entryId: string): SessionEntry => ({ kind: "dropped", entryId, droppedKind: "text", reason: "x" });
+const bigEntries = (count: number) => Array.from({ length: count }, (_unused, index) => textOf(`e${index}`, LIMITS.maxEntryTextLength));
+const fieldsOfBytes = (byteCount: number) => ({ a: "x".repeat(byteCount - JSON.stringify({ a: "" }).length) });
+
+describe("limits: exactly at the limit is kept, one past is turned down", () => {
+  test("entry text, choices, entries, images and output fields at the limit are kept", () => {
+    expect(readSessionEntry(textOf("a", LIMITS.maxEntryTextLength))).not.toBeNull();
+    const choices = Array.from({ length: LIMITS.maxDecisionChoices }, (_unused, index) => `c${index}`);
+    expect(readSessionDecision({ id: "d1", question: "?", choices, atMs: 1 })).not.toBeNull();
+    expect(readSessionEntries(Array.from({ length: LIMITS.maxEntriesKept }, (_unused, index) => textOf(`${index}`)))).not.toBeNull();
+    expect(readSentImages(Array.from({ length: LIMITS.maxImagesPerMessage }, () => ({ mediaType: "image/png", dataBase64: "AAAA" })))).not.toBeNull();
+    expect(readSessionEntry({ kind: "output", entryId: "o", outputKind: "note", fields: fieldsOfBytes(LIMITS.maxOutputFieldsBytes) })).not.toBeNull();
+  });
+
+  test("a session list holds at most maxSessions", () => {
+    const sessionsOf = (count: number) => Array.from({ length: count }, (_unused, index) => ({ sessionName: `s${index}`, folderName: "talos", state: "idle" }));
+    expect(readSessionList(sessionsOf(LIMITS.maxSessions))?.length).toBe(LIMITS.maxSessions);
+    expect(readSessionList(sessionsOf(LIMITS.maxSessions + 1))).toBeNull();
+  });
+
+  test("output fields are measured in bytes, not characters", () => {
+    const wideFields = { note: "é".repeat(LIMITS.maxOutputFieldsBytes / 2) };
+    expect(readSessionEntry({ kind: "output", entryId: "o", outputKind: "note", fields: wideFields })).toBeNull();
+  });
+});
+
+describe("bad parts of a session are left out", () => {
+  const sessionWith = (extra: object): SessionSummary => readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", ...extra }])![0]!;
+
+  test("a decision with an empty id isn't one", () => {
+    expect(readSessionDecision({ id: "", question: "?", choices: ["a", "b"], atMs: 1 })).toBeNull();
+  });
+
+  test("null fields aren't fields", () => {
+    expect(readSessionEntry({ kind: "output", entryId: "o", outputKind: "note", fields: null })).toBeNull();
+    expect(sessionWith({ asks: { status: { state: "answered", atMs: 1, latest: null } } }).asks).toEqual({ status: { state: "answered", atMs: 1 } });
+  });
+
+  test("an ask with no time, or under a name too long, is left out", () => {
+    expect(sessionWith({ asks: { status: { state: "asking" } } }).asks).toEqual({});
+    expect(sessionWith({ asks: { ["k".repeat(LIMITS.maxNameTextLength + 1)]: { state: "asking", atMs: 1 } } }).asks).toEqual({});
+  });
+
+  test("open outputs are capped, and a bad one is left out", () => {
+    const outputOf = (index: number) => ({ id: `o${index}`, kind: "note", fields: {}, atMs: 1 });
+    const manyOutputs = Array.from({ length: LIMITS.maxOpenOutputs + 1 }, (_unused, index) => outputOf(index));
+    expect(sessionWith({ openOutputs: manyOutputs }).openOutputs.length).toBe(LIMITS.maxOpenOutputs);
+    const badOutputs = [{ ...outputOf(1), id: 5 }, { ...outputOf(2), kind: "k".repeat(LIMITS.maxNameTextLength + 1) }, { id: "o3", kind: "note", fields: {} }];
+    expect(sessionWith({ openOutputs: badOutputs }).openOutputs).toEqual([]);
+  });
+});
+
+describe("readSessionEntry checks every field of every kind", () => {
+  test("a prompt with no images is kept", () => {
+    expect(readSessionEntry({ kind: "prompt", entryId: "a", text: "hi", imageCount: 0 })).not.toBeNull();
+  });
+
+  test.each([
+    ["a tool with a bad name", { kind: "tool", entryId: "a", toolName: 5, summary: "ls", outcome: "done" }],
+    ["an output with a bad kind", { kind: "output", entryId: "a", outputKind: 5, fields: {} }],
+    ["a marker with a bad reason", { kind: "dropped", entryId: "a", droppedKind: "text", reason: 5 }],
+    ["a marker with a bad kind", { kind: "dropped", entryId: "a", droppedKind: 5, reason: "x" }],
+    ["an unknown kind shaped like a marker", { kind: "other", entryId: "a", droppedKind: "x", reason: "y" }],
+  ])("turns down %s", (_name, item) => {
+    expect(readSessionEntry(item)).toBeNull();
+  });
+});
+
+describe("dropped markers", () => {
+  test("different bad items with no readable id get different marker ids", () => {
+    const markers = readSessionEntries([{ kind: "text", entryId: 5, text: "a" }, { kind: "text", entryId: 6, text: "b" }])!;
+    expect(markers[0]?.entryId).not.toBe(markers[1]?.entryId);
+  });
+
+  test("a marker keeps only an id that is readable, names an unknown kind, and cuts its reason", () => {
+    expect(toDroppedMarker({ entryId: "" }, "r").entryId).toMatch(/^dropped:/);
+    expect(toDroppedMarker({ entryId: "x".repeat(LIMITS.maxIdTextLength + 1) }, "r").entryId).toMatch(/^dropped:/);
+    expect(toDroppedMarker({ entryId: "x".repeat(LIMITS.maxIdTextLength) }, "r").entryId).toBe("x".repeat(LIMITS.maxIdTextLength));
+    expect(toDroppedMarker({ kind: 5 }, "r")).toMatchObject({ droppedKind: "unknown" });
+    expect(toDroppedMarker({}, "r".repeat(LIMITS.maxNameTextLength + 50))).toMatchObject({ reason: "r".repeat(LIMITS.maxNameTextLength) });
+  });
+
+  test("the cap counts markers, not other entries", () => {
+    const entries = [markerOf("m"), ...Array.from({ length: 15 }, (_unused, index) => textOf(`g${index}`))];
+    expect(capDroppedMarkers(entries, 10)).toEqual(entries);
+  });
+
+  test("the cap counts each marker, even many copies of one bad item", () => {
+    expect(readSessionEntries(Array.from({ length: LIMITS.maxEntriesKept }, () => ({})))?.length).toBe(LIMITS.maxDroppedPerBatch);
+  });
+
+  test("a cap of 0 keeps no markers", () => {
+    expect(capDroppedMarkers([markerOf("m"), textOf("g")], 0)).toEqual([textOf("g")]);
+  });
+});
+
+describe("mergeSessionEntries edge cases", () => {
+  test("a null new entry is skipped", () => {
+    expect(mergeSessionEntries([textOf("a")], [null as unknown as SessionEntry], 10)).toEqual([textOf("a")]);
+  });
+
+  test("the text budget counts a tool's name and summary, and an output's fields", () => {
+    const tool: SessionEntry = { kind: "tool", entryId: "t", toolName: "B", summary: "x".repeat(LIMITS.maxToolSummaryLength), outcome: "done" };
+    const output: SessionEntry = { kind: "output", entryId: "o", outputKind: "note", fields: { a: "x".repeat(100) } };
+    const budgetCount = LIMITS.maxKeptEntryTextLength / LIMITS.maxEntryTextLength;
+    expect(mergeSessionEntries([], [...bigEntries(budgetCount), tool], LIMITS.maxEntriesKept).map((entry) => entry.entryId)[0]).toBe("e1");
+    expect(mergeSessionEntries([], [...bigEntries(budgetCount), output], LIMITS.maxEntriesKept).map((entry) => entry.entryId)[0]).toBe("e1");
+  });
+
+  test("a new entry that arrives with a kept tool's end is kept too", () => {
+    const running: SessionEntry = { kind: "tool", entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" };
+    const merged = mergeSessionEntries([running], [textOf("x"), { ...running, outcome: "done" }], LIMITS.maxEntriesKept);
+    expect(merged.map((entry) => entry.entryId)).toEqual(["t1", "x"]);
   });
 });

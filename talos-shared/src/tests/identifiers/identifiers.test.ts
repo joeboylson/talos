@@ -38,6 +38,7 @@ describe("toIdentifierName", () => {
     ["---", "unnamed"],
     ["", "unnamed"],
     ["日本", "unnamed"],
+    ["my.local.box", "my-local-box"],
   ])("%p becomes %p", (text, expected) => {
     expect(toIdentifierName(text)).toBe(expected);
   });
@@ -68,4 +69,19 @@ test("pickUniqueName keeps a numbered name within the identifier limit", () => {
   expect(numbered.endsWith("-2")).toBe(true);
   expect(isIdentifierName(numbered)).toBe(true);
   expect(pickUniqueName(longest, [longest, numbered])).toBe(`${"a".repeat(LIMITS.maxIdentifierLength - 2)}-3`);
+});
+
+test("a numbered long name never has a dash before its number", () => {
+  const longName = `${"a".repeat(LIMITS.maxIdentifierLength - 3)}-bb`;
+  expect(pickUniqueName(longName, [longName])).toBe(`${"a".repeat(LIMITS.maxIdentifierLength - 3)}-2`);
+});
+
+test.each([
+  ["fix-login", true],
+  ["../..", false],
+  ["Fix Login", false],
+  ["", false],
+  [5, false],
+])("isIdentifierName %p", (value, expected) => {
+  expect(isIdentifierName(value)).toBe(expected);
 });

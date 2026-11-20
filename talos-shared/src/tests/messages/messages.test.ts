@@ -12,6 +12,11 @@ describe("encode and decode", () => {
     expect(decode(Buffer.from(bytes))).toEqual({ type: "pong", id: "1" });
   });
 
+  test("decode an ArrayBuffer", () => {
+    const arrayBuffer = new TextEncoder().encode('{"type":"pong","id":"1"}').buffer;
+    expect(decode(arrayBuffer)).toEqual({ type: "pong", id: "1" });
+  });
+
   test.each([
     ["bad JSON", "{not json"],
     ["empty string", ""],

@@ -1,5 +1,4 @@
 import { isIdentifierName } from "./identifiers";
-import { parseJsonOrNull } from "./json";
 import { LIMITS } from "./limits";
 
 // A session's state, as Claude Code's hooks report it.
@@ -97,8 +96,11 @@ export const readSessionDecision = (value: unknown): SessionDecision | null => {
   return isDecision && isTextUpTo(id, LIMITS.maxIdTextLength) && id.length > 0 ? { id, question, choices: [...(choices as string[])], atMs } : null;
 };
 
+const textEncoder = new TextEncoder();
+const byteLengthOf = (value: unknown): number => textEncoder.encode(JSON.stringify(value)).length;
+
 const isFields = (value: unknown): value is OutputFields =>
-  typeof value === "object" && value !== null && !Array.isArray(value) && JSON.stringify(value).length <= LIMITS.maxOutputFieldsBytes;
+  typeof value === "object" && value !== null && !Array.isArray(value) && byteLengthOf(value) <= LIMITS.maxOutputFieldsBytes;
 
 // A bad ask or open output is left out rather than the whole session.
 const readAsks = (value: unknown): Record<string, Ask> => {
@@ -223,11 +225,14 @@ export const toDroppedMarker = (item: unknown, reason: string): SessionEntry => 
   };
 };
 
-// Markers past the cap are left out, so a flood of bad items can't push out real ones.
+// Only the newest markers are kept, so a flood of bad items can't push out real
+// ones. Counted by position, not id: many copies of one bad item share an id.
 export const capDroppedMarkers = (entries: SessionEntry[], maxMarkers: number): SessionEntry[] => {
-  const markerIds = entries.filter((entry) => entry.kind === "dropped").map((entry) => entry.entryId);
-  const keptMarkerIds = new Set(markerIds.slice(-maxMarkers));
-  return markerIds.length <= maxMarkers ? entries : entries.filter((entry) => entry.kind !== "dropped" || keptMarkerIds.has(entry.entryId));
+  const markerPositions = entries.flatMap((entry, position) => (entry.kind === "dropped" ? [position] : []));
+  const leftOutCount = Math.max(0, markerPositions.length - maxMarkers);
+  if (leftOutCount === 0) return entries;
+  const leftOutPositions = new Set(markerPositions.slice(0, leftOutCount));
+  return entries.filter((_entry, position) => !leftOutPositions.has(position));
 };
 
 // Each entry is checked on its own: a bad one becomes a dropped marker in its place.
@@ -236,8 +241,6 @@ export const readSessionEntries = (value: unknown): SessionEntry[] | null => {
   const entries = value.map((item: unknown) => readSessionEntry(item) ?? toDroppedMarker(item, "failed its check"));
   return capDroppedMarkers(entries, LIMITS.maxDroppedPerBatch);
 };
-
-export const parseSessionEntries = (text: string): SessionEntry[] | null => readSessionEntries(parseJsonOrNull(text));
 
 export const readSentImages = (value: unknown): SentImage[] | null => {
   if (value === undefined) return [];

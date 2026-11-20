@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { LIMITS } from "talos-shared";
 import { addFolder, removeFolder, renameFolder } from "../../folders";
 
 const TALOS = { folderName: "talos", path: "/home/joe/code/talos" };
@@ -53,5 +54,13 @@ describe("renameFolder", () => {
 
   test("an unknown folder is a problem", () => {
     expect(renameFolder([TALOS], "nope", "x")).toEqual({ problem: "this machine has no folder called nope" });
+  });
+});
+
+describe("the folder cap", () => {
+  const foldersOf = (count: number) => Array.from({ length: count }, (_unused, index) => ({ folderName: `f${index}`, path: `/f${index}` }));
+  test("a machine can fill up to the cap, and no further", () => {
+    expect("folder" in addFolder(foldersOf(LIMITS.maxFolders - 1), "/last")).toBe(true);
+    expect(addFolder(foldersOf(LIMITS.maxFolders), "/more")).toEqual({ problem: `this machine already has ${LIMITS.maxFolders} folders` });
   });
 });

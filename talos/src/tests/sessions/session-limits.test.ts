@@ -19,6 +19,8 @@ describe("talos-sessions' copies of talos-shared's rules", () => {
     [{ kind: "tool", entryId: "c", toolName: "Bash", summary: "ls", outcome: "done" }, { kind: "dropped", entryId: "d", droppedKind: "text", reason: "x" }],
     [{ kind: "text", entryId: 5, text: "hi" }, { kind: "text", entryId: "e", text: "x".repeat(LIMITS.maxEntryTextLength + 1) }, { kind: "other" }],
     Array.from({ length: LIMITS.maxDroppedPerBatch + 3 }, (_, index) => ({ kind: "text", entryId: `f${index}`, text: 1 })),
+    Array.from({ length: LIMITS.maxDroppedPerBatch + 3 }, () => ({})),
+    [{ kind: "output", entryId: "g", outputKind: "decision", fields: { text: "é".repeat(LIMITS.maxOutputFieldsBytes / 2) } }],
     null,
   ];
   test.each(entryLists.map((entries) => [entries]))("the entry check agrees on %#", (entries) => {

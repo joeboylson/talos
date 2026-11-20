@@ -86,3 +86,25 @@ describe("isDraftClearingKeys", () => {
     expect(isDraftClearingKeys(new TextEncoder().encode(keys))).toBe(expected);
   });
 });
+
+describe("key edges", () => {
+  const keysOf = (text: string) => new TextEncoder().encode(text);
+  test("a lone space is a draft", () => {
+    expect(isDraftChangingKeys(keysOf(" "))).toBe(true);
+  });
+  test.each([
+    ["an OSC report", "\x1b]0;title\x07"],
+    ["an ESC O key", "\x1bOP"],
+    ["a bare Esc", "\x1b"],
+    ["an Alt-key", "\x1bf"],
+  ])("%s isn't a draft", (_name, keys) => {
+    expect(isDraftChangingKeys(keysOf(keys))).toBe(false);
+  });
+  test("text then Option-Enter keeps the draft", () => {
+    expect(isDraftClearingKeys(keysOf("fix it\x1b\r"))).toBe(false);
+  });
+  test("an encoded Ctrl-C clears only when it's the last key", () => {
+    expect(isDraftClearingKeys(keysOf("fix it\x1b[27;5;99~"))).toBe(true);
+    expect(isDraftClearingKeys(keysOf("\x1b[99;5ufix it"))).toBe(false);
+  });
+});

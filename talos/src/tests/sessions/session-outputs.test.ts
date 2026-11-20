@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { LIMITS } from "talos-shared";
-import { DECISION_KIND, readDecision, readStatusReport } from "../../session-outputs";
+import { DECISION_KIND, OUTPUT_KINDS, PROSE_TURN, STATUS_KIND, readDecision, readStatusReport } from "../../session-outputs";
+import { PROSE } from "../../talos-sessions";
 
 describe("status", () => {
   test.each([
@@ -43,5 +44,41 @@ describe("decision", () => {
   test("its choices are typed as the person's message, so talos-sessions checks them for commands", () => {
     expect(DECISION_KIND.typedFields.choices).toEqual({ allowCommands: false });
     expect(DECISION_KIND.choicesField).toBe("choices");
+  });
+});
+
+describe("limits, at the edge", () => {
+  const good = { question: "Which?", choices: ["Yes", "No"] };
+  const choicesOf = (count: number) => Array.from({ length: count }, (_unused, index) => `choice ${index}`);
+  test("a status note at its limit is kept, one over is turned down", () => {
+    expect(readStatusReport({ state: "done", note: "x".repeat(LIMITS.maxStatusNoteLength) })).not.toBeNull();
+    expect(readStatusReport({ state: "done", note: "x".repeat(LIMITS.maxStatusNoteLength + 1) })).toBeNull();
+  });
+  test("a question at its limit is kept", () => {
+    expect(readDecision({ ...good, question: "x".repeat(LIMITS.maxDecisionQuestionLength) })).not.toBeNull();
+  });
+  test("a choice at its limit is kept, one over is turned down", () => {
+    expect(readDecision({ ...good, choices: ["Yes", "x".repeat(LIMITS.maxDecisionChoiceLength)] })).not.toBeNull();
+    expect(readDecision({ ...good, choices: ["Yes", "x".repeat(LIMITS.maxDecisionChoiceLength + 1)] })).toBeNull();
+  });
+  test("the most choices allowed are kept", () => {
+    expect(readDecision({ ...good, choices: choicesOf(LIMITS.maxDecisionChoices) })).not.toBeNull();
+  });
+  test.each([[5], [{ length: 3 }]])("a choice that isn't text (%p) is turned down, not thrown on", (choice) => {
+    expect(readDecision({ ...good, choices: ["Yes", choice] })).toBeNull();
+  });
+});
+
+describe("talos's kinds, as the session runner gets them", () => {
+  test("a decision may be sent in a normal turn; a status may not", () => {
+    expect(PROSE_TURN).toEqual({ output: PROSE, optional: [DECISION_KIND.kind] });
+  });
+  test("a decision waits for its answer; a status doesn't, and is only asked for", () => {
+    expect(DECISION_KIND.waits).toBe(true);
+    expect(STATUS_KIND.waits).toBe(false);
+    expect(STATUS_KIND.requestText).toContain(STATUS_KIND.toolName);
+  });
+  test("both kinds are passed in, each with its own tool", () => {
+    expect(OUTPUT_KINDS.map(({ kind, toolName }) => [kind, toolName])).toEqual([["status", "report_status"], ["decision", "ask_decision"]]);
   });
 });

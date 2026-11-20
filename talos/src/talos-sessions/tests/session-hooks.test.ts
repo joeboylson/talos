@@ -43,3 +43,17 @@ describe("hookTokenAuthorized", () => {
     expect(hookTokenAuthorized(provided as string | null, expected as string | undefined)).toBe(result);
   });
 });
+
+describe("hook edges", () => {
+  test("every interpreter and loader variable is pinned empty", () => {
+    const { env } = JSON.parse(buildHookSettings("hook", {}));
+    const pinned = ["BUN_OPTIONS", "NODE_OPTIONS", "BUN_INSPECT", "BUN_INSPECT_CONNECT_TO", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH"];
+    expect(Object.fromEntries(pinned.map((name) => [name, env[name]]))).toEqual(Object.fromEntries(pinned.map((name) => [name, ""])));
+  });
+  test("an empty token never authorizes, even against an empty one", () => {
+    expect(hookTokenAuthorized("", "")).toBe(false);
+  });
+  test("a Notification with no body needs the person", () => {
+    expect(nextSessionState("Notification", null)).toBe("needs-you");
+  });
+});

@@ -19,6 +19,9 @@ export type RunnerInputs = {
   // The kinds of structured output talos defines, and what a normal turn may send.
   kinds: readonly OutputKind[];
   proseTurn: TurnShape;
+  // Put each folder's trust setting back when the session runner stops. An
+  // example's session runner does; talos's leaves its folders trusted.
+  restoreTrustOnStop?: boolean;
 };
 
 const given: RunnerInputs = {
@@ -42,5 +45,7 @@ export const log: SessionsLogger = {
 export const isAllowedFolder: FolderCheck = (folderName, path) => given.isAllowedFolder(folderName, path);
 
 export const paths = (): HomePaths => homePaths(given.home);
+
+export const restoresTrust = (): boolean => given.restoreTrustOnStop === true;
 
 export const catalog = (): Catalog => ({ kinds: given.kinds, proseTurn: given.proseTurn });

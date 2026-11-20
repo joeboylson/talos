@@ -8,11 +8,12 @@ import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runne
 import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
 import { endSession, startSession } from "./lifecycle";
 import { noSuchSession, refuse } from "./refuse";
-import { isAllowedFolder, log, paths } from "./inputs";
+import { isAllowedFolder, log, paths, restoresTrust } from "./inputs";
+import { restoreTrust } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
 import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
-import { eventListeners, heldSessions, listSessions } from "./store";
+import { eventListeners, heldSessions, listSessions, trustChanges } from "./store";
 
 const streamOf = <T>(
   onStart: (controller: ReadableStreamDefaultController<T>) => void,
@@ -76,6 +77,9 @@ const heldSessionOf = (request: BunRequest) => {
 const stopRunner = async () => {
   log.event("runner: stopping, with every session it holds");
   await Promise.all([...heldSessions.values()].map(endSession));
+  // Only once every session has exited: Claude Code writes its settings as it
+  // closes, which would undo a change made sooner.
+  if (restoresTrust()) await restoreTrust(trustChanges).catch((error: unknown) => log.warn(`runner: couldn't put trust back: ${error}`));
   const { runnerSocket, hooksSocket } = paths();
   await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
   setTimeout(() => process.exit(0), 50);

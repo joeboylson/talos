@@ -16,13 +16,13 @@ import { buildHookSettings } from "../claude/session-hooks";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
-import { log, paths } from "./inputs";
+import { log, paths, restoresTrust } from "./inputs";
 import { refuse } from "./refuse";
 
 const SESSION_EXIT_WAIT_MS = 5000;
 import { typeIntoSession } from "./messages";
 import { applyLaneEvent, setSessionState } from "./session-state";
-import { broadcastSessions, heldSessions, sendToListeners, updateHeldSession, type HeldSession, type Terminal } from "./store";
+import { broadcastSessions, heldSessions, sendToListeners, trustChanges, updateHeldSession, type HeldSession, type Terminal } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
@@ -53,7 +53,8 @@ const refuseNewSession = (sessionName: string): Response | null => {
 export const startSession = async ({ sessionName, folderName, path }: StartSessionRequest): Promise<Response> => {
   const refusal = refuseNewSession(sessionName);
   if (refusal) return refusal;
-  await trustFolder(path);
+  const trustChange = await trustFolder(path);
+  if (trustChange && restoresTrust()) trustChanges.push(trustChange);
   // Checked again after the wait: two starts of the same name can both pass the
   // first check, and the second would leave the first one's process running
   // with no record. Spawning and saving the record below happen in one step.

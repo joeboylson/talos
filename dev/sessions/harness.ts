@@ -1,11 +1,10 @@
 // Shared pieces for the live session checks: a session runner in a throwaway
 // talos folder, real Claude Code sessions in throwaway work folders, and a way
 // to act as a session (with its own hook token) to try what a hostile one could.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDecisionOf, statusOf } from "../../talos-shared/src";
-import { RUNNER_SCRIPT } from "../../talos/src/constants";
 import { connectToSessions, type SessionSummary } from "../../talos/src/talos-sessions";
 import { askRunner } from "../../talos/src/talos-sessions/client/hook-client";
 import { runnerFetch } from "../../talos/src/talos-sessions/client/runner-client";
@@ -17,7 +16,7 @@ import { HOOK_SCRIPT, homePaths } from "../../talos/src/talos-sessions/constants
 export const HOME = mkdtempSync(join(tmpdir(), "talos-live-"));
 process.env.TALOS_HOME = HOME;
 
-export const calls = connectToSessions({ home: HOME, runnerScript: RUNNER_SCRIPT });
+export const calls = connectToSessions({ home: HOME, runnerScript: new URL("./runner.ts", import.meta.url).pathname });
 export const isRunnerRunning = calls.isRunning;
 // Reach-ins: what a hostile session does, which no plain call offers.
 export const RUNNER_HOOKS_SOCKET: string = homePaths(HOME).hooksSocket;
@@ -123,9 +122,12 @@ export const check = (name: string, passed: boolean, detail = "") => {
   results.push({ name, passed, detail });
   console.log(`${passed ? "PASS" : "FAIL"}  ${name}${detail ? `  (${detail})` : ""}`);
 };
+// Stopping answers once every session has exited and trust is back, so the
+// throwaway folder can go.
 export const finish = async () => {
   await stopRunner();
+  rmSync(HOME, { recursive: true, force: true });
   const failed = results.filter(({ passed }) => !passed);
-  console.log(`\n${results.length - failed.length}/${results.length} passed; talos folder ${HOME}`);
+  console.log(`\n${results.length - failed.length}/${results.length} passed`);
   process.exit(failed.length > 0 ? 1 : 0);
 };

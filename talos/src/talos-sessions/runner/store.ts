@@ -7,6 +7,7 @@ import { encodeRunnerEvent, type RunnerEvent } from "../client/runner-protocol";
 import type { Lane } from "../lanes/lane";
 import type { OutputPlacing, Outputs } from "../lanes/outputs";
 import type { HeldAnswer } from "../lanes/held";
+import type { TrustChange } from "../claude/claude-trust";
 import { SESSION_LIMITS } from "../limits";
 
 export type Terminal = { write: (data: string | Uint8Array) => void; resize: (cols: number, rows: number) => void };
@@ -60,6 +61,8 @@ export type HeldSession = {
 
 export const heldSessions = new Map<string, HeldSession>();
 export const eventListeners = new Set<ReadableStreamDefaultController<string>>();
+// The trust settings this session runner changed, to put back when it stops.
+export const trustChanges: TrustChange[] = [];
 
 // Changes a held session only while it's the same instance (same hook token),
 // so a loop or read left over from a session that ended never touches a new

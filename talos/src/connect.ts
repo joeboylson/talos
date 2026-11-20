@@ -53,7 +53,7 @@ export const runConnect = async (): Promise<void> => {
   // turn, so the page never gets newer entries before older ones.
   let sessionsAwaitingResend = new Set<string>();
 
-  const keepLatest = (runnerEvent: SharedRunnerEvent) => {
+  const keepLatest = (runnerEvent: Exclude<SharedRunnerEvent, { type: "notice" }>) => {
     if (runnerEvent.type === "sessions") {
       latestSessions = runnerEvent.sessions;
       const liveSessionNames = new Set(latestSessions.map(({ sessionName }) => sessionName));
@@ -114,6 +114,9 @@ export const runConnect = async (): Promise<void> => {
   const sendFoldersOrWarn = () => void sendFolders().catch((error: unknown) => log.warn(`talos: couldn't send the folders (${error})`));
 
   const forwardRunnerEvent = (runnerEvent: SharedRunnerEvent) => {
+    if (runnerEvent.type === "notice") {
+      return sendToServer?.({ type: "error", message: `${runnerEvent.sessionName}: ${runnerEvent.message}`.slice(0, LIMITS.maxMachineErrorLength) });
+    }
     keepLatest(runnerEvent);
     if (!sendToServer) return;
     if (runnerEvent.type === "sessions") return sendToServer({ type: "sessions", sessions: runnerEvent.sessions });
@@ -163,6 +166,14 @@ export const runConnect = async (): Promise<void> => {
     }
     if (message.type === "ask-for-update") {
       await postToRunner(sessionRoute(message.sessionName, "ask"), { kind: STATUS_KIND.kind });
+      return;
+    }
+    // A refused answer (its question closed, or the session was replaced) is
+    // shown on the owner's page, so a click never fails silently.
+    if (message.type === "answer-output") {
+      const { sessionName, outputId, choice } = message;
+      const response = await postToRunner(sessionRoute(sessionName, "answer"), { outputId, choice });
+      if (!response.ok) sendToServer?.({ type: "error", message: (await response.text()).slice(0, LIMITS.maxMachineErrorLength) });
       return;
     }
     if (message.type === "machine-name") {

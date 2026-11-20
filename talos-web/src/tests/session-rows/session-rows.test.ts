@@ -63,7 +63,7 @@ test("buildSessionRows carries a session's reported status", () => {
 
 
 test("buildSessionRows carries a session's open decision", () => {
-  const decision = { question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 2 };
+  const decision = { id: "d1", question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 2 };
   const machine = { ...MACHINES[0], sessions: [{ sessionName: "pick-db", folderName: "talos", state: "needs-you" as const, decision }] };
   expect(buildSessionRows([machine])[0]?.decision).toEqual(decision);
 });

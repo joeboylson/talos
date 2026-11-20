@@ -18,9 +18,9 @@ export type SessionSummary = {
 };
 
 // A question the session asked the person while working, with the choices it
-// offered; the person answers with one of them or their own text, as the
-// session's next message. Gone once the person answers.
-export type SessionDecision = { question: string; choices: string[]; atMs: number };
+// offered. A click answers it by its id and the choice's position; the message
+// box answers in the person's own words. It lasts one turn.
+export type SessionDecision = { id: string; question: string; choices: string[]; atMs: number };
 
 // A session's structured status, filled in when someone asks for an update.
 // The session itself picks one of REPORTED_STATUSES via the report_status tool;
@@ -71,6 +71,7 @@ const isValidOptionalStatus = (value: unknown): boolean => value === undefined |
 // A decision, or null for anything that isn't one.
 export const readSessionDecision = (value: unknown): SessionDecision | null => {
   if (typeof value !== "object" || value === null) return null;
+  const id = fieldOf(value, "id");
   const question = fieldOf(value, "question");
   const choices = fieldOf(value, "choices");
   const atMs = fieldOf(value, "atMs");
@@ -80,7 +81,7 @@ export const readSessionDecision = (value: unknown): SessionDecision | null => {
     choices.length <= LIMITS.maxDecisionChoices &&
     choices.every((choice) => isTextUpTo(choice, LIMITS.maxDecisionChoiceLength) && choice.length > 0);
   const isDecision = isTextUpTo(question, LIMITS.maxDecisionQuestionLength) && question.length > 0 && hasChoices && typeof atMs === "number";
-  return isDecision ? { question, choices: [...(choices as string[])], atMs } : null;
+  return isDecision && isTextUpTo(id, LIMITS.maxIdTextLength) && id.length > 0 ? { id, question, choices: [...(choices as string[])], atMs } : null;
 };
 
 const isValidOptionalDecision = (value: unknown): boolean => value === undefined || readSessionDecision(value) !== null;

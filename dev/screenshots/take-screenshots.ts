@@ -37,7 +37,7 @@ type MadeUpSession = {
   folderName: string;
   state: string;
   status?: { state: string; note: string; atMs: number };
-  decision?: { question: string; choices: string[]; atMs: number };
+  decision?: { id: string; question: string; choices: string[]; atMs: number };
 };
 type MadeUpEntries = { sessionName: string; entries: unknown[] };
 
@@ -116,7 +116,7 @@ const atlas = await connectMachine(
       sessionName: "deploy",
       folderName: "talos",
       state: "needs-you",
-      decision: { question: "Deploy to staging first, or straight to production?", choices: ["Staging first", "Production"], atMs: 1 },
+      decision: { id: "5a0e2c1b-7d3f-4a6e-9b8c-1d2e3f4a5b6c", question: "Deploy to staging first, or straight to production?", choices: ["Staging first", "Production"], atMs: 1 },
     },
   ],
   [

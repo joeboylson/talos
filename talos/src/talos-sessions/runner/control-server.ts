@@ -10,7 +10,7 @@ import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "..
 import { startSession } from "./lifecycle";
 import { isAllowedFolder, log } from "./inputs";
 import { sendToSession } from "./messages";
-import { applyLaneEvent, askForOutput } from "./session-state";
+import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
 import { eventListeners, heldSessions, listSessions } from "./store";
 
@@ -123,6 +123,12 @@ export const controlServeOptions = {
     },
     [`${RUNNER_ROUTES.sessions}/:sessionName/ask`]: {
       POST: async (request: BunRequest) => askForOutput(sessionNameOf(request), (await readJson(request)).kind),
+    },
+    [`${RUNNER_ROUTES.sessions}/:sessionName/answer`]: {
+      POST: async (request: BunRequest) => {
+        const { outputId, choice } = await readJson(request);
+        return answerOutput(sessionNameOf(request), outputId, choice);
+      },
     },
     [`${RUNNER_ROUTES.sessions}/:sessionName/output`]: {
       GET: (request: BunRequest) => streamOutput(sessionNameOf(request)),

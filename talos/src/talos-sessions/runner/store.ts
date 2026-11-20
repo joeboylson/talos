@@ -6,6 +6,7 @@ import { createCoalescer } from "../coalescer";
 import { encodeRunnerEvent, type RunnerEvent } from "../client/runner-protocol";
 import type { Lane } from "../lanes/lane";
 import type { Outputs } from "../lanes/outputs";
+import type { HeldAnswer } from "../lanes/held";
 import { SESSION_LIMITS } from "../limits";
 
 export type Terminal = { write: (data: string | Uint8Array) => void; resize: (cols: number, rows: number) => void };
@@ -29,6 +30,7 @@ export type HeldSession = {
   entries: SessionEntry[];
   lane: Lane;
   outputs: Outputs;
+  heldAnswers: HeldAnswer[];
   // Proves a hook POST on the shared hooks socket came from this session.
   hookToken: string;
   // Unsent text the person left in Claude Code's input box from an attached

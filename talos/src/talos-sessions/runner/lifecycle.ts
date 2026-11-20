@@ -93,6 +93,7 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
     entries: [],
     lane: NO_LANE,
     outputs: NO_OUTPUTS,
+    heldAnswers: [],
     hookToken,
     hasDraft: false,
     isTurnOver: false,

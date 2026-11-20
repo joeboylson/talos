@@ -3,6 +3,11 @@
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 export const ENTER_KEY = "\r";
+// Pressed before anything talos types: it says no to a permission prompt and
+// does nothing in an empty input box. The pause keeps Claude Code from reading
+// it and the paste that follows as one key.
+export const ESC_KEY = "\x1b";
+export const ESC_PAUSE_MS = 150;
 export const buildPastedText = (text: string): string => `${PASTE_START}${removeControlCharacters(text)}${PASTE_END}`;
 
 // Control characters would act as keys in Claude Code instead of text: one

@@ -266,6 +266,12 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       return machineSocket.send(encode<ServerToMachine>({ type: "ask-for-update", sessionName: message.sessionName }));
     }
 
+    if (message.type === "answer-output") {
+      const { sessionName, outputId, choice } = message;
+      log.detail(`${displayName} answered a question in session "${sessionName}" on "${machineName}"`);
+      return machineSocket.send(encode<ServerToMachine>({ type: "answer-output", sessionName, outputId, choice }));
+    }
+
     const text = message.text.trim();
     const images = message.images ?? [];
     if (!text && images.length === 0) return sendProblem("That message can't be sent");
@@ -330,6 +336,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     if (message.type === "pong") return handlePong(machine, message.id);
     if (message.type === "sessions") return handleSessions(machine, message.sessions);
     if (message.type === "session-entries") return handleSessionEntries(machine, message.sessionName, message.entries);
+    if (message.type === "error") return sendToOwnerPages(machine.ownerPersonId, { type: "error", message: `${machine.machineName}: ${message.message}` });
     log.detail(`"${machine.machineName}" has ${message.folders.length} folder(s)`);
     updateReport(machine, { folders: message.folders });
   };

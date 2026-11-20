@@ -98,6 +98,9 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
                 openSessionRow &&
                 serverSocket.sendToSession(openSessionRow.machineId, openSessionRow.sessionName, text, images)
               }
+              onAnswer={(outputId, choice) =>
+                openSessionRow && serverSocket.answerOutput(openSessionRow.machineId, openSessionRow.sessionName, outputId, choice)
+              }
             />
           )}
           {activeView === "settings" && currentUser.isAdmin && <SettingsView />}

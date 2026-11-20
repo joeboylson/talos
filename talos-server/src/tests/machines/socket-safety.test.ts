@@ -57,3 +57,18 @@ test("a page can't send to a session name that's a path", async () => {
   send(page, { type: "stop-session", machineId: "m1", sessionName: "../.." });
   expect(machine.sent.length).toBe(sentBefore);
 });
+
+test("an answer reaches only a running session on the owner's machine", async () => {
+  const { machine, page, send } = await setUp();
+  const sentBefore = machine.sent.length;
+  send(page, { type: "answer-output", machineId: "m1", sessionName: "made-up", outputId: "o1", choice: 0 });
+  expect(machine.sent.length).toBe(sentBefore);
+  send(page, { type: "answer-output", machineId: "m1", sessionName: "fix", outputId: "o1", choice: 1 });
+  expect(JSON.parse(machine.sent.at(-1) ?? "")).toEqual({ type: "answer-output", sessionName: "fix", outputId: "o1", choice: 1 });
+});
+
+test("a machine's error reaches its owner's pages, named for the machine", async () => {
+  const { machine, page, send } = await setUp();
+  send(machine, { type: "error", message: "That question has closed" });
+  expect(JSON.parse(page.sent.at(-1) ?? "")).toEqual({ type: "error", message: "atlas: That question has closed" });
+});

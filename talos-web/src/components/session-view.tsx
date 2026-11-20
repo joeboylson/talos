@@ -13,11 +13,12 @@ type SessionViewProps = {
   entries: SessionEntry[];
   waitingPrompts: WaitingPrompt[];
   onSend: (text: string, images: PreparedImage[]) => void;
+  onAnswer: (outputId: string, choice: number) => void;
 };
 
 // One session's conversation as it happens: messages, Claude's text, and each
 // tool Claude runs, then a box to send it a message.
-export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend }: SessionViewProps) => {
+export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend, onAnswer }: SessionViewProps) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastEntry = entries.at(-1);
   const scrollTrigger = `${entries.length}:${lastEntry?.entryId}:${lastEntry?.kind === "tool" ? lastEntry.outcome : ""}:${waitingPrompts.length}:${sessionRow?.decision !== undefined}`;
@@ -47,7 +48,7 @@ export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend }: Ses
         )}
         {/* Shown once the turn is over, so a click never lands mid-turn. */}
         {sessionRow.decision && sessionRow.state === "needs-you" && (
-          <DecisionCard decision={sessionRow.decision} onChoose={(choice) => onSend(choice, [])} />
+          <DecisionCard key={sessionRow.decision.id} decision={sessionRow.decision} onChoose={(choice) => onAnswer(sessionRow.decision!.id, choice)} />
         )}
         <div ref={bottomRef} />
       </div>

@@ -17,6 +17,14 @@ const isShortText = (value: unknown, maxLength: number): value is string =>
 const readText = (value: unknown): string | null =>
   typeof value === "string" && value.length <= LIMITS.maxSentTextLength ? value : null;
 
+// An answer to an output names it by id and picks a choice by its position.
+const readAnswer = (message: object): { outputId: string; choice: number } | null => {
+  const outputId = fieldOf(message, "outputId");
+  const choice = fieldOf(message, "choice");
+  const isChoice = Number.isInteger(choice) && Number(choice) >= 0 && Number(choice) < LIMITS.maxDecisionChoices;
+  return isShortText(outputId, LIMITS.maxIdTextLength) && isChoice ? { outputId, choice: Number(choice) } : null;
+};
+
 const typeOf = (value: unknown): { message: object; type: unknown } | null =>
   typeof value === "object" && value !== null ? { message: value, type: fieldOf(value, "type") } : null;
 
@@ -45,6 +53,10 @@ export const readPageToServer = (value: unknown): PageToServer | null => {
   if (!isIdentifierName(sessionName)) return null;
   if (type === "stop-session") return { type, machineId, sessionName };
   if (type === "ask-for-update") return { type, machineId, sessionName };
+  if (type === "answer-output") {
+    const answer = readAnswer(message);
+    return answer ? { type, machineId, sessionName, ...answer } : null;
+  }
   if (type !== "send-to-session") return null;
   const text = readText(fieldOf(message, "text"));
   const images = readSentImages(fieldOf(message, "images"));
@@ -75,6 +87,10 @@ export const readServerToMachine = (value: unknown): ServerToMachine | null => {
   if (!isIdentifierName(sessionName)) return null;
   if (type === "stop-session") return { type, sessionName };
   if (type === "ask-for-update") return { type, sessionName };
+  if (type === "answer-output") {
+    const answer = readAnswer(message);
+    return answer ? { type, sessionName, ...answer } : null;
+  }
   if (type === "start-session") {
     const folderName = fieldOf(message, "folderName");
     return isIdentifierName(folderName) ? { type, folderName, sessionName } : null;
@@ -93,6 +109,10 @@ export const readMachineToServer = (value: unknown): MachineToServer | null => {
   if (type === "pong") {
     const id = fieldOf(message, "id");
     return isShortText(id, LIMITS.maxIdTextLength) ? { type, id } : null;
+  }
+  if (type === "error") {
+    const text = fieldOf(message, "message");
+    return isShortText(text, LIMITS.maxMachineErrorLength) ? { type, message: text } : null;
   }
   if (type === "folders") {
     const folders = readFolderList(fieldOf(message, "folders"));

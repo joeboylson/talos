@@ -7,7 +7,8 @@ import type { RunnerEvent, SessionEntry as RunnerEntry, SessionSummary as Runner
 
 export type SharedRunnerEvent =
   | { type: "sessions"; sessions: SessionSummary[] }
-  | { type: "session-entries"; sessionName: string; entries: SessionEntry[] };
+  | { type: "session-entries"; sessionName: string; entries: SessionEntry[] }
+  | { type: "notice"; sessionName: string; message: string };
 
 // The module keeps an ask's state and each kind's fields; the page still reads
 // them as a status and a decision. Those fields are talos's own kinds, so the
@@ -22,14 +23,15 @@ const toSharedStatus = (ask: RunnerSummary["asks"][string] | undefined): Session
 const toSharedSummary = ({ sessionName, folderName, state, asks, openOutputs }: RunnerSummary): SessionSummary => {
   const status = toSharedStatus(asks[STATUS_KIND.kind]);
   const openDecision = openOutputs.find((output) => output.kind === DECISION_KIND.kind);
-  const decision = openDecision ? readSessionDecision({ ...openDecision.fields, atMs: openDecision.atMs }) : null;
+  const decision = openDecision ? readSessionDecision({ ...openDecision.fields, id: openDecision.id, atMs: openDecision.atMs }) : null;
   return { sessionName, folderName, state, ...(status && { status }), ...(decision && { decision }) };
 };
 
 // The same shape on both sides; typed here so a change on either side fails the typecheck.
 const toSharedEntry = (entry: RunnerEntry): SessionEntry => entry;
 
-export const toSharedEvent = (runnerEvent: RunnerEvent): SharedRunnerEvent =>
-  runnerEvent.type === "sessions"
-    ? { type: "sessions", sessions: runnerEvent.sessions.map(toSharedSummary) }
-    : { type: "session-entries", sessionName: runnerEvent.sessionName, entries: runnerEvent.entries.map(toSharedEntry) };
+export const toSharedEvent = (runnerEvent: RunnerEvent): SharedRunnerEvent => {
+  if (runnerEvent.type === "sessions") return { type: "sessions", sessions: runnerEvent.sessions.map(toSharedSummary) };
+  if (runnerEvent.type === "notice") return runnerEvent;
+  return { type: "session-entries", sessionName: runnerEvent.sessionName, entries: runnerEvent.entries.map(toSharedEntry) };
+};

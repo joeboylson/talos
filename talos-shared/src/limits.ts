@@ -38,6 +38,8 @@ export const LIMITS = {
   maxDecisionChoiceLength: 100,
   maxToolSummaryLength: 1000,
   maxIdTextLength: 200,
+  // A machine's error shown on the page, like a refused answer.
+  maxMachineErrorLength: 300,
   maxNameTextLength: 100,
   // The page shrinks images before sending, so these are rarely reached.
   maxImagesPerMessage: 4,

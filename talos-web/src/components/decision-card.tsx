@@ -4,9 +4,9 @@ import type { SessionDecision } from "talos-shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-// A question the session asked while working. Each choice sends itself as the
-// next message; the message box below answers in the person's own words.
-export const DecisionCard = ({ decision, onChoose }: { decision: SessionDecision; onChoose: (choice: string) => void }) => {
+// A question the session asked while working. A choice answers it by its
+// position; the message box below answers in the person's own words.
+export const DecisionCard = ({ decision, onChoose }: { decision: SessionDecision; onChoose: (choice: number) => void }) => {
   const questionId = useId();
   return (
     <Card className="py-4" role="group" aria-labelledby={questionId}>
@@ -24,7 +24,7 @@ export const DecisionCard = ({ decision, onChoose }: { decision: SessionDecision
               variant="outline"
               size="sm"
               className="h-auto min-h-8 py-1.5 whitespace-normal text-left break-words"
-              onClick={() => onChoose(choice)}
+              onClick={() => onChoose(index)}
             >
               {choice}
             </Button>

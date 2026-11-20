@@ -55,7 +55,7 @@ describe("readSessionStatus / list status", () => {
 });
 
 describe("readSessionDecision / list decision", () => {
-  const ok = { question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 5 };
+  const ok = { id: "6f1c0b9e-3d2a-4b5c-8e7f-9a0b1c2d3e4f", question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 5 };
   test("reads a decision", () => {
     expect(readSessionDecision(ok)).toEqual(ok);
   });
@@ -66,7 +66,8 @@ describe("readSessionDecision / list decision", () => {
     ["a choice too long", { ...ok, choices: ["Postgres", "x".repeat(LIMITS.maxDecisionChoiceLength + 1)] }],
     ["an empty question", { ...ok, question: "" }],
     ["a question too long", { ...ok, question: "x".repeat(LIMITS.maxDecisionQuestionLength + 1) }],
-    ["no time", { question: ok.question, choices: ok.choices }],
+    ["no time", { id: ok.id, question: ok.question, choices: ok.choices }],
+    ["no id", { question: ok.question, choices: ok.choices, atMs: 5 }],
   ])("turns down %s", (_name, value) => {
     expect(readSessionDecision(value)).toBeNull();
   });

@@ -6,7 +6,9 @@ import { readSessionEntries, readSessionList, type SessionEntry, type SessionSum
 // changes, and each session's entries as Claude Code saves them.
 export type RunnerEvent =
   | { type: "sessions"; sessions: SessionSummary[] }
-  | { type: "session-entries"; sessionName: string; entries: SessionEntry[] };
+  | { type: "session-entries"; sessionName: string; entries: SessionEntry[] }
+  // Something the owner asked for that didn't happen, like a held answer dropped.
+  | { type: "notice"; sessionName: string; message: string };
 
 export type StartSessionRequest = { sessionName: string; folderName: string; path: string };
 
@@ -65,7 +67,7 @@ export const readHookAnswer = (line: string): HookAnswer | null => {
   return kind === "reply" && typeof reply === "string" ? { kind, reply } : null;
 };
 
-export const sessionRoute = (sessionName: string, action: "send" | "stop" | "ask" | "output" | "input" | "resize") =>
+export const sessionRoute = (sessionName: string, action: "send" | "stop" | "ask" | "answer" | "output" | "input" | "resize") =>
   `${RUNNER_ROUTES.sessions}/${encodeURIComponent(sessionName)}/${action}`;
 
 // One event per line, so a stream can be read line by line.
@@ -83,6 +85,11 @@ export const parseRunnerEvent = (line: string): RunnerEvent | null => {
     const sessionName: unknown = Reflect.get(value, "sessionName");
     const entries = readSessionEntries(Reflect.get(value, "entries"));
     return typeof sessionName === "string" && entries ? { type: "session-entries", sessionName, entries } : null;
+  }
+  if (eventType === "notice") {
+    const sessionName: unknown = Reflect.get(value, "sessionName");
+    const message: unknown = Reflect.get(value, "message");
+    return typeof sessionName === "string" && typeof message === "string" ? { type: "notice", sessionName, message } : null;
   }
   return null;
 };

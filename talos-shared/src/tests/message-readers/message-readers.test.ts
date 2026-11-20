@@ -23,6 +23,7 @@ describe("readPageToServer", () => {
     [{ type: "send-to-session", machineId: "m1", sessionName: "fix", text: "hi", images: [] }],
     [{ type: "stop-session", machineId: "m1", sessionName: "fix" }],
     [{ type: "ask-for-update", machineId: "m1", sessionName: "fix" }],
+    [{ type: "answer-output", machineId: "m1", sessionName: "fix", outputId: "o1", choice: 1 }],
   ])("keeps a good message %#", (message) => {
     expect(readPageToServer(message) as unknown).toEqual(message);
   });
@@ -45,6 +46,9 @@ describe("readPageToServer", () => {
     ["text that isn't text", { type: "send-to-session", machineId: "m1", sessionName: "fix", text: { a: 1 } }],
     ["text too long", { type: "send-to-session", machineId: "m1", sessionName: "fix", text: "x".repeat(LIMITS.maxSentTextLength + 1) }],
     ["bad images", { type: "send-to-session", machineId: "m1", sessionName: "fix", text: "", images: [{ mediaType: "text/html", dataBase64: "" }] }],
+    ["an answer with no output id", { type: "answer-output", machineId: "m1", sessionName: "fix", choice: 0 }],
+    ["an answer picking a choice that can't exist", { type: "answer-output", machineId: "m1", sessionName: "fix", outputId: "o1", choice: LIMITS.maxDecisionChoices }],
+    ["an answer whose choice isn't a whole number", { type: "answer-output", machineId: "m1", sessionName: "fix", outputId: "o1", choice: 0.5 }],
     ["an unknown type", { type: "delete-everything", machineId: "m1" }],
     ["not an object", "ping"],
   ])("drops %s", (_name, message) => {
@@ -61,6 +65,7 @@ describe("readServerToMachine", () => {
     [{ type: "send-to-session", sessionName: "fix", text: "hi", images: [] }],
     [{ type: "stop-session", sessionName: "fix" }],
     [{ type: "ask-for-update", sessionName: "fix" }],
+    [{ type: "answer-output", sessionName: "fix", outputId: "o1", choice: 0 }],
   ])("keeps a good message %#", (message) => {
     expect(readServerToMachine(message) as unknown).toEqual(message);
   });
@@ -80,12 +85,16 @@ describe("readMachineToServer", () => {
     const message = { type: "session-entries", sessionName: "fix", entries: [{ kind: "text", entryId: "a", text: "hi" }] };
     expect(readMachineToServer(message) as unknown).toEqual(message);
   });
+  test("keeps a short error", () => {
+    expect(readMachineToServer({ type: "error", message: "That question has closed" }) as unknown).toEqual({ type: "error", message: "That question has closed" });
+  });
 
   test.each([
     ["entries for an oddly named session", { type: "session-entries", sessionName: "../x", entries: [] }],
     ["a folder with an odd name", { type: "folders", folders: [{ folderName: "../x", path: "/tmp" }] }],
     ["a session list with an odd name", { type: "sessions", sessions: [{ sessionName: "a b", folderName: "talos", state: "idle" }] }],
     ["a pong with no id", { type: "pong" }],
+    ["an error too long to show", { type: "error", message: "x".repeat(LIMITS.maxMachineErrorLength + 1) }],
   ])("drops %s", (_name, message) => {
     expect(readMachineToServer(message)).toBeNull();
   });

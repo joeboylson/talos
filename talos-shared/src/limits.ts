@@ -44,6 +44,10 @@ export const LIMITS = {
   maxIdTextLength: 200,
   // A machine's error shown on the page, like a refused answer.
   maxMachineErrorLength: 300,
+  // Open outputs per session, and the size of one output's fields, so a session's
+  // summary stays small.
+  maxOpenOutputs: 20,
+  maxOutputFieldsBytes: 8 * 1024,
   maxNameTextLength: 100,
   // The page shrinks images before sending, so these are rarely reached.
   maxImagesPerMessage: 4,

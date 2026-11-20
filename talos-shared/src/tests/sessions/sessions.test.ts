@@ -6,13 +6,16 @@ import {
   readSessionEntries,
   readSessionDecision,
   readSessionList,
+  openDecisionOf,
+  statusOf,
+  type SessionSummary,
 } from "../../sessions";
 import { LIMITS } from "../../limits";
 
 describe("readSessionList", () => {
   test("keeps a good list, dropping anything extra", () => {
     expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", extra: 1 }])).toEqual([
-      { sessionName: "fix", folderName: "talos", state: "idle" },
+      { sessionName: "fix", folderName: "talos", state: "idle", asks: {}, openOutputs: [] },
     ]);
   });
 
@@ -24,7 +27,7 @@ describe("readSessionList", () => {
     [{ sessionName: "fix", folderName: "talos", state: "asleep" }],
     [{ sessionName: 1, folderName: "talos", state: "idle" }],
   ])("leaves out a bad session, keeping the rest %#", (bad) => {
-    const good = { sessionName: "ok", folderName: "talos", state: "idle" };
+    const good = { sessionName: "ok", folderName: "talos", state: "idle", asks: {}, openOutputs: [] };
     expect(readSessionList([bad, good]) as unknown).toEqual([good]);
   });
 });
@@ -47,14 +50,16 @@ describe("readSessionStatus / list status", () => {
     expect(readSessionStatus(value)).toBeNull();
   });
 
-  test("readSessionList keeps a valid status, drops a session with an invalid one", () => {
-    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", status: ok }])).toEqual([
-      { sessionName: "fix", folderName: "talos", state: "idle", status: ok },
-    ]);
-    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle" }])).toEqual([
-      { sessionName: "fix", folderName: "talos", state: "idle" },
-    ]);
-    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", status: { state: "bad" } }])).toEqual([]);
+  const withAsk = (ask: unknown): SessionSummary => readSessionList([{ sessionName: "fix", folderName: "talos", state: "idle", asks: { status: ask } }])![0]!;
+  test("statusOf reads the status ask: pending while asking, then the answer", () => {
+    expect(statusOf(withAsk({ state: "asking", atMs: 3 }))).toEqual({ state: "pending", note: "", atMs: 3 });
+    expect(statusOf(withAsk({ state: "no-response", atMs: 4 }))).toEqual({ state: "no-response", note: "", atMs: 4 });
+    expect(statusOf(withAsk({ state: "answered", atMs: 5, latest: { state: "working", note: "running the tests" } }))).toEqual(ok);
+  });
+  test("statusOf shows nothing for no ask, or an answer that isn't a status", () => {
+    expect(statusOf(withAsk(undefined))).toBeNull();
+    expect(statusOf(withAsk({ state: "answered", atMs: 5, latest: { state: "bad" } }))).toBeNull();
+    expect(statusOf(withAsk({ state: "maybe", atMs: 5 }))).toBeNull();
   });
 });
 
@@ -75,11 +80,16 @@ describe("readSessionDecision / list decision", () => {
   ])("turns down %s", (_name, value) => {
     expect(readSessionDecision(value)).toBeNull();
   });
-  test("readSessionList keeps a valid decision and drops a session with a bad one", () => {
-    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "needs-you", decision: ok }])).toEqual([
-      { sessionName: "fix", folderName: "talos", state: "needs-you", decision: ok },
-    ]);
-    expect(readSessionList([{ sessionName: "fix", folderName: "talos", state: "needs-you", decision: { question: "?" } }])).toEqual([]);
+  const withOutputs = (openOutputs: unknown): SessionSummary =>
+    readSessionList([{ sessionName: "fix", folderName: "talos", state: "needs-you", openOutputs }])![0]!;
+  test("openDecisionOf reads the first open decision, with its id", () => {
+    const { id, atMs, ...fields } = ok;
+    expect(openDecisionOf(withOutputs([{ id: "s1", kind: "note", fields: {}, atMs: 1 }, { id, kind: "decision", fields, atMs }]))).toEqual(ok);
+  });
+  test("openDecisionOf shows nothing for a decision that isn't one, and a bad output is left out", () => {
+    expect(openDecisionOf(withOutputs([{ id: "d1", kind: "decision", fields: { question: "?" }, atMs: 1 }]))).toBeNull();
+    expect(withOutputs([{ id: "d1", kind: "decision", fields: "nope", atMs: 1 }]).openOutputs).toEqual([]);
+    expect(withOutputs([{ id: "d1", kind: "decision", fields: { big: "x".repeat(LIMITS.maxOutputFieldsBytes) }, atMs: 1 }]).openOutputs).toEqual([]);
   });
 });
 
@@ -89,11 +99,15 @@ describe("readSessionEntries", () => {
       { kind: "prompt", entryId: "a", text: "hi", imageCount: 1, extra: 1 },
       { kind: "text", entryId: "b", text: "hello" },
       { kind: "tool", entryId: "c", toolName: "Bash", summary: "git status", outcome: "running" },
+      { kind: "output", entryId: "d", outputKind: "decision", fields: { question: "?" } },
+      { kind: "dropped", entryId: "e", droppedKind: "text", reason: "failed its check" },
     ];
     expect(readSessionEntries(entries)).toEqual([
       { kind: "prompt", entryId: "a", text: "hi", imageCount: 1 },
       { kind: "text", entryId: "b", text: "hello" },
       { kind: "tool", entryId: "c", toolName: "Bash", summary: "git status", outcome: "running" },
+      { kind: "output", entryId: "d", outputKind: "decision", fields: { question: "?" } },
+      { kind: "dropped", entryId: "e", droppedKind: "text", reason: "failed its check" },
     ]);
   });
 

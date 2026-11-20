@@ -16,6 +16,10 @@ export const COPIED_LIMITS = {
   maxImageBase64Length: 3_000_000,
   maxIdentifierLength: 40,
   maxSocketMessageBytes: 16 * 1024 * 1024,
+  // Outputs waiting for an answer per session; past it, the oldest closes. Each
+  // output's fields are capped too, so the session list stays small.
+  maxOpenOutputs: 20,
+  maxOutputFieldsBytes: 8 * 1024,
 } as const;
 const LIMITS = COPIED_LIMITS;
 
@@ -54,12 +58,10 @@ export const SESSION_LIMITS = {
   // for real work, and it can't be raised from inside, so one session can't open
   // enough connections to use up the session runner's.
   maxSessionOpenFiles: 2048,
-  // Outputs waiting for an answer per session; past it, the oldest closes. Each
-  // output's fields are capped too, so the session list stays small.
-  maxOpenOutputs: 20,
+  // Most a session's open outputs add to the session list it sends.
+  maxSummaryOutputsBytes: 32 * 1024,
   // The file that keeps items dropped for failing their check.
   maxQuarantineBytes: 1024 * 1024,
-  maxOutputFieldsBytes: 8 * 1024,
   // Past this, a starting session is typed into even if its screen hasn't settled.
   readyLongestWaitMs: 15_000,
   // An asked-for turn that goes unanswered this long becomes "no response".

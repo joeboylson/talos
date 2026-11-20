@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { parseJsonOrNull } from "../json";
 import { SESSION_LIMITS } from "../limits";
+import { STRUCTURED_TOOL_PREFIX } from "../kinds";
 import { capDroppedMarkers, readSessionEntry, toDroppedMarker, type SessionEntry } from "../shapes";
 import { TOOL_SUMMARY_SHOWN_LENGTH, NEWLINE_BYTE } from "../constants";
 
@@ -91,7 +92,9 @@ const readAssistantLine = (lineId: string, blocks: ContentBlock[]): SessionEntry
     if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
       return [{ kind: "text", entryId: `${lineId}:${blockIndex}`, text: truncate(block.text, SESSION_LIMITS.maxEntryTextLength) }];
     }
-    if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+    // A structured tool's call isn't shown: its output shows it, once it went through.
+    const isStructured = typeof block.name === "string" && block.name.startsWith(STRUCTURED_TOOL_PREFIX);
+    if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string" && !isStructured) {
       const toolName = truncate(block.name, SESSION_LIMITS.maxNameTextLength);
       return [{ kind: "tool", entryId: block.id, toolName, summary: summarizeToolInput(block.input), outcome: "running" }];
     }

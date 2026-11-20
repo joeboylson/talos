@@ -22,7 +22,7 @@ describe("readPageToServer", () => {
     [{ type: "start-session", machineId: "m1", folderName: "talos", sessionName: "Fix the Login" }],
     [{ type: "send-to-session", machineId: "m1", sessionName: "fix", text: "hi", images: [] }],
     [{ type: "stop-session", machineId: "m1", sessionName: "fix" }],
-    [{ type: "ask-for-update", machineId: "m1", sessionName: "fix" }],
+    [{ type: "ask-for-output", machineId: "m1", sessionName: "fix", kind: "status" }],
     [{ type: "answer-output", machineId: "m1", sessionName: "fix", outputId: "o1", choice: 1 }],
   ])("keeps a good message %#", (message) => {
     expect(readPageToServer(message) as unknown).toEqual(message);
@@ -64,7 +64,7 @@ describe("readServerToMachine", () => {
     [{ type: "start-session", folderName: "talos", sessionName: "fix" }],
     [{ type: "send-to-session", sessionName: "fix", text: "hi", images: [] }],
     [{ type: "stop-session", sessionName: "fix" }],
-    [{ type: "ask-for-update", sessionName: "fix" }],
+    [{ type: "ask-for-output", sessionName: "fix", kind: "status" }],
     [{ type: "answer-output", sessionName: "fix", outputId: "o1", choice: 0 }],
   ])("keeps a good message %#", (message) => {
     expect(readServerToMachine(message) as unknown).toEqual(message);

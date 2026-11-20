@@ -15,7 +15,7 @@ export type ServerToMachine =
   | { type: "rename-folder"; folderName: string; newFolderName: string }
   | { type: "start-session"; folderName: string; sessionName: string }
   | { type: "send-to-session"; sessionName: string; text: string; images: SentImage[] }
-  | { type: "ask-for-update"; sessionName: string }
+  | { type: "ask-for-output"; sessionName: string; kind: string }
   | { type: "answer-output"; sessionName: string; outputId: string; choice: number }
   | { type: "stop-session"; sessionName: string };
 
@@ -49,7 +49,7 @@ export type PageToServer =
   | { type: "ping"; machineId?: string }
   | { type: "start-session"; machineId: string; folderName: string; sessionName?: string }
   | { type: "send-to-session"; machineId: string; sessionName: string; text: string; images?: SentImage[] }
-  | { type: "ask-for-update"; machineId: string; sessionName: string }
+  | { type: "ask-for-output"; machineId: string; sessionName: string; kind: string }
   | { type: "answer-output"; machineId: string; sessionName: string; outputId: string; choice: number }
   | { type: "stop-session"; machineId: string; sessionName: string };
 

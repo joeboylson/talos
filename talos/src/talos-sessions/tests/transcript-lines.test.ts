@@ -47,6 +47,11 @@ describe("readTranscriptLine", () => {
     ]);
   });
 
+  test("a structured tool's own call isn't an entry: its output shows it", () => {
+    const content = [{ type: "tool_use", id: "t1", name: "mcp__talos__ask_decision", input: { question: "?" } }];
+    expect(readTranscriptLine(line({ type: "assistant", message: { content } }))).toEqual([]);
+  });
+
   test("a tool's result says it ended", () => {
     const content = [{ type: "tool_result", tool_use_id: "t1", is_error: true, content: "boom" }];
     expect(readTranscriptLine(line({ type: "user", message: { content } }))).toEqual([

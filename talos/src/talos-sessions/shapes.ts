@@ -33,6 +33,8 @@ export type SessionEntry =
   | { kind: "prompt"; entryId: string; text: string; imageCount: number }
   | { kind: "text"; entryId: string; text: string }
   | { kind: "tool"; entryId: string; toolName: string; summary: string; outcome: ToolOutcome }
+  // A structured output the session sent in a normal turn, like a decision.
+  | { kind: "output"; entryId: string; outputKind: string; fields: Record<string, unknown> }
   // Stands in for an item that failed its check, so the other end sees something
   // was there. The bad data itself never travels.
   | { kind: "dropped"; entryId: string; droppedKind: string; reason: string };
@@ -50,6 +52,9 @@ const isOneOf = <T extends string>(choices: readonly T[], value: unknown): value
 
 const fieldOf = (item: object, field: string): unknown => Reflect.get(item, field);
 
+const isFields = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value) && JSON.stringify(value).length <= LIMITS.maxOutputFieldsBytes;
+
 const IDENTIFIER_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 // A name in identifier form ("fix-login"), so it can't carry path pieces like
@@ -57,8 +62,6 @@ const IDENTIFIER_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const isIdentifierName = (value: unknown): value is string =>
   typeof value === "string" && value.length <= LIMITS.maxIdentifierLength && IDENTIFIER_NAME.test(value);
 
-const isFields = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 // A bad ask or open output is left out rather than turning down the whole list.
 const readAsks = (value: unknown): Record<string, Ask> => {
@@ -78,7 +81,7 @@ const readAsks = (value: unknown): Record<string, Ask> => {
 };
 
 const readOpenOutputs = (value: unknown): OpenOutput[] =>
-  (Array.isArray(value) ? value : []).flatMap((output: unknown) => {
+  (Array.isArray(value) ? value.slice(0, LIMITS.maxOpenOutputs) : []).flatMap((output: unknown) => {
     if (!isFields(output)) return [];
     const { id, kind, fields, atMs } = output;
     const isOutput = isTextUpTo(id, LIMITS.maxIdTextLength) && isTextUpTo(kind, LIMITS.maxNameTextLength) && isFields(fields) && typeof atMs === "number";
@@ -129,6 +132,11 @@ export const readSessionEntry = (item: unknown): SessionEntry | null => {
       isTextUpTo(summary, LIMITS.maxToolSummaryLength) &&
       isOneOf(TOOL_OUTCOMES, outcome);
     return isTool ? { kind, entryId, toolName, summary, outcome } : null;
+  }
+  if (kind === "output") {
+    const outputKind = fieldOf(item, "outputKind");
+    const fields = fieldOf(item, "fields");
+    return isTextUpTo(outputKind, LIMITS.maxNameTextLength) && isFields(fields) ? { kind, entryId, outputKind, fields } : null;
   }
   if (kind === "dropped") {
     const droppedKind = fieldOf(item, "droppedKind");
@@ -193,6 +201,7 @@ const hasEntryId = (entry: SessionEntry): boolean => typeof entry?.entryId === "
 const entryTextLength = (entry: SessionEntry): number => {
   if (entry.kind === "tool") return entry.toolName.length + entry.summary.length;
   if (entry.kind === "dropped") return entry.reason.length;
+  if (entry.kind === "output") return JSON.stringify(entry.fields).length;
   return entry.text.length;
 };
 

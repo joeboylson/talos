@@ -52,7 +52,10 @@ export const readPageToServer = (value: unknown): PageToServer | null => {
   const sessionName = fieldOf(message, "sessionName");
   if (!isIdentifierName(sessionName)) return null;
   if (type === "stop-session") return { type, machineId, sessionName };
-  if (type === "ask-for-update") return { type, machineId, sessionName };
+  if (type === "ask-for-output") {
+    const kind = fieldOf(message, "kind");
+    return isShortText(kind, LIMITS.maxNameTextLength) ? { type, machineId, sessionName, kind } : null;
+  }
   if (type === "answer-output") {
     const answer = readAnswer(message);
     return answer ? { type, machineId, sessionName, ...answer } : null;
@@ -86,7 +89,10 @@ export const readServerToMachine = (value: unknown): ServerToMachine | null => {
   const sessionName = fieldOf(message, "sessionName");
   if (!isIdentifierName(sessionName)) return null;
   if (type === "stop-session") return { type, sessionName };
-  if (type === "ask-for-update") return { type, sessionName };
+  if (type === "ask-for-output") {
+    const kind = fieldOf(message, "kind");
+    return isShortText(kind, LIMITS.maxNameTextLength) ? { type, sessionName, kind } : null;
+  }
   if (type === "answer-output") {
     const answer = readAnswer(message);
     return answer ? { type, sessionName, ...answer } : null;

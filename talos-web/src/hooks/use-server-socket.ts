@@ -105,7 +105,7 @@ export const useServerSocket = () => {
   );
 
   const askForUpdate = useCallback(
-    (machineId: string, sessionName: string) => send({ type: "ask-for-update", machineId, sessionName }),
+    (machineId: string, sessionName: string) => send({ type: "ask-for-output", machineId, sessionName, kind: "status" }),
     [send],
   );
 

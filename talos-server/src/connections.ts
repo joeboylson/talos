@@ -261,9 +261,10 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       return machineSocket.send(encode<ServerToMachine>({ type: "stop-session", sessionName: message.sessionName }));
     }
 
-    if (message.type === "ask-for-update") {
-      log.detail(`${displayName} asked session "${message.sessionName}" on "${machineName}" for a status update`);
-      return machineSocket.send(encode<ServerToMachine>({ type: "ask-for-update", sessionName: message.sessionName }));
+    if (message.type === "ask-for-output") {
+      const { sessionName, kind } = message;
+      log.detail(`${displayName} asked session "${sessionName}" on "${machineName}" for a ${kind}`);
+      return machineSocket.send(encode<ServerToMachine>({ type: "ask-for-output", sessionName, kind }));
     }
 
     if (message.type === "answer-output") {

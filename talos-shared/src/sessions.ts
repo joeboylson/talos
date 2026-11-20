@@ -9,12 +9,22 @@ import { LIMITS } from "./limits";
 export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
 
+// For each kind talos asks for (like status): where the latest ask stands, and
+// its latest answer. Open outputs are questions waiting for the person, each
+// with its id. Their fields are a kind's own; the page reads talos's kinds with
+// statusOf and openDecisionOf below.
+export const ASK_STATES = ["asking", "answered", "no-response"] as const;
+export type AskState = (typeof ASK_STATES)[number];
+export type OutputFields = Record<string, unknown>;
+export type Ask = { state: AskState; atMs: number; latest?: OutputFields };
+export type OpenOutput = { id: string; kind: string; fields: OutputFields; atMs: number };
+
 export type SessionSummary = {
   sessionName: string;
   folderName: string;
   state: SessionState;
-  status?: SessionStatus;
-  decision?: SessionDecision;
+  asks: Record<string, Ask>;
+  openOutputs: OpenOutput[];
 };
 
 // A question the session asked the person while working, with the choices it
@@ -41,6 +51,8 @@ export type SessionEntry =
   | { kind: "prompt"; entryId: string; text: string; imageCount: number }
   | { kind: "text"; entryId: string; text: string }
   | { kind: "tool"; entryId: string; toolName: string; summary: string; outcome: ToolOutcome }
+  // A structured output the session sent in a normal turn, like a decision.
+  | { kind: "output"; entryId: string; outputKind: string; fields: OutputFields }
   // Stands in for an item that failed its check, so the other end sees something
   // was there. The bad data itself never travels.
   | { kind: "dropped"; entryId: string; droppedKind: string; reason: string };
@@ -69,8 +81,6 @@ export const readSessionStatus = (value: unknown): SessionStatus | null => {
   return isStatus ? { state: state as SessionStatusState, note: note as string, atMs: atMs as number } : null;
 };
 
-const isValidOptionalStatus = (value: unknown): boolean => value === undefined || readSessionStatus(value) !== null;
-
 // A decision, or null for anything that isn't one.
 export const readSessionDecision = (value: unknown): SessionDecision | null => {
   if (typeof value !== "object" || value === null) return null;
@@ -87,7 +97,48 @@ export const readSessionDecision = (value: unknown): SessionDecision | null => {
   return isDecision && isTextUpTo(id, LIMITS.maxIdTextLength) && id.length > 0 ? { id, question, choices: [...(choices as string[])], atMs } : null;
 };
 
-const isValidOptionalDecision = (value: unknown): boolean => value === undefined || readSessionDecision(value) !== null;
+const isFields = (value: unknown): value is OutputFields =>
+  typeof value === "object" && value !== null && !Array.isArray(value) && JSON.stringify(value).length <= LIMITS.maxOutputFieldsBytes;
+
+// A bad ask or open output is left out rather than the whole session.
+const readAsks = (value: unknown): Record<string, Ask> => {
+  if (typeof value !== "object" || value === null) return {};
+  const readAsk = (ask: unknown): Ask | null => {
+    if (typeof ask !== "object" || ask === null) return null;
+    const [state, atMs, latest] = ["state", "atMs", "latest"].map((field) => fieldOf(ask, field));
+    if (!isOneOf(ASK_STATES, state) || typeof atMs !== "number") return null;
+    return isFields(latest) ? { state, atMs, latest } : { state, atMs };
+  };
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([kind, ask]) => {
+      const read = readAsk(ask);
+      return read && isTextUpTo(kind, LIMITS.maxNameTextLength) ? [[kind, read]] : [];
+    }),
+  );
+};
+
+const readOpenOutputs = (value: unknown): OpenOutput[] =>
+  (Array.isArray(value) ? value.slice(0, LIMITS.maxOpenOutputs) : []).flatMap((output: unknown) => {
+    if (typeof output !== "object" || output === null) return [];
+    const [id, kind, fields, atMs] = ["id", "kind", "fields", "atMs"].map((field) => fieldOf(output, field));
+    const isOutput = isTextUpTo(id, LIMITS.maxIdTextLength) && isTextUpTo(kind, LIMITS.maxNameTextLength) && isFields(fields) && typeof atMs === "number";
+    return isOutput ? [{ id: id as string, kind: kind as string, fields, atMs }] : [];
+  });
+
+// talos's own kinds, read from the general shape. A status ask that's still
+// asking shows as "pending"; a decision is the first open one.
+export const statusOf = (session: SessionSummary): SessionStatus | null => {
+  const ask = session.asks.status;
+  if (!ask) return null;
+  if (ask.state === "asking") return { state: "pending", note: "", atMs: ask.atMs };
+  if (ask.state === "no-response") return { state: "no-response", note: "", atMs: ask.atMs };
+  return readSessionStatus({ ...ask.latest, atMs: ask.atMs });
+};
+
+export const openDecisionOf = (session: SessionSummary): SessionDecision | null => {
+  const output = session.openOutputs.find(({ kind }) => kind === "decision");
+  return output ? readSessionDecision({ ...output.fields, id: output.id, atMs: output.atMs }) : null;
+};
 
 // Both sides read these from messages, so neither trusts the shape.
 export const readSessionList = (value: unknown): SessionSummary[] | null => {
@@ -97,15 +148,11 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
     item !== null &&
     isIdentifierName(fieldOf(item, "sessionName")) &&
     isIdentifierName(fieldOf(item, "folderName")) &&
-    isOneOf(SESSION_STATES, fieldOf(item, "state")) &&
-    isValidOptionalStatus(fieldOf(item, "status")) &&
-    isValidOptionalDecision(fieldOf(item, "decision"));
+    isOneOf(SESSION_STATES, fieldOf(item, "state"));
   // Each session is checked on its own: a bad one is left out, not the whole list.
   return value.filter(isSession).map((item) => {
     const { sessionName, folderName, state } = item as SessionSummary;
-    const status = readSessionStatus(fieldOf(item as object, "status"));
-    const decision = readSessionDecision(fieldOf(item as object, "decision"));
-    return { sessionName, folderName, state, ...(status && { status }), ...(decision && { decision }) };
+    return { sessionName, folderName, state, asks: readAsks(fieldOf(item as object, "asks")), openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")) };
   });
 };
 
@@ -138,6 +185,11 @@ export const readSessionEntry = (item: unknown): SessionEntry | null => {
       isTextUpTo(summary, LIMITS.maxToolSummaryLength) &&
       isOneOf(TOOL_OUTCOMES, outcome);
     return isTool ? { kind, entryId, toolName, summary, outcome } : null;
+  }
+  if (kind === "output") {
+    const outputKind = fieldOf(item, "outputKind");
+    const fields = fieldOf(item, "fields");
+    return isTextUpTo(outputKind, LIMITS.maxNameTextLength) && isFields(fields) ? { kind, entryId, outputKind, fields } : null;
   }
   if (kind === "dropped") {
     const droppedKind = fieldOf(item, "droppedKind");
@@ -206,6 +258,7 @@ const hasEntryId = (entry: SessionEntry): boolean => typeof entry?.entryId === "
 const entryTextLength = (entry: SessionEntry): number => {
   if (entry.kind === "tool") return entry.toolName.length + entry.summary.length;
   if (entry.kind === "dropped") return entry.reason.length;
+  if (entry.kind === "output") return JSON.stringify(entry.fields).length;
   return entry.text.length;
 };
 

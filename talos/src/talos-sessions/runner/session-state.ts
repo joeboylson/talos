@@ -1,9 +1,10 @@
 // A session's state and its lane: every change to either goes through here.
-import type { SessionState, SessionSummary } from "../shapes";
+import { mergeSessionEntries, type SessionEntry, type SessionState, type SessionSummary } from "../shapes";
 import { READY_CHECK_MS, READY_QUIET_MS } from "../constants";
 import { findKind } from "../kinds";
 import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
-import { stepOutputs, type Outputs, type OutputsEvent } from "../lanes/outputs";
+import { stepOutputs, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
+import { SESSION_LIMITS } from "../limits";
 import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
 import { ENTER_KEY, ESC_KEY, ESC_PAUSE_MS, buildPastedText } from "../terminal";
 import { catalog, log } from "./inputs";
@@ -17,10 +18,18 @@ const withAsk = (summary: SessionSummary, change: LaneStep["askChange"]): Sessio
   const ask = { state, atMs, ...((latest ?? kept) && { latest: latest ?? kept }) };
   return { ...summary, asks: { ...summary.asks, [kind]: ask } };
 };
-const withOpenOutputs = (summary: SessionSummary, outputs: Outputs): SessionSummary => ({
-  ...summary,
-  openOutputs: outputs.open.map(({ id, kind, fields, atMs }) => ({ id, kind, fields, atMs })),
-});
+// The summary shows the newest open outputs that fit its budget, so a session
+// can't grow the list it sends with every change.
+const withOpenOutputs = (summary: SessionSummary, outputs: Outputs): SessionSummary => {
+  const shown = outputs.open.map(({ id, kind, fields, atMs }) => ({ id, kind, fields, atMs }));
+  const sizes = shown.map((output) => JSON.stringify(output).length);
+  const firstShown = sizes.findIndex((_size, index) => sizes.slice(index).reduce((total, size) => total + size, 0) <= SESSION_LIMITS.maxSummaryOutputsBytes);
+  return { ...summary, openOutputs: firstShown === -1 ? [] : shown.slice(firstShown) };
+};
+
+// An output sent in a normal turn shows in the conversation too. An asked-for
+// kind's answer shows in the summary only.
+const toOutputEntry = ({ id, kind, fields }: PendingOutput): SessionEntry => ({ kind: "output", entryId: id, outputKind: kind, fields });
 
 const saveSession = (sessionName: string, session: HeldSession, changes: Partial<HeldSession>): void => {
   const next = { ...session, ...changes };
@@ -69,7 +78,10 @@ export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): voi
   if (step.outputs === session.outputs) return;
   const summary = step.outputs.open === session.outputs.open ? session.summary : withOpenOutputs(session.summary, step.outputs);
   const heldAnswers = keptHeld(session.heldAnswers, step.closedIds, Date.now());
-  saveSession(sessionName, session, { outputs: step.outputs, summary, heldAnswers });
+  const outputEntries = step.opened && !findKind(catalog(), step.opened.kind)?.requestText ? [toOutputEntry(step.opened)] : [];
+  const entries = outputEntries.length > 0 ? mergeSessionEntries(session.entries, outputEntries, SESSION_LIMITS.maxEntriesKept) : session.entries;
+  saveSession(sessionName, session, { outputs: step.outputs, summary, heldAnswers, entries });
+  if (outputEntries.length > 0) broadcast({ type: "session-entries", sessionName, entries: outputEntries });
   notify(sessionName, session.heldAnswers.filter((answer) => !heldAnswers.includes(answer)));
   if (step.opened) applyLaneEvent(sessionName, { type: "went-through", output: step.opened });
 };

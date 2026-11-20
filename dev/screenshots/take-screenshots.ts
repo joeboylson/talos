@@ -36,8 +36,8 @@ type MadeUpSession = {
   sessionName: string;
   folderName: string;
   state: string;
-  status?: { state: string; note: string; atMs: number };
-  decision?: { id: string; question: string; choices: string[]; atMs: number };
+  asks: Record<string, { state: string; atMs: number; latest?: Record<string, unknown> }>;
+  openOutputs: { id: string; kind: string; fields: Record<string, unknown>; atMs: number }[];
 };
 type MadeUpEntries = { sessionName: string; entries: unknown[] };
 
@@ -110,13 +110,33 @@ const atlas = await connectMachine(
     { folderName: "website", path: "/Users/joe/code/website" },
   ],
   [
-    { sessionName: "fix-login", folderName: "talos", state: "idle", status: { state: "done", note: "Fixed sign-in; tests pass.", atMs: 1 } },
-    { sessionName: "new-homepage", folderName: "website", state: "working", status: { state: "working", note: "Laying out the hero section.", atMs: 1 } },
+    {
+      sessionName: "fix-login",
+      folderName: "talos",
+      state: "idle",
+      asks: { status: { state: "answered", atMs: 1, latest: { state: "done", note: "Fixed sign-in; tests pass." } } },
+      openOutputs: [],
+    },
+    {
+      sessionName: "new-homepage",
+      folderName: "website",
+      state: "working",
+      asks: { status: { state: "answered", atMs: 1, latest: { state: "working", note: "Laying out the hero section." } } },
+      openOutputs: [],
+    },
     {
       sessionName: "deploy",
       folderName: "talos",
       state: "needs-you",
-      decision: { id: "5a0e2c1b-7d3f-4a6e-9b8c-1d2e3f4a5b6c", question: "Deploy to staging first, or straight to production?", choices: ["Staging first", "Production"], atMs: 1 },
+      asks: {},
+      openOutputs: [
+        {
+          id: "5a0e2c1b-7d3f-4a6e-9b8c-1d2e3f4a5b6c",
+          kind: "decision",
+          fields: { question: "Deploy to staging first, or straight to production?", choices: ["Staging first", "Production"] },
+          atMs: 1,
+        },
+      ],
     },
   ],
   [
@@ -135,6 +155,19 @@ const atlas = await connectMachine(
         { kind: "tool", entryId: "t3", toolName: "Edit", summary: "talos-server/src/tests/auth/session.test.ts", outcome: "done" },
         { kind: "tool", entryId: "t4", toolName: "Bash", summary: "Run the server tests", outcome: "failed" },
         { kind: "tool", entryId: "t5", toolName: "Bash", summary: "Run the server tests again", outcome: "running" },
+      ],
+    },
+    {
+      sessionName: "deploy",
+      entries: [
+        { kind: "prompt", entryId: "d-p1", text: "Ship the sign-in fix", imageCount: 0 },
+        { kind: "dropped", entryId: "d-x1", droppedKind: "text", reason: "too long or malformed" },
+        {
+          kind: "output",
+          entryId: "5a0e2c1b-7d3f-4a6e-9b8c-1d2e3f4a5b6c",
+          outputKind: "decision",
+          fields: { question: "Deploy to staging first, or straight to production?", choices: ["Staging first", "Production"] },
+        },
       ],
     },
   ],

@@ -11,10 +11,18 @@ const machine = (machineName: string, sessions: MachineSummary["sessions"]): Mac
 });
 
 const MACHINES = [
-  machine("spark", [{ sessionName: "fix-login", folderName: "talos", state: "working", status: { state: "stuck", note: "blocked on the API", atMs: 1 } }]),
+  machine("spark", [
+    {
+      sessionName: "fix-login",
+      folderName: "talos",
+      state: "working",
+      asks: { status: { state: "answered", atMs: 1, latest: { state: "stuck", note: "blocked on the API" } } },
+      openOutputs: [],
+    },
+  ]),
   machine("atlas", [
-    { sessionName: "web", folderName: "website", state: "idle" },
-    { sessionName: "api", folderName: "talos", state: "needs-you" },
+    { sessionName: "web", folderName: "website", state: "idle", asks: {}, openOutputs: [] },
+    { sessionName: "api", folderName: "talos", state: "needs-you", asks: {}, openOutputs: [] },
   ]),
   machine("laptop", null),
 ];
@@ -64,6 +72,7 @@ test("buildSessionRows carries a session's reported status", () => {
 
 test("buildSessionRows carries a session's open decision", () => {
   const decision = { id: "d1", question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 2 };
-  const machine = { ...MACHINES[0], sessions: [{ sessionName: "pick-db", folderName: "talos", state: "needs-you" as const, decision }] };
+  const openOutputs = [{ id: "d1", kind: "decision", fields: { question: decision.question, choices: decision.choices }, atMs: 2 }];
+  const machine = { ...MACHINES[0], sessions: [{ sessionName: "pick-db", folderName: "talos", state: "needs-you" as const, asks: {}, openOutputs }] };
   expect(buildSessionRows([machine])[0]?.decision).toEqual(decision);
 });

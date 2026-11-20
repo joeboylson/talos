@@ -14,6 +14,9 @@ try {
   live.type("Show revenue per month in 2025 as a bar chart.");
   live.type(ENTER);
   await live.waitFor((state) => state.session === "idle" && state.entries.some((entry) => entry.kind === "output"), "an answer with a chart");
+  // The session runner reads the conversation a moment after the turn ends, so
+  // the closing sentence can land just after.
+  await live.waitFor((state) => state.entries.some((entry) => entry.kind === "text"), "the session's text", 10_000).catch(() => {});
 
   const chart = live.state().entries.find((entry) => entry.kind === "output" && entry.outputKind === "chart");
   check("the answer has a chart", chart !== undefined);

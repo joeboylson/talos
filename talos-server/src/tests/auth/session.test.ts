@@ -42,6 +42,11 @@ test.each([
   expect(readSessionClaim(sessionToken, SECRET, NOW_MS)).toBeNull();
 });
 
+test("rejects a real token with an extra part on the end", () => {
+  const sessionToken = createSessionToken(JOE, until(LATER_MS), SECRET);
+  expect(readSessionClaim(`${sessionToken}.extra`, SECRET, NOW_MS)).toBeNull();
+});
+
 test("rejects a correctly signed payload with the wrong shape", () => {
   const payloadText = Buffer.from(JSON.stringify({ personId: 5 })).toString("base64url");
   expect(readSessionClaim(`${payloadText}.${signText(payloadText, SECRET)}`, SECRET, NOW_MS)).toBeNull();

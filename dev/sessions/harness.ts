@@ -14,8 +14,11 @@ const sessions = await import(`${ROOT}talos-sessions/index.ts`);
 const constants = await import(`${ROOT}constants.ts`);
 const hookClient = await import(`${ROOT}talos-sessions/client/hook-client.ts`);
 const runnerConstants = await import(`${ROOT}talos-sessions/constants.ts`);
-export const { RUNNER_ROUTES, sessionRoute, postToRunner, runnerFetch, isRunnerRunning } = sessions;
-export const { RUNNER_HOOKS_SOCKET } = runnerConstants;
+export const { RUNNER_ROUTES, sessionRoute } = sessions;
+export const postToRunner = (route: string, body: unknown): Promise<Response> => sessions.postToRunner(HOME, route, body);
+export const runnerFetch = (route: string, init?: RequestInit): Promise<Response> => sessions.runnerFetch(HOME, route, init);
+export const isRunnerRunning = (): Promise<boolean> => sessions.isRunnerRunning(HOME);
+export const RUNNER_HOOKS_SOCKET: string = runnerConstants.homePaths(HOME).hooksSocket;
 export const HOOK_SCRIPT: string = runnerConstants.HOOK_SCRIPT;
 
 // Each check gets its own folder; extra Claude Code settings go in its .claude.
@@ -32,7 +35,7 @@ export const allowFolder = (folderName: string, path: string) => {
   writeFileSync(join(HOME, "folders.json"), JSON.stringify(folders));
 };
 
-export const startRunner = () => sessions.ensureRunnerRunning(constants.RUNNER_SCRIPT);
+export const startRunner = () => sessions.ensureRunnerRunning(HOME, constants.RUNNER_SCRIPT);
 export const stopRunner = () => postToRunner(RUNNER_ROUTES.stop, {}).catch(() => {});
 
 export const rawSession = async (sessionName: string): Promise<SessionSummary | undefined> =>

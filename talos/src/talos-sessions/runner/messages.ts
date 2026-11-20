@@ -2,7 +2,8 @@
 import { chmod, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { SentImage } from "../shapes";
-import { TALOS_FOLDER_MODE, IMAGE_PASTE_SETTLE_MS, UPLOAD_FILE_MODE, UPLOADS_FOLDER } from "../constants";
+import { HOME_MODE, IMAGE_PASTE_SETTLE_MS, UPLOAD_FILE_MODE } from "../constants";
+import { paths } from "./inputs";
 import { ENTER_KEY, buildMessageWithImages, buildPastedText } from "../terminal";
 import { applyLaneEvent } from "./session-state";
 import { heldSessions, updateHeldSession, type HeldSession, type TypedMessage } from "./store";
@@ -27,8 +28,8 @@ const IMAGE_FILE_EXTENSIONS: Record<SentImage["mediaType"], string> = {
 
 const saveImages = async (sessionName: string, images: SentImage[]): Promise<string[]> => {
   if (images.length === 0) return [];
-  const sessionUploadsFolder = join(UPLOADS_FOLDER, sessionName);
-  await mkdir(sessionUploadsFolder, { recursive: true, mode: TALOS_FOLDER_MODE });
+  const sessionUploadsFolder = join(paths().uploads, sessionName);
+  await mkdir(sessionUploadsFolder, { recursive: true, mode: HOME_MODE });
   return Promise.all(
     images.map(async ({ mediaType, dataBase64 }) => {
       const imagePath = join(sessionUploadsFolder, `${crypto.randomUUID()}.${IMAGE_FILE_EXTENSIONS[mediaType]}`);

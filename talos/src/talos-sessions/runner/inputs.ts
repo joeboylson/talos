@@ -1,5 +1,6 @@
 // What talos passes in to runSessionRunner. Every runner file reads them from
 // here, so none makes its own logger or folder check when it loads.
+import { homePaths, type HomePaths } from "../constants";
 import type { Catalog, OutputKind, TurnShape } from "../kinds";
 
 export type SessionsLogger = {
@@ -11,6 +12,8 @@ export type SessionsLogger = {
 export type FolderCheck = (folderName: string, path: string) => Promise<boolean>;
 
 export type RunnerInputs = {
+  // The folder the module keeps its own files in.
+  home: string;
   log: SessionsLogger;
   isAllowedFolder: FolderCheck;
   // The kinds of structured output talos defines, and what a normal turn may send.
@@ -19,6 +22,7 @@ export type RunnerInputs = {
 };
 
 const given: RunnerInputs = {
+  home: "",
   log: { event: console.log, detail: () => {}, warn: console.warn },
   isAllowedFolder: async () => false,
   kinds: [],
@@ -36,5 +40,7 @@ export const log: SessionsLogger = {
 };
 
 export const isAllowedFolder: FolderCheck = (folderName, path) => given.isAllowedFolder(folderName, path);
+
+export const paths = (): HomePaths => homePaths(given.home);
 
 export const catalog = (): Catalog => ({ kinds: given.kinds, proseTurn: given.proseTurn });

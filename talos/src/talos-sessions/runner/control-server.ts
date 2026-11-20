@@ -4,11 +4,10 @@
 import { rm } from "node:fs/promises";
 import type { BunRequest } from "bun";
 import { isIdentifierName, readSentImages } from "../shapes";
-import { RUNNER_HOOKS_SOCKET, RUNNER_SOCKET } from "../constants";
 import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runner-protocol";
 import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
 import { startSession } from "./lifecycle";
-import { isAllowedFolder, log } from "./inputs";
+import { isAllowedFolder, log, paths } from "./inputs";
 import { sendToSession } from "./messages";
 import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
@@ -75,7 +74,8 @@ const stopRunner = () => {
   log.event("runner: stopping, with every session it holds");
   heldSessions.forEach((session) => session.child.kill());
   setTimeout(async () => {
-    await Promise.all([rm(RUNNER_SOCKET, { force: true }), rm(RUNNER_HOOKS_SOCKET, { force: true })]);
+    const { runnerSocket, hooksSocket } = paths();
+    await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
     process.exit(0);
   }, 200);
   return new Response(null, { status: 204 });
@@ -84,8 +84,8 @@ const stopRunner = () => {
 // Event and output streams stay open for as long as someone listens, so the
 // session runner turns off Bun's limit on quiet requests (0 = none). Bun's types don't
 // allow that option alongside a file socket, though Bun itself does.
-export const controlServeOptions = {
-  unix: RUNNER_SOCKET,
+export const controlServeOptions = (runnerSocket: string) => ({
+  unix: runnerSocket,
   idleTimeout: 0,
   maxRequestBodySize: SESSION_LIMITS.maxControlBodyBytes,
   routes: {
@@ -161,4 +161,4 @@ export const controlServeOptions = {
     },
   },
   fetch: () => new Response("Not found", { status: 404 }),
-};
+});

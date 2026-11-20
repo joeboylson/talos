@@ -5,13 +5,10 @@ import { trustFolder } from "../claude/claude-trust";
 import {
   CLAUDE_COMMAND,
   HOOK_SCRIPT,
-  RUNNER_HOOKS_SOCKET,
-  MCP_CONFIG_FILE,
   READY_CHECK_MS,
   READY_QUIET_MS,
   SESSION_ENV_KEYS,
   TERMINAL_SIZE,
-  UPLOADS_FOLDER,
 } from "../constants";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
@@ -19,7 +16,7 @@ import { buildHookSettings } from "../claude/session-hooks";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
-import { log } from "./inputs";
+import { log, paths } from "./inputs";
 import { typeIntoSession } from "./messages";
 import { applyLaneEvent, setSessionState } from "./session-state";
 import { broadcastSessions, heldSessions, sendToListeners, updateHeldSession, type Terminal } from "./store";
@@ -37,7 +34,7 @@ const forgetSession = (sessionName: string, token: string) => {
   if (session?.hookToken !== token) return;
   heldSessions.delete(sessionName);
   session.outputListeners.forEach((listener) => listener.close());
-  void rm(join(UPLOADS_FOLDER, sessionName), { recursive: true, force: true }).catch((error: unknown) =>
+  void rm(join(paths().uploads, sessionName), { recursive: true, force: true }).catch((error: unknown) =>
     log.warn(`runner: couldn't delete ${sessionName}'s uploads: ${error}`),
   );
   log.event(`runner: session ${sessionName} ended`);
@@ -66,12 +63,12 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
   // (below) as well as the spawn env so a project's own settings can't poison them.
   const hookEnv = {
     [SESSION_ENV_KEYS.sessionName]: sessionName,
-    [SESSION_ENV_KEYS.runnerSocket]: RUNNER_HOOKS_SOCKET,
+    [SESSION_ENV_KEYS.runnerSocket]: paths().hooksSocket,
     [SESSION_ENV_KEYS.hookToken]: hookToken,
   };
   // --mcp-config gives every session talos's structured tools (tools-server.ts);
   // the PreToolUse hook decides when each may be called.
-  const claudeArgs = [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", MCP_CONFIG_FILE];
+  const claudeArgs = [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", paths().mcpConfig];
   const child = Bun.spawn(
     [...withOpenFileLimit(SESSION_LIMITS.maxSessionOpenFiles), ...claudeArgs],
     {

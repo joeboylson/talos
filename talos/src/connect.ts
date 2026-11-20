@@ -18,7 +18,7 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RUNNER_SCRIPT } from "./constants";
+import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
 import { readFolders, renameFolder, saveFolders } from "./folders";
 import { RUNNER_ROUTES, ensureRunnerRunning, followRunnerEvents, postToRunner, sessionRoute } from "./talos-sessions";
@@ -128,8 +128,8 @@ export const runConnect = async (): Promise<void> => {
   // Sessions run in the session runner, which outlives talos. If the session runner goes
   // away (`talos runner stop`), a fresh one is started.
   const followRunner = async (): Promise<void> => {
-    await ensureRunnerRunning(RUNNER_SCRIPT);
-    await followRunnerEvents((runnerEvent) => forwardRunnerEvent(toSharedEvent(runnerEvent)));
+    await ensureRunnerRunning(TALOS_FOLDER, RUNNER_SCRIPT);
+    await followRunnerEvents(TALOS_FOLDER, (runnerEvent) => forwardRunnerEvent(toSharedEvent(runnerEvent)));
     forwardRunnerEvent({ type: "sessions", sessions: [] });
   };
   const followRunnerWithRetry = (): void => {
@@ -143,7 +143,7 @@ export const runConnect = async (): Promise<void> => {
   const startSession = async (folderName: string, sessionName: string) => {
     const folder = (await readFolders()).find((candidate) => candidate.folderName === folderName);
     if (!folder) return log.warn(`talos: no folder called ${folderName}; not starting ${sessionName}`);
-    const response = await postToRunner(RUNNER_ROUTES.sessions, { sessionName, folderName, path: folder.path });
+    const response = await postToRunner(TALOS_FOLDER, RUNNER_ROUTES.sessions, { sessionName, folderName, path: folder.path });
     if (!response.ok) log.warn(`talos: couldn't start ${sessionName}: ${await response.text()}`);
   };
 
@@ -152,7 +152,7 @@ export const runConnect = async (): Promise<void> => {
   const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
     if (message.type === "start-session") return startSession(message.folderName, message.sessionName);
     if (message.type === "send-to-session") {
-      const response = await postToRunner(sessionRoute(message.sessionName, "send"), {
+      const response = await postToRunner(TALOS_FOLDER, sessionRoute(message.sessionName, "send"), {
         text: message.text,
         images: message.images,
       });
@@ -160,11 +160,11 @@ export const runConnect = async (): Promise<void> => {
       return;
     }
     if (message.type === "stop-session") {
-      await postToRunner(sessionRoute(message.sessionName, "stop"), {});
+      await postToRunner(TALOS_FOLDER, sessionRoute(message.sessionName, "stop"), {});
       return;
     }
     if (message.type === "ask-for-output") {
-      const response = await postToRunner(sessionRoute(message.sessionName, "ask"), { kind: message.kind });
+      const response = await postToRunner(TALOS_FOLDER, sessionRoute(message.sessionName, "ask"), { kind: message.kind });
       if (!response.ok) sendToServer?.({ type: "error", message: (await response.text()).slice(0, LIMITS.maxMachineErrorLength) });
       return;
     }
@@ -172,7 +172,7 @@ export const runConnect = async (): Promise<void> => {
     // shown on the owner's page, so a click never fails silently.
     if (message.type === "answer-output") {
       const { sessionName, outputId, choice } = message;
-      const response = await postToRunner(sessionRoute(sessionName, "answer"), { outputId, choice });
+      const response = await postToRunner(TALOS_FOLDER, sessionRoute(sessionName, "answer"), { outputId, choice });
       if (!response.ok) sendToServer?.({ type: "error", message: (await response.text()).slice(0, LIMITS.maxMachineErrorLength) });
       return;
     }

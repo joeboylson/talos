@@ -1,6 +1,6 @@
 import { readSessionList } from "talos-shared";
 import type { SessionCommand } from "./commands";
-import { DETACH_KEY } from "./constants";
+import { DETACH_KEY, TALOS_FOLDER } from "./constants";
 import { RUNNER_ROUTES, isRunnerRunning, postToRunner, runnerFetch, sessionRoute } from "./talos-sessions";
 
 const fail = (problem: string): never => {
@@ -9,8 +9,8 @@ const fail = (problem: string): never => {
 };
 
 const listSessions = async () => {
-  if (!(await isRunnerRunning())) return console.log("no sessions");
-  const sessions = readSessionList(await (await runnerFetch(RUNNER_ROUTES.sessions)).json()) ?? [];
+  if (!(await isRunnerRunning(TALOS_FOLDER))) return console.log("no sessions");
+  const sessions = readSessionList(await (await runnerFetch(TALOS_FOLDER, RUNNER_ROUTES.sessions)).json()) ?? [];
   if (sessions.length === 0) return console.log("no sessions");
   sessions.forEach(({ sessionName, folderName, state }) => console.log(`${sessionName}\t${folderName}\t${state}`));
 };
@@ -18,12 +18,12 @@ const listSessions = async () => {
 // Your terminal shows the session's own terminal and types into it, until
 // Ctrl-\ leaves it running or the session ends.
 const attach = async (sessionName: string) => {
-  if (!(await isRunnerRunning())) return fail("no sessions are running");
-  const outputResponse = await runnerFetch(sessionRoute(sessionName, "output"));
+  if (!(await isRunnerRunning(TALOS_FOLDER))) return fail("no sessions are running");
+  const outputResponse = await runnerFetch(TALOS_FOLDER, sessionRoute(sessionName, "output"));
   if (!outputResponse.ok || !outputResponse.body) return fail(`no session called ${sessionName}`);
 
   const matchTerminalSize = () =>
-    postToRunner(sessionRoute(sessionName, "resize"), { cols: process.stdout.columns, rows: process.stdout.rows });
+    postToRunner(TALOS_FOLDER, sessionRoute(sessionName, "resize"), { cols: process.stdout.columns, rows: process.stdout.rows });
   await matchTerminalSize();
   process.stdout.on("resize", matchTerminalSize);
 
@@ -40,7 +40,7 @@ const attach = async (sessionName: string) => {
   process.stdin.on("data", (chunk: Buffer) => {
     if (chunk.includes(DETACH_KEY)) return leave(`left ${sessionName} running`);
     pendingInput = pendingInput.then(() =>
-      runnerFetch(sessionRoute(sessionName, "input"), { method: "POST", body: chunk }),
+      runnerFetch(TALOS_FOLDER, sessionRoute(sessionName, "input"), { method: "POST", body: chunk }),
     );
   });
 
@@ -51,12 +51,12 @@ const attach = async (sessionName: string) => {
 export const runSessionCommand = async (command: SessionCommand): Promise<void> => {
   if (command.name === "sessions-list") return listSessions();
   if (command.name === "sessions-attach") return attach(command.sessionName);
-  if (!(await isRunnerRunning()))
+  if (!(await isRunnerRunning(TALOS_FOLDER)))
     return console.log(command.name === "runner-stop" ? "the session runner isn't running" : "no sessions");
   if (command.name === "sessions-stop") {
-    await postToRunner(sessionRoute(command.sessionName, "stop"), {});
+    await postToRunner(TALOS_FOLDER, sessionRoute(command.sessionName, "stop"), {});
     return console.log(`stopped ${command.sessionName}`);
   }
-  await postToRunner(RUNNER_ROUTES.stop, {});
+  await postToRunner(TALOS_FOLDER, RUNNER_ROUTES.stop, {});
   console.log("stopped the session runner and its sessions");
 };

@@ -18,11 +18,10 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE } from "./constants";
+import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RUNNER_SCRIPT } from "./constants";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
 import { readFolders, renameFolder, saveFolders } from "./folders";
-import { ensureHostRunning, followHostEvents, postToHost } from "./host-client";
-import { HOST_ROUTES, sessionRoute, type HostEvent } from "./host-protocol";
+import { RUNNER_ROUTES, ensureRunnerRunning, followRunnerEvents, postToRunner, sessionRoute, type RunnerEvent } from "./talos-sessions";
 import { startLocalStatusServer } from "./local-status-server";
 import { fetchMachineName, pairMachine } from "./pairing";
 import { connectToServer, type SendToServer } from "./server-connection";
@@ -52,18 +51,18 @@ export const runConnect = async (): Promise<void> => {
   // turn, so the page never gets newer entries before older ones.
   let sessionsAwaitingResend = new Set<string>();
 
-  const keepLatest = (hostEvent: HostEvent) => {
-    if (hostEvent.type === "sessions") {
-      latestSessions = hostEvent.sessions;
+  const keepLatest = (runnerEvent: RunnerEvent) => {
+    if (runnerEvent.type === "sessions") {
+      latestSessions = runnerEvent.sessions;
       const liveSessionNames = new Set(latestSessions.map(({ sessionName }) => sessionName));
       entriesBySession = Object.fromEntries(
         Object.entries(entriesBySession).filter(([sessionName]) => liveSessionNames.has(sessionName)),
       );
       return;
     }
-    const keptEntries = entriesBySession[hostEvent.sessionName] ?? [];
-    const mergedEntries = mergeSessionEntries(keptEntries, hostEvent.entries, LIMITS.maxEntriesKept);
-    entriesBySession = { ...entriesBySession, [hostEvent.sessionName]: mergedEntries };
+    const keptEntries = entriesBySession[runnerEvent.sessionName] ?? [];
+    const mergedEntries = mergeSessionEntries(keptEntries, runnerEvent.entries, LIMITS.maxEntriesKept);
+    entriesBySession = { ...entriesBySession, [runnerEvent.sessionName]: mergedEntries };
   };
 
   // Sends one session's kept entries again, in batches under the server's
@@ -112,27 +111,27 @@ export const runConnect = async (): Promise<void> => {
   // unhandled rejection, which would take this machine offline.
   const sendFoldersOrWarn = () => void sendFolders().catch((error: unknown) => log.warn(`talos: couldn't send the folders (${error})`));
 
-  const forwardHostEvent = (hostEvent: HostEvent) => {
-    keepLatest(hostEvent);
+  const forwardRunnerEvent = (runnerEvent: RunnerEvent) => {
+    keepLatest(runnerEvent);
     if (!sendToServer) return;
-    if (hostEvent.type === "sessions") return sendToServer({ type: "sessions", sessions: hostEvent.sessions });
-    if (sessionsAwaitingResend.has(hostEvent.sessionName)) return;
-    batchEntriesBySize(hostEvent.entries, LIMITS.maxEntriesBatchBytes).forEach((batch) =>
-      sendToServer?.({ type: "session-entries", sessionName: hostEvent.sessionName, entries: batch.entries }),
+    if (runnerEvent.type === "sessions") return sendToServer({ type: "sessions", sessions: runnerEvent.sessions });
+    if (sessionsAwaitingResend.has(runnerEvent.sessionName)) return;
+    batchEntriesBySize(runnerEvent.entries, LIMITS.maxEntriesBatchBytes).forEach((batch) =>
+      sendToServer?.({ type: "session-entries", sessionName: runnerEvent.sessionName, entries: batch.entries }),
     );
   };
 
-  // Sessions run in the session host, which outlives talos. If the host goes
-  // away (`talos host stop`), a fresh one is started.
-  const followHost = async (): Promise<void> => {
-    await ensureHostRunning();
-    await followHostEvents(forwardHostEvent);
-    forwardHostEvent({ type: "sessions", sessions: [] });
+  // Sessions run in the session runner, which outlives talos. If the session runner goes
+  // away (`talos runner stop`), a fresh one is started.
+  const followRunner = async (): Promise<void> => {
+    await ensureRunnerRunning(RUNNER_SCRIPT);
+    await followRunnerEvents(forwardRunnerEvent);
+    forwardRunnerEvent({ type: "sessions", sessions: [] });
   };
-  const followHostWithRetry = (): void => {
-    followHost()
-      .catch((error: unknown) => log.warn(`talos: lost the session host (${error})`))
-      .finally(() => setTimeout(followHostWithRetry, RECONNECT_DELAY_MS));
+  const followRunnerWithRetry = (): void => {
+    followRunner()
+      .catch((error: unknown) => log.warn(`talos: lost the session runner (${error})`))
+      .finally(() => setTimeout(followRunnerWithRetry, RECONNECT_DELAY_MS));
   };
 
   // A session starts only in a folder this machine allows, found by name in
@@ -140,7 +139,7 @@ export const runConnect = async (): Promise<void> => {
   const startSession = async (folderName: string, sessionName: string) => {
     const folder = (await readFolders()).find((candidate) => candidate.folderName === folderName);
     if (!folder) return log.warn(`talos: no folder called ${folderName}; not starting ${sessionName}`);
-    const response = await postToHost(HOST_ROUTES.sessions, { sessionName, folderName, path: folder.path });
+    const response = await postToRunner(RUNNER_ROUTES.sessions, { sessionName, folderName, path: folder.path });
     if (!response.ok) log.warn(`talos: couldn't start ${sessionName}: ${await response.text()}`);
   };
 
@@ -149,7 +148,7 @@ export const runConnect = async (): Promise<void> => {
   const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
     if (message.type === "start-session") return startSession(message.folderName, message.sessionName);
     if (message.type === "send-to-session") {
-      const response = await postToHost(sessionRoute(message.sessionName, "send"), {
+      const response = await postToRunner(sessionRoute(message.sessionName, "send"), {
         text: message.text,
         images: message.images,
       });
@@ -157,11 +156,11 @@ export const runConnect = async (): Promise<void> => {
       return;
     }
     if (message.type === "stop-session") {
-      await postToHost(sessionRoute(message.sessionName, "stop"), {});
+      await postToRunner(sessionRoute(message.sessionName, "stop"), {});
       return;
     }
     if (message.type === "ask-for-update") {
-      await postToHost(sessionRoute(message.sessionName, "ask-update"), {});
+      await postToRunner(sessionRoute(message.sessionName, "ask-update"), {});
       return;
     }
     if (message.type === "machine-name") {
@@ -205,7 +204,7 @@ export const runConnect = async (): Promise<void> => {
       serverUrl,
       machineKey,
       log,
-      // The host can be down (restarting, or `talos host stop`), so a page
+      // The session runner can be down (restarting, or `talos runner stop`), so a page
       // command can fail; log it rather than let Bun quit on the rejection.
       onServerMessage: (message) =>
         void handleServerMessage(message).catch((error: unknown) =>
@@ -247,6 +246,6 @@ export const runConnect = async (): Promise<void> => {
   });
   log.event(`talos: starting as ${wantedMachineName}, server ${serverOrigin}`);
 
-  followHostWithRetry();
+  followRunnerWithRetry();
   connectWithRetry();
 };

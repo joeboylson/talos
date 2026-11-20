@@ -54,8 +54,7 @@ something.
   in development).
 - **session runner**: the background program on each machine that keeps the
   sessions running, answers their hooks and reads their conversations. It
-  outlives `talos` restarts. The code still calls it the "host" (`host/`,
-  `talos host stop`) until it's renamed.
+  outlives `talos` restarts. In code, "runner" is short for it.
 - **hook**: a check Claude Code makes with the session runner at set moments,
   such as before each tool runs and when a turn stops. The session runner's
   answer can allow or deny the tool, or keep the turn going.

@@ -92,7 +92,7 @@ Every command lives here. Names follow the glossary
 | `talos sessions`                           | Lists this machine's Claude sessions.                                             |
 | `talos sessions <session> attach`          | Shows a session's terminal in yours, to watch or type. Ctrl-\\ leaves it running. |
 | `talos sessions <session> stop`            | Ends a session.                                                                   |
-| `talos host stop`                          | Ends the session runner and every session in it.                                  |
+| `talos runner stop`                        | Ends the session runner and every session in it.                                  |
 | `talos help`                               | Lists these commands.                                                             |
 
 Folders belong to the machine the command runs on. They're kept there (in
@@ -103,9 +103,9 @@ renamed too.
 Sessions run in the session runner, a background program `talos` starts on
 each machine. It holds Claude Code's terminals, so sessions keep running
 when `talos` restarts (it restarts on every save in development). After
-changing anything in `talos/src/host/` or `talos/src/hook.ts`, run
-`make talos host stop` so the next `talos` starts a fresh host; that ends
-running sessions. The host's own log is `~/.talos/host.log`.
+changing anything in `talos/src/talos-sessions/`, run
+`make talos runner stop` so the next `talos` starts a fresh one; that ends
+running sessions. The session runner's own log is `~/.talos/runner.log`.
 
 In this repo, run any of them with `make talos <command>`, like
 `make talos folders add ~/code/x`.

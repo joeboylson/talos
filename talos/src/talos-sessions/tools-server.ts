@@ -7,6 +7,7 @@
 import { askRunner } from "./client/hook-client";
 import type { ListedTool } from "./client/runner-protocol";
 import { SESSION_ENV_KEYS, TALOS_MCP_SERVER_KEY } from "./constants";
+import { ID_PLACEHOLDER, OUTPUT_ID_FIELD } from "./kinds";
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
 const SERVER_VERSION = "1.0.0";
@@ -35,14 +36,22 @@ const tools = sessionName && runnerSocket ? fetchTools() : Promise.resolve([]);
 
 const reply = (id: unknown, result: unknown) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
 
-const answerToolCall = (listed: ListedTool[], toolName: unknown) => {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const failed = (text: string) => ({ content: [{ type: "text", text }], isError: true });
+
+// The id is the one the session runner added to the call's input. Without it
+// the call fails, so the session never thinks it asked something talos didn't record.
+const answerToolCall = (listed: ListedTool[], toolName: unknown, toolInput: unknown) => {
   const tool = listed.find(({ name }) => name === toolName);
-  return tool ? { content: [{ type: "text", text: tool.reply }] } : { content: [{ type: "text", text: "No such tool." }], isError: true };
+  if (!tool) return failed("No such tool.");
+  const id = typeof toolInput === "object" && toolInput !== null ? Reflect.get(toolInput, OUTPUT_ID_FIELD) : undefined;
+  if (typeof id !== "string" || !UUID.test(id)) return failed("talos didn't record this call. Try again.");
+  return { content: [{ type: "text", text: tool.reply.replace(ID_PLACEHOLDER, id) }] };
 };
 
 for await (const line of console) {
   if (!line.trim()) continue;
-  let message: { id?: unknown; method?: string; params?: { name?: string } };
+  let message: { id?: unknown; method?: string; params?: { name?: string; arguments?: unknown } };
   try {
     message = JSON.parse(line);
   } catch {
@@ -54,7 +63,7 @@ for await (const line of console) {
   } else if (method === "tools/list") {
     void tools.then((listed) => reply(id, { tools: listed.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) }));
   } else if (method === "tools/call") {
-    void tools.then((listed) => reply(id, answerToolCall(listed, params?.name)));
+    void tools.then((listed) => reply(id, answerToolCall(listed, params?.name, params?.arguments)));
   } else if (method === "ping") {
     reply(id, {});
   } else if (id !== undefined) {

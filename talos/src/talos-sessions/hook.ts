@@ -9,21 +9,21 @@
 import { parseJsonOrNull } from "./json";
 import { SESSION_ENV_KEYS } from "./constants";
 import { askRunner } from "./client/hook-client";
-import { hookReplyWhenRunnerUnreachable, hookReplyWhenTooBig } from "./lanes/lane";
+import { hookReplyFromRunner, hookReplyWhenRunnerUnreachable, hookReplyWhenTooBig } from "./lanes/lane";
 
 const sessionName = process.env[SESSION_ENV_KEYS.sessionName];
 const runnerSocket = process.env[SESSION_ENV_KEYS.runnerSocket];
 const hookToken = process.env[SESSION_ENV_KEYS.hookToken] ?? "";
 
-if (sessionName && runnerSocket) {
-  const hookDetails = await Bun.stdin.text();
-  const answer = await askRunner(runnerSocket, { sessionName, token: hookToken, details: hookDetails });
-  const decision =
-    answer?.kind === "reply"
-      ? answer.reply
-      : answer?.kind === "too-big"
-        ? hookReplyWhenTooBig(parseJsonOrNull(hookDetails))
-        : hookReplyWhenRunnerUnreachable(parseJsonOrNull(hookDetails));
-  if (decision) process.stdout.write(decision);
-}
+// Without its settings the hook can't reach the session runner, so it fails
+// safe the same way as when the session runner is down.
+const hookDetails = await Bun.stdin.text();
+const answer = sessionName && runnerSocket ? await askRunner(runnerSocket, { sessionName, token: hookToken, details: hookDetails }) : null;
+const decision =
+  answer?.kind === "reply"
+    ? hookReplyFromRunner(parseJsonOrNull(hookDetails), answer.reply)
+    : answer?.kind === "too-big"
+      ? hookReplyWhenTooBig(parseJsonOrNull(hookDetails))
+      : hookReplyWhenRunnerUnreachable(parseJsonOrNull(hookDetails));
+if (decision) process.stdout.write(decision);
 process.exit(0);

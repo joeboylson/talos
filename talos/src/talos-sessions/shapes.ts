@@ -12,7 +12,7 @@ export const ASK_STATES = ["asking", "answered", "no-response"] as const;
 export type AskState = (typeof ASK_STATES)[number];
 export type Ask = { state: AskState; atMs: number; latest?: Record<string, unknown> };
 // An output the session sent that waits for the person's answer.
-export type OpenOutput = { kind: string; fields: Record<string, unknown>; atMs: number };
+export type OpenOutput = { id: string; kind: string; fields: Record<string, unknown>; atMs: number };
 
 // The fields are talos's kinds' own; talos's session-bridge.ts checks them.
 export type SessionSummary = {
@@ -77,8 +77,9 @@ const readAsks = (value: unknown): Record<string, Ask> => {
 const readOpenOutputs = (value: unknown): OpenOutput[] =>
   (Array.isArray(value) ? value : []).flatMap((output: unknown) => {
     if (!isFields(output)) return [];
-    const { kind, fields, atMs } = output;
-    return isTextUpTo(kind, LIMITS.maxNameTextLength) && isFields(fields) && typeof atMs === "number" ? [{ kind, fields, atMs }] : [];
+    const { id, kind, fields, atMs } = output;
+    const isOutput = isTextUpTo(id, LIMITS.maxIdTextLength) && isTextUpTo(kind, LIMITS.maxNameTextLength) && isFields(fields) && typeof atMs === "number";
+    return isOutput ? [{ id, kind, fields, atMs }] : [];
   });
 
 export const readSessionList = (value: unknown): SessionSummary[] | null => {

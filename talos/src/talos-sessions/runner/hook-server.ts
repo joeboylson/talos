@@ -4,12 +4,14 @@ import { RUNNER_HOOKS_SOCKET, NEWLINE_BYTE } from "../constants";
 import { encodeHookLine, readHookRequest, type HookAnswer, type ListedTool } from "../client/runner-protocol";
 import { hookTokenAuthorized, nextSessionState } from "../claude/session-hooks";
 import { readLaneEvent } from "../lanes/lane";
+import { readOutputsEvent } from "../lanes/outputs";
 import { allowTranscriptSwitch } from "../transcript/transcript-lines";
 import { becomeReadyWhenQuiet } from "./lifecycle";
 import { catalog, log } from "./inputs";
-import { applyLaneEvent, setSessionState } from "./session-state";
+import { applyLaneEvent, applyOutputsEvent, setSessionState } from "./session-state";
 import { heldSessions, updateHeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";
+import { listedSchema, replyWording } from "../kinds";
 
 const handleHook = (sessionName: string, token: string, hookDetailsText: string): string => {
   const session = heldSessions.get(sessionName);
@@ -19,8 +21,12 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   const hookDetails: unknown = JSON.parse(hookDetailsText || "{}");
   const hookEvent = String(Reflect.get(hookDetails as object, "hook_event_name") ?? "");
 
-  const laneEvent = readLaneEvent(hookDetails);
+  const laneEvent = readLaneEvent(hookDetails, crypto.randomUUID());
   const decision = laneEvent ? applyLaneEvent(sessionName, laneEvent) : "";
+  // A Stop the lane blocked keeps the turn going, so the session isn't idle.
+  const blockedStop = hookEvent === "Stop" && decision !== "";
+  const outputsEvent = readOutputsEvent(hookDetails, blockedStop);
+  if (outputsEvent) applyOutputsEvent(sessionName, outputsEvent);
 
   // Only one ready-loop per session instance, so a forged flood of SessionStart
   // events can't pile up uncancelled loops and exhaust the session runner's memory.
@@ -43,9 +49,7 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   if (isNewTranscript && current) {
     heldSessions.set(sessionName, { ...current, transcript: { path: transcriptPath, readByteCount: 0, runningTools: new Map() } });
   }
-  // A Stop the lane blocked keeps the turn going, so the session isn't idle. A
-  // turn that ends on an open output is waiting for the person, not idle.
-  const blockedStop = hookEvent === "Stop" && decision !== "";
+  // A turn that ends on an open output is waiting for the person, not idle.
   const nextState = nextSessionState(hookEvent, hookDetails);
   const hasOpenOutput = (heldSessions.get(sessionName)?.summary.openOutputs.length ?? 0) > 0;
   const isTurnOver = nextState === "idle";
@@ -57,7 +61,7 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
 // The tools a session's MCP server lists. The kinds live only here, so the tools
 // offered and the tools checked can't drift.
 const listedTools = (): ListedTool[] =>
-  catalog().kinds.map(({ toolName, description, inputSchema, acceptedReply }) => ({ name: toolName, description, inputSchema, reply: acceptedReply }));
+  catalog().kinds.map((kind) => ({ name: kind.toolName, description: kind.description, inputSchema: listedSchema(kind), reply: replyWording(kind) }));
 
 // The answer to one hook request. The token check and the hook's handling run
 // in one step, so a session replaced under the same name can't be acted on.

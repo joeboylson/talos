@@ -3,43 +3,38 @@ import type { SessionState, SessionSummary } from "../shapes";
 import { READY_CHECK_MS, READY_QUIET_MS } from "../constants";
 import { findKind } from "../kinds";
 import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
+import { stepOutputs, type Outputs, type OutputsEvent } from "../lanes/outputs";
 import { ENTER_KEY, buildPastedText } from "../terminal";
 import { catalog, log } from "./inputs";
-import { broadcastSessions, heldSessions, updateHeldSession } from "./store";
+import { broadcastSessions, heldSessions, updateHeldSession, type HeldSession } from "./store";
 
-// What a step changes in the summary: an ask's state, its latest answer, and the
-// open outputs. The first open output of a kind stands until it's answered, so
-// its choices can't change under the person's click.
-const applyStep = (summary: SessionSummary, step: LaneStep): SessionSummary => {
-  const { recorded, askChange } = step;
-  const asks = askChange
-    ? {
-        ...summary.asks,
-        [askChange.kind]: {
-          ...summary.asks[askChange.kind],
-          state: askChange.state,
-          atMs: askChange.atMs,
-          ...(askChange.state === "answered" && recorded && { latest: recorded.fields }),
-        },
-      }
-    : summary.asks;
-  const keptOutputs = step.closesOpenOutputs ? [] : summary.openOutputs;
-  const waits = recorded !== null && askChange === null && findKind(catalog(), recorded.kind)?.waits === true;
-  const isNewOpenOutput = waits && !keptOutputs.some((output) => output.kind === recorded.kind);
-  const openOutputs = isNewOpenOutput ? [...keptOutputs, recorded] : keptOutputs;
-  const isUnchanged = asks === summary.asks && openOutputs === summary.openOutputs;
-  return isUnchanged ? summary : { ...summary, asks, openOutputs };
+// The summary shows each ask's state and latest answer, and the open outputs.
+const withAsk = (summary: SessionSummary, change: LaneStep["askChange"]): SessionSummary => {
+  if (!change) return summary;
+  const { kind, state, atMs, latest } = change;
+  const kept = summary.asks[kind]?.latest;
+  const ask = { state, atMs, ...((latest ?? kept) && { latest: latest ?? kept }) };
+  return { ...summary, asks: { ...summary.asks, [kind]: ask } };
+};
+const withOpenOutputs = (summary: SessionSummary, outputs: Outputs): SessionSummary => ({
+  ...summary,
+  openOutputs: outputs.open.map(({ id, kind, fields, atMs }) => ({ id, kind, fields, atMs })),
+});
+
+const saveSession = (sessionName: string, session: HeldSession, changes: Partial<HeldSession>): void => {
+  const next = { ...session, ...changes };
+  heldSessions.set(sessionName, next);
+  if (next.summary !== session.summary) broadcastSessions();
 };
 
 // Every lane change goes through here: step the lane, then apply what the step
-// says (an answer, a typed request) and return the hook's reply.
+// says (an output sent, an ask's change, a typed request) and return the hook's reply.
 export const applyLaneEvent = (sessionName: string, event: LaneEvent): string => {
   const session = heldSessions.get(sessionName);
   if (!session) return "";
   const step = stepLane(session.lane, event, Date.now(), catalog());
-  const summary = applyStep(session.summary, step);
-  heldSessions.set(sessionName, { ...session, lane: step.lane, summary });
-  if (summary !== session.summary) broadcastSessions();
+  const outputs = step.sent ? stepOutputs(session.outputs, { type: "sent", output: step.sent }).outputs : session.outputs;
+  saveSession(sessionName, session, { lane: step.lane, outputs, summary: withAsk(session.summary, step.askChange) });
   if (step.requestToType) {
     session.terminal.write(buildPastedText(step.requestToType));
     session.terminal.write(ENTER_KEY);
@@ -49,6 +44,18 @@ export const applyLaneEvent = (sessionName: string, event: LaneEvent): string =>
   const isWaitingToSettle = step.lane.stage === "queued" || step.lane.stage === "answered";
   if (isWaitingToSettle && session.isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);
   return step.hookReply;
+};
+
+// Every change to the outputs goes through here. One that went through tells the
+// lane, which counts it as an asked-for turn's answer.
+export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): void => {
+  const session = heldSessions.get(sessionName);
+  if (!session) return;
+  const step = stepOutputs(session.outputs, event);
+  if (step.outputs === session.outputs) return;
+  const summary = step.outputs.open === session.outputs.open ? session.summary : withOpenOutputs(session.summary, step.outputs);
+  saveSession(sessionName, session, { outputs: step.outputs, summary });
+  if (step.opened) applyLaneEvent(sessionName, { type: "went-through", output: step.opened });
 };
 
 // isTurnOver says the turn ended (idle, or waiting on a decision's answer); a

@@ -52,6 +52,10 @@ export const SESSION_LIMITS = {
   // for real work, and it can't be raised from inside, so one session can't open
   // enough connections to use up the session runner's.
   maxSessionOpenFiles: 2048,
+  // Outputs waiting for an answer per session; past it, the oldest closes. Each
+  // output's fields are capped too, so the session list stays small.
+  maxOpenOutputs: 20,
+  maxOutputFieldsBytes: 8 * 1024,
   // Past this, a starting session is typed into even if its screen hasn't settled.
   readyLongestWaitMs: 15_000,
   // An asked-for turn that goes unanswered this long becomes "no response".

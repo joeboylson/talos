@@ -69,7 +69,11 @@ export const chooseMachinesToPing = (ownConnectedMachineIds: string[], requested
 export const chooseSessionName = (typedName: string | undefined, folderName: string, takenNames: string[]): string =>
   pickUniqueName(toIdentifierName(typedName?.trim() || folderName), takenNames);
 
-export const createConnections = (machinesTable: MachinesTable, log: Logger) => {
+export const createConnections = (
+  machinesTable: MachinesTable,
+  log: Logger,
+  relayCoalesceMs: number = SERVER_LIMITS.machineListRelayCoalesceMs,
+) => {
   // The server's only changing state: who's connected, what each connected
   // machine reported, each session's recent entries, and when each
   // unanswered ping went out.
@@ -147,7 +151,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       const machines = machinesByOwner.get(personId);
       if (machines) return sendOwnerMachineList(personId, machines);
       sendMachineListToPages(personId).catch((error: unknown) => log.warn(`couldn't send ${personId}'s machine list: ${error}`));
-    }, SERVER_LIMITS.machineListRelayCoalesceMs);
+    }, relayCoalesceMs);
   };
 
   // A page that just opened gets every kept entry of the person's sessions.

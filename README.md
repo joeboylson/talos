@@ -119,6 +119,9 @@ In this repo, run any of them with `make talos <command>`, like
 | `make logs`            | Follows talos-server's output. It restarts on every save.                                             |
 | `make talos <command>` | Runs any `talos` command from here (see above). Plain `make talos` connects.                          |
 | `make desktop`         | Opens the desktop app on the server's page. Run `make dev` first.                                     |
+| `make example EXAMPLE=<name>` | Runs a talos-sessions example (receipts, recipes, explorer) in this terminal; `MODE=record` saves the run, `MODE=replay` plays it back with no Claude. |
+| `make live-examples`   | Runs every example's live check against real Claude (`LIVE_ONLY=<name>` runs one); costs real Claude turns. |
+| `make check-sessions`  | Runs talos-sessions' own check: its typecheck, tests and examples' tests (`make test` runs it too). |
 | `make live-sessions`   | Checks the session runner with real Claude Code sessions in a throwaway folder (`LIVE_ONLY=<name>` runs one scenario); costs real Claude turns. |
 | `make screenshots`     | Retakes every screen of the page into `docs/screenshots/`, from a throwaway server with made-up data. |
 | `make server-image`    | Builds the talos-server container that goes on AWS.                                                   |

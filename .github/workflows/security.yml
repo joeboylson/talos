@@ -32,7 +32,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       # The desktop app's tests need Rust, and its code never reaches the server.
-      - run: for folder in talos talos-server talos-shared talos-web; do (cd "$folder" && bun test) || exit 1; done
+      - run: for folder in talos talos-server talos-shared talos-web; do (cd "$folder" && bun run test) || exit 1; done
+      # talos-sessions checks itself (typecheck alone, its tests, its examples');
+      # talos's own tests leave it out, so it runs once.
+      - name: talos-sessions
+        run: sh talos/src/talos-sessions/check.sh
 
       # GitHub's machines are x86, so the image is built for x86 here. Its
       # system packages are the same as the Arm image AWS runs.

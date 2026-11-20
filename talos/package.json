@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../.env --watch src/index.ts",
-    "test": "bun test",
+    "test": "bun test --path-ignore-patterns 'src/talos-sessions/**'",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {

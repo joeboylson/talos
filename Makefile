@@ -1,4 +1,4 @@
-.PHONY: dev down logs desktop talos screenshots live-sessions server-image security install typecheck test test-db
+.PHONY: dev down logs desktop talos screenshots live-sessions example live-examples check-sessions server-image security install typecheck test test-db
 
 # AWS Graviton (arm64) is cheaper than x86 and matches Apple silicon.
 SERVER_PLATFORM ?= linux/arm64
@@ -41,6 +41,24 @@ endif
 # hostile session can try. Costs real Claude turns, so it isn't part of test.
 live-sessions: node_modules
 	bun dev/sessions/live.ts
+
+# Runs a talos-sessions example (EXAMPLE=receipts, recipes or explorer) in this
+# terminal. MODE=record also saves the run; MODE=replay plays it back, no Claude.
+example: node_modules
+	@test -n "$(EXAMPLE)" || (echo "EXAMPLE=receipts, recipes or explorer" && exit 1)
+	bun talos/src/talos-sessions/examples/$(EXAMPLE)/main.ts
+
+# Runs every talos-sessions example's live check against real Claude (costs
+# Claude turns). LIVE_ONLY=<name> runs one; MODE=record saves each run.
+live-examples: node_modules
+	@for example in receipts recipes explorer; do \
+	  case "$$example" in *"$(LIVE_ONLY)"*) bun talos/src/talos-sessions/examples/$$example/live-check.ts || exit 1;; esac; \
+	done
+
+# talos-sessions' own check: typecheck alone, its tests and its examples'.
+# make test runs it too.
+check-sessions: node_modules
+	sh talos/src/talos-sessions/check.sh
 
 # Retakes every screen of the page into docs/screenshots/, under fixed names,
 # from a throwaway server with made-up data (its own ports; the real dev setup

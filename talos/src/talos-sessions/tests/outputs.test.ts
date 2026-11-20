@@ -83,3 +83,28 @@ describe("readOutputsEvent", () => {
     expect(readOutputsEvent(hookDetails, isBlockedStop)).toEqual(expected as ReturnType<typeof readOutputsEvent>);
   });
 });
+
+describe("several calls at once", () => {
+  const a = pendingOf("a");
+  const b = pendingOf("b");
+  const both = sent(sent(NO_OUTPUTS, a), b);
+  test("each call goes through as itself, and the other stays pending", () => {
+    const step = through(both, b);
+    expect(openIds(step.outputs)).toEqual(["b"]);
+    expect(step.outputs.pending).toEqual([a]);
+  });
+  test("a failed call drops only its own pending output", () => {
+    const afterFailure = stepOutputs(both, { type: "failed", toolUseId: a.toolUseId }).outputs;
+    expect(afterFailure.pending).toEqual([b]);
+    expect(openIds(through(afterFailure, b).outputs)).toEqual(["b"]);
+  });
+  test("pending calls are capped, newest kept", () => {
+    const many = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 3 }, (_unused, index) => pendingOf(`p${index}`));
+    const outputs = many.reduce(sent, NO_OUTPUTS);
+    expect(outputs.pending).toEqual(many.slice(-SESSION_LIMITS.maxOpenOutputs));
+  });
+  test("a call whose input is missing opens nothing, and a hook with no body is no event", () => {
+    expect(stepOutputs(sent(NO_OUTPUTS, a), { type: "went-through", toolUseId: a.toolUseId, toolInput: null }).opened).toBeNull();
+    expect(readOutputsEvent(null, false)).toBeNull();
+  });
+});

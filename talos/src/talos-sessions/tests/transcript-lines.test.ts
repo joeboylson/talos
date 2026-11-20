@@ -71,6 +71,7 @@ describe("readTranscriptLine", () => {
     ["a sub-agent's work", line({ type: "assistant", isSidechain: true, message: { content: [{ type: "text", text: "hi" }] } })],
     ["Claude Code's own notes", line({ type: "user", message: { content: "<local-command-caveat>Caveat</local-command-caveat>" } })],
     ["other kinds of line", line({ type: "file-history-snapshot" })],
+    ["a system line, even with content", line({ type: "system", message: { content: "Conversation compacted" } })],
     ["a line with no id", JSON.stringify({ type: "user", message: { content: "hi" } })],
     ["not JSON", "not json"],
   ])("skips %s", (_name, lineText) => {
@@ -192,5 +193,28 @@ describe("running tools", () => {
     expect(knownTools.size).toBe(SESSION_LIMITS.maxEntriesKept);
     expect(knownTools.has("t0")).toBe(false);
     expect(knownTools.has(`t${SESSION_LIMITS.maxEntriesKept + 9}`)).toBe(true);
+  });
+});
+
+describe("transcript edges", () => {
+  const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
+  const userLine = (content: unknown) => readTranscriptLine(line({ type: "user", message: { content } }));
+  test("a command's output tag partway through a message is a prompt", () => {
+    expect(userLine("see <local-command-stdout>x</local-command-stdout>")).toEqual([
+      { kind: "prompt", entryId: "u1", text: "see <local-command-stdout>x</local-command-stdout>", imageCount: 0 },
+    ]);
+  });
+  test("a note after leading spaces is still skipped", () => {
+    expect(userLine("  <system-reminder>x</system-reminder>")).toEqual([]);
+  });
+  test("an image marker with two digits is dropped", () => {
+    expect(userLine([{ type: "text", text: "[Image #12]look" }])).toEqual([{ kind: "prompt", entryId: "u1", text: "look", imageCount: 0 }]);
+  });
+  test("a result whose tool id isn't text is no tool end", () => {
+    expect(userLine([{ type: "tool_result", tool_use_id: 7 }])).toEqual([]);
+  });
+  test("a tool whose id isn't text isn't an entry", () => {
+    const content = [{ type: "tool_use", id: 7, name: "Bash", input: {} }];
+    expect(readTranscriptLine(line({ type: "assistant", message: { content } }))).toEqual([]);
   });
 });

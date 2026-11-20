@@ -313,3 +313,33 @@ describe("hookReplyWhenTooBig", () => {
     expect(hookReplyWhenTooBig({ hook_event_name: "Stop" })).toBe("");
   });
 });
+
+describe("edges the lane must hold", () => {
+  const structuredCall = { hook_event_name: "PreToolUse", tool_name: mcpToolName(POLL.toolName) };
+  test("hookReplyFromRunner denies an allow whose id is empty", () => {
+    const emptyId = JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { id: "" } } });
+    expect(decisionOf(hookReplyFromRunner(structuredCall, emptyId))).toBe("deny");
+  });
+  test("hookReplyFromRunner passes a Stop's block through unchanged", () => {
+    const block = JSON.stringify({ decision: "block", reason: "Call send_poll before finishing." });
+    expect(hookReplyFromRunner({ hook_event_name: "Stop" }, block)).toBe(block);
+  });
+  test("a typed field holding a list with something other than text is denied", () => {
+    const LIST = kindOf("list", { readFields: (toolInput) => toolInput as Record<string, unknown>, typedFields: { items: { allowCommands: false } } });
+    const listCatalog: Catalog = { kinds: [LIST], proseTurn: { output: "prose", optional: ["list"] } };
+    const call = toolCall(mcpToolName(LIST.toolName), { items: ["fine", 5] });
+    expect(decisionOf(stepLane(NO_LANE, call, NOW, listCatalog).hookReply)).toBe("deny");
+  });
+  test("fields at the size limit are allowed, and one byte over is denied", () => {
+    const sizedText = (bytes: number) => "x".repeat(bytes - JSON.stringify({ text: "" }).length);
+    expect(step(NO_LANE, send(NOTE, sizedText(SESSION_LIMITS.maxOutputFieldsBytes))).decision).toBe("allow");
+    expect(step(NO_LANE, send(NOTE, sizedText(SESSION_LIMITS.maxOutputFieldsBytes + 1))).decision).toBe("deny");
+  });
+  test("the size limit counts bytes, not characters", () => {
+    const twoByteText = "é".repeat(SESSION_LIMITS.maxOutputFieldsBytes / 2);
+    expect(step(NO_LANE, send(NOTE, twoByteText)).decision).toBe("deny");
+  });
+  test("Enter with no ask changes nothing", () => {
+    expect(step(NO_LANE, { type: "person-typed", isTurnChanging: true })).toEqual(unchanged(NO_LANE));
+  });
+});

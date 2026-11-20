@@ -8,6 +8,7 @@
 import { SESSION_LIMITS } from "../limits";
 import { cleanLine, hasCommandMarker } from "../clean";
 import { parseJsonOrNull } from "../json";
+import { jsonByteLength } from "../shapes";
 import { OUTPUT_ID_FIELD, STRUCTURED_TOOL_PREFIX, askedTurn, findKind, findKindByTool, type Catalog, type OutputKind, type TurnShape } from "../kinds";
 import type { PendingOutput } from "./outputs";
 
@@ -148,7 +149,7 @@ const hasForbiddenCommand = (kind: OutputKind, fields: Record<string, unknown>):
     const texts = typedTextOf(fields[field]);
     return texts === null || (!allowCommands && texts.some((text) => hasCommandMarker(cleanLine(text))));
   });
-const isTooBig = (fields: Record<string, unknown>): boolean => JSON.stringify(fields).length > SESSION_LIMITS.maxOutputFieldsBytes;
+const isTooBig = (fields: Record<string, unknown>): boolean => jsonByteLength(fields) > SESSION_LIMITS.maxOutputFieldsBytes;
 
 // A turn may send what its shape allows. It's allowed with a fresh id and stays
 // pending; an asked-for turn is answered only once it goes through.

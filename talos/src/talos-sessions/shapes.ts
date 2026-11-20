@@ -52,8 +52,11 @@ const isOneOf = <T extends string>(choices: readonly T[], value: unknown): value
 
 const fieldOf = (item: object, field: string): unknown => Reflect.get(item, field);
 
+const textEncoder = new TextEncoder();
+export const jsonByteLength = (value: unknown): number => textEncoder.encode(JSON.stringify(value)).length;
+
 const isFields = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value) && JSON.stringify(value).length <= LIMITS.maxOutputFieldsBytes;
+  typeof value === "object" && value !== null && !Array.isArray(value) && jsonByteLength(value) <= LIMITS.maxOutputFieldsBytes;
 
 const IDENTIFIER_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -171,10 +174,13 @@ export const toDroppedMarker = (item: unknown, reason: string): SessionEntry => 
 };
 
 // Markers past the cap are left out, so a flood of bad items can't push out real ones.
+// Counted by position, not id: bad items with no readable id share one.
 export const capDroppedMarkers = (entries: SessionEntry[], maxMarkers: number): SessionEntry[] => {
-  const markerIds = entries.filter((entry) => entry.kind === "dropped").map((entry) => entry.entryId);
-  const keptMarkerIds = new Set(markerIds.slice(-maxMarkers));
-  return markerIds.length <= maxMarkers ? entries : entries.filter((entry) => entry.kind !== "dropped" || keptMarkerIds.has(entry.entryId));
+  const markerPositions = entries.flatMap((entry, position) => (entry.kind === "dropped" ? [position] : []));
+  const leftOutCount = Math.max(markerPositions.length - Math.max(maxMarkers, 0), 0);
+  if (leftOutCount === 0) return entries;
+  const leftOutPositions = new Set(markerPositions.slice(0, leftOutCount));
+  return entries.filter((_entry, position) => !leftOutPositions.has(position));
 };
 
 // Each entry is checked on its own: a bad one becomes a dropped marker in its place.
@@ -220,8 +226,8 @@ const keepNewestWithinTextBudget = (entries: SessionEntry[]): SessionEntry[] => 
 // Entries arrive again when a tool ends, or after a reconnect. The newer
 // copy replaces the older one in place, and new ones go on the end.
 export const mergeSessionEntries = (keptEntries: SessionEntry[], newEntries: SessionEntry[], maxKept: number): SessionEntry[] => {
-  const newEntryById = new Map(newEntries.filter(hasEntryId).map((entry) => [entry.entryId, entry]));
   const keptIds = new Set(keptEntries.map((entry) => entry.entryId));
+  const newEntryById = new Map(newEntries.filter(hasEntryId).map((entry) => [entry.entryId, entry]));
   const updatedEntries = keptEntries.map((entry) => newEntryById.get(entry.entryId) ?? entry);
   const addedEntries = [...newEntryById.values()].filter((entry) => !keptIds.has(entry.entryId));
   return capDroppedMarkers(keepNewestWithinTextBudget([...updatedEntries, ...addedEntries].slice(-maxKept)), LIMITS.maxDroppedKept);

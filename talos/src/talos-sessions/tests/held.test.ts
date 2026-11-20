@@ -62,3 +62,26 @@ describe("what goes in at the next settle", () => {
     expect(keptHeld([held(2)], [], 2 + SESSION_LIMITS.queuedAskTimeoutMs + 1)).toEqual([]);
   });
 });
+
+describe("held answers among several questions", () => {
+  const twoOpen: Outputs = { ...NO_OUTPUTS, open: [...OPEN.open, { id: "q2", kind: "pick", fields: { options: ["Yes", "No"] }, atMs: 1, askedInTurn: 0 }] };
+  test("an answer to one question doesn't block answering another", () => {
+    const held = readAnswer(twoOpen, [], CATALOG, "q1", 0, 5) as HeldAnswer;
+    expect(readAnswer(twoOpen, [held], CATALOG, "q2", 1, 6)).toEqual({ outputId: "q2", text: "Answer to q2: No", heldAtMs: 6 });
+  });
+  test("a kind whose choices allow commands lets one through", () => {
+    const LOOSE: OutputKind = { ...PICK, kind: "loose", typedFields: { options: { allowCommands: true } } };
+    const looseCatalog: Catalog = { ...CATALOG, kinds: [LOOSE] };
+    expect(readAnswer(outputsWith({ options: ["/clear", "keep"] }, "loose"), [], looseCatalog, "q1", 0, 5)).toEqual({ outputId: "q1", text: "Answer to q1: /clear", heldAtMs: 5 });
+  });
+  test("with real clock times, a fresh answer stays, one at the backstop stays, and one past it goes", () => {
+    const nowMs = 1_800_000_000_000;
+    const heldAt = (ageMs: number): HeldAnswer => ({ outputId: `q${ageMs}`, text: "x", heldAtMs: nowMs - ageMs });
+    const atBackstop = heldAt(SESSION_LIMITS.queuedAskTimeoutMs);
+    expect(keptHeld([heldAt(1000), atBackstop, heldAt(SESSION_LIMITS.queuedAskTimeoutMs + 1)], [], nowMs)).toEqual([heldAt(1000), atBackstop]);
+  });
+  test("an ask and an answer from the same moment: the ask goes first", () => {
+    const lane: Lane = { stage: "queued", output: "poll", askedAtMs: 7 };
+    expect(nextToType(lane, [{ outputId: "q1", text: "x", heldAtMs: 7 }], false)).toBe("ask");
+  });
+});

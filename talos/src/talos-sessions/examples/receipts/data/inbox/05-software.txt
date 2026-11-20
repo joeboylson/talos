@@ -1,0 +1,7 @@
+From: billing@pixelpad.app
+Subject: Your PixelPad receipt
+Date: 1 April 2025
+
+Thanks for your payment.
+PixelPad Pro — monthly plan ...... $19.00
+Total charged: USD 19.00

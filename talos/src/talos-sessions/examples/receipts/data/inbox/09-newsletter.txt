@@ -1,0 +1,5 @@
+From: hello@coffeeclub.example
+Subject: Spring beans are here!
+
+Hi there, our new single origins just landed. Use code SPRING10 for 10% off
+your next order. Unsubscribe any time.

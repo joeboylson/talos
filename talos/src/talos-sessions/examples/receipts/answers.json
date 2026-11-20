@@ -1,0 +1,17 @@
+{
+  "categories": ["travel", "lodging", "meals", "supplies", "software", "events", "personal"],
+  "expenses": {
+    "01-train.txt": { "amount": 24.6, "currency": "GBP", "category": "travel" },
+    "02-hotel.txt": { "amount": 222.0, "currency": "GBP", "category": "lodging" },
+    "03-taxi.txt": { "amount": 14.2, "currency": "GBP", "category": "travel" },
+    "04-paper.txt": { "amount": 12.47, "currency": "GBP", "category": "supplies" },
+    "05-software.txt": { "amount": 19.0, "currency": "USD", "category": "software" },
+    "06-lunch.txt": { "amount": 10.75, "currency": "GBP", "category": "meals" },
+    "07-dinner.txt": { "amount": 167.06, "currency": "GBP", "category": { "Business": "meals", "Personal": "personal" } },
+    "08-conference.txt": { "amount": 349.0, "currency": "EUR", "category": "events" },
+    "11-flight.txt": { "amount": 70.49, "currency": "GBP", "category": "travel" }
+  },
+  "skipped": ["09-newsletter.txt"],
+  "duplicates": [["04-paper.txt", "10-paper-copy.txt"]],
+  "unclear": "07-dinner.txt"
+}

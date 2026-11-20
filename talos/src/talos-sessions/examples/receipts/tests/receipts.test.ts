@@ -1,0 +1,77 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { SessionSummary } from "../../../index";
+import { readRecording, replay } from "../../kit/recording";
+import type { Input } from "../../kit/view";
+import { KINDS, PROSE_TURN, QUESTION, TALLY, readExpense, readQuestion, readTally } from "../kinds";
+import { START_MESSAGE, receiptsView, type ReceiptsState } from "../view";
+
+const plain = (lines: string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+const expense = { file: "01-train.txt", date: "2025-03-03", shop: "Northern Rail", amount: 24.6, currency: "GBP", category: "travel" };
+
+describe("receipts' kinds", () => {
+  test("a good expense is kept", () => {
+    expect(readExpense(expense)).toEqual(expense);
+  });
+  test.each([
+    ["a date that isn't one", { ...expense, date: "2025-02-30" }],
+    ["an amount that isn't a number", { ...expense, amount: "24.60" }],
+    ["a negative amount", { ...expense, amount: -1 }],
+    ["a currency that isn't a code", { ...expense, currency: "£" }],
+    ["a category not on the list", { ...expense, category: "fun" }],
+  ])("an expense with %s is turned down", (_name, input) => {
+    expect(readExpense(input)).toBeNull();
+  });
+  test("a question needs 2 to 4 different choices, typed in without commands", () => {
+    expect(readQuestion({ file: "07.txt", question: "Business expense?", choices: ["Business", "Personal"] })).not.toBeNull();
+    expect(readQuestion({ file: "07.txt", question: "?", choices: ["Same", "Same"] })).toBeNull();
+    expect(QUESTION).toMatchObject({ waits: true, choicesField: "choices", typedFields: { choices: { allowCommands: false } } });
+  });
+  test("a tally is only asked for, and its totals are checked", () => {
+    expect(TALLY.requestText).toBeTruthy();
+    expect(PROSE_TURN.optional).not.toContain("tally");
+    expect(readTally({ totals: [{ category: "travel", currency: "GBP", amount: 24.6 }] })).not.toBeNull();
+    expect(readTally({ totals: [{ category: "travel", currency: "GBP", amount: "lots" }] })).toBeNull();
+    expect(KINDS.map(({ kind }) => kind)).toEqual(["expense", "skipped", "question", "tally"]);
+  });
+});
+
+describe("the view", () => {
+  const session = (extra: Partial<SessionSummary>): Input => ({
+    type: "event",
+    event: { type: "sessions", sessions: [{ sessionName: "example", folderName: "work", state: "idle", asks: {}, openOutputs: [], ...extra }] },
+  });
+  const expenseEntry: Input = { type: "event", event: { type: "session-entries", sessionName: "example", entries: [{ kind: "output", position: 1, entryId: "e1", outputKind: "expense", fields: expense }] } };
+  const question = { id: "q1", kind: "question", fields: { file: "07-dinner.txt", question: "Business expense?", choices: ["Business", "Personal"] }, atMs: 0 };
+  const play = (inputs: Input[]) =>
+    inputs.reduce((played, input) => {
+      const { state, actions } = receiptsView.step(played.state, input);
+      return { state, actions: [...played.actions, ...actions] };
+    }, { state: receiptsView.initial as ReceiptsState, actions: [] as unknown[] });
+
+  test("starting sends the sorting request", () => {
+    expect(play([{ type: "started" }]).actions).toEqual([{ do: "send", text: START_MESSAGE }]);
+  });
+  test("a number answers the open question by its id; a number past its choices does nothing", () => {
+    expect(play([session({ state: "needs-you", openOutputs: [question] }), { type: "key", key: "2" }]).actions).toEqual([{ do: "answer", outputId: "q1", choice: 1 }]);
+    expect(play([session({ state: "needs-you", openOutputs: [question] }), { type: "key", key: "3" }]).actions).toEqual([]);
+  });
+  test("the tally is asked for once, only when idle with expenses and no question open", () => {
+    expect(play([expenseEntry, session({ state: "needs-you", openOutputs: [question] })]).actions).toEqual([]);
+    expect(play([expenseEntry, session({ state: "working" })]).actions).toEqual([]);
+    expect(play([expenseEntry, session({ state: "idle" }), session({ state: "idle" })]).actions).toEqual([{ do: "ask", kind: "tally" }]);
+  });
+  test("a refusal shows its reason", () => {
+    const { state } = play([{ type: "result", action: { do: "answer", outputId: "q1", choice: 0 }, result: { ok: false, code: "closed", reason: "That question has closed" } }]);
+    expect(plain(receiptsView.render(state, 100)).join("\n")).toContain("That question has closed");
+  });
+  test("the recorded run replays: sorting, the question answered by id, then the tally", () => {
+    const { state, actions, states } = replay(receiptsView, readRecording(readFileSync(join(import.meta.dir, "../recordings/run.jsonl"), "utf8")));
+    expect(actions.map((action) => action.do)).toEqual(["send", "answer", "ask"]);
+    expect(states.some((one) => one.question?.fields.file === "07-dinner.txt")).toBe(true);
+    const screen = plain(receiptsView.render(state, 100));
+    expect(screen.filter((line) => /\d\.\d\d [A-Z]{3}/.test(line))).toHaveLength(9);
+    expect(screen).toContain("Totals");
+  });
+});

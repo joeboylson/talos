@@ -124,6 +124,7 @@ In this repo, run any of them with `make talos <command>`, like
 | `make server-image`    | Builds the talos-server container that goes on AWS.                                                   |
 | `make security`        | Runs the security checks that GitHub and each publish run (see Publishing).                           |
 | `make test`            | Runs every folder's tests.                                                                            |
+| `make test-db`         | Checks the server's tables against a throwaway AWS emulator in Docker (not part of `make test`).      |
 | `make typecheck`       | Type-checks every folder.                                                                             |
 | `make install`         | Installs packages (other commands do this when needed).                                               |
 

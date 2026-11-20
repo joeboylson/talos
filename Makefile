@@ -1,4 +1,4 @@
-.PHONY: dev down logs desktop talos screenshots live-sessions server-image security install typecheck test
+.PHONY: dev down logs desktop talos screenshots live-sessions server-image security install typecheck test test-db
 
 # AWS Graviton (arm64) is cheaper than x86 and matches Apple silicon.
 SERVER_PLATFORM ?= linux/arm64
@@ -67,6 +67,14 @@ typecheck: node_modules
 
 test: node_modules
 	bun run test
+
+# Checks the tables against a throwaway AWS emulator on its own port (the real
+# dev setup is left alone): each table's key, save then find, and sign-out's
+# update. Needs Docker, so it isn't part of test.
+test-db: node_modules
+	@trap 'docker compose -p talos-test-db down -v >/dev/null 2>&1' EXIT; \
+	docker compose -p talos-test-db -f docker-compose.yml -f dev/test-db/compose.override.yml up --build --detach --wait aws-emulator >/dev/null && \
+	cd talos-server && AWS_ENDPOINT_URL=https://localhost:9597 AWS_REGION=us-east-1 NODE_TLS_REJECT_UNAUTHORIZED=0 bun test ./src/tests/tables/tables.emulator-check.ts
 
 node_modules: package.json talos/package.json talos-server/package.json talos-shared/package.json talos-web/package.json talos-desktop/package.json
 	bun install

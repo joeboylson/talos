@@ -1,4 +1,4 @@
-import type { MachineSummary, SessionDecision, SessionEntry, SessionState, SessionStatus } from "talos-shared";
+import { openDecisionOf, statusOf, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
 
 export type SessionRow = {
   machineId: string;
@@ -16,15 +16,12 @@ export const sessionKey = (machineId: string, sessionName: string): string => `$
 export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
   machines
     .flatMap(({ machineId, machineName, sessions }) =>
-      (sessions ?? []).map(({ sessionName, folderName, state, status, decision }) => ({
-        machineId,
-        machineName,
-        sessionName,
-        folderName,
-        state,
-        status,
-        decision,
-      })),
+      (sessions ?? []).map((session) => {
+        const status = statusOf(session);
+        const decision = openDecisionOf(session);
+        const { sessionName, folderName, state } = session;
+        return { machineId, machineName, sessionName, folderName, state, ...(status && { status }), ...(decision && { decision }) };
+      }),
     )
     .sort(
       (first, second) =>

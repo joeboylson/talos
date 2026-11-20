@@ -12,15 +12,15 @@ export type Command =
   | { name: "sessions-list" }
   | { name: "sessions-attach"; sessionName: string }
   | { name: "sessions-stop"; sessionName: string }
-  | { name: "host-stop" }
+  | { name: "runner-stop" }
   | { name: "unknown"; typed: string };
 
 export type FolderCommand = Extract<Command, { name: `folders-${string}` }>;
-export type SessionCommand = Extract<Command, { name: `sessions-${string}` | "host-stop" }>;
+export type SessionCommand = Extract<Command, { name: `sessions-${string}` | "runner-stop" }>;
 
 export const isFolderCommand = (command: Command): command is FolderCommand => command.name.startsWith("folders-");
 export const isSessionCommand = (command: Command): command is SessionCommand =>
-  command.name.startsWith("sessions-") || command.name === "host-stop";
+  command.name.startsWith("sessions-") || command.name === "runner-stop";
 
 export const HELP_TEXT =`talos: connects this machine to the Talos server
 
@@ -32,7 +32,7 @@ export const HELP_TEXT =`talos: connects this machine to the Talos server
   talos sessions                            list this machine's Claude sessions
   talos sessions <session> attach           watch and type in a session (Ctrl-\\ leaves it running)
   talos sessions <session> stop             end a session
-  talos host stop                           end the session host and every session in it
+  talos runner stop                         end the session runner and every session in it
   talos help                                show this list
 `;
 
@@ -63,6 +63,6 @@ export const parseCommand = (args: string[]): Command => {
   if (firstWord === "help" && otherWords.length === 0) return { name: "help" };
   if (firstWord === "folders") return parseFoldersCommand(otherWords, typed);
   if (firstWord === "sessions") return parseSessionsCommand(otherWords, typed);
-  if (typed === "host stop") return { name: "host-stop" };
+  if (typed === "runner stop") return { name: "runner-stop" };
   return { name: "unknown", typed };
 };

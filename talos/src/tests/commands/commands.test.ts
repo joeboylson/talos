@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { HELP_TEXT, parseCommand } from "../../commands";
+import { HELP_TEXT, isFolderCommand, isSessionCommand, parseCommand } from "../../commands";
 import { resolveFolderPath } from "../../folder-commands";
 
 test("no command connects", () => {
@@ -21,14 +21,14 @@ test("session commands", () => {
   expect(parseCommand(["sessions"])).toEqual({ name: "sessions-list" });
   expect(parseCommand(["sessions", "fix-login", "attach"])).toEqual({ name: "sessions-attach", sessionName: "fix-login" });
   expect(parseCommand(["sessions", "fix-login", "stop"])).toEqual({ name: "sessions-stop", sessionName: "fix-login" });
-  expect(parseCommand(["host", "stop"])).toEqual({ name: "host-stop" });
+  expect(parseCommand(["runner", "stop"])).toEqual({ name: "runner-stop" });
 });
 
 test.each([
   [["sessions", "fix-login"]],
   [["sessions", "fix-login", "attach", "now"]],
-  [["host"]],
-  [["host", "start"]],
+  [["runner"]],
+  [["runner", "start"]],
   [["folders", "add"]],
   [["folders", "remove"]],
   [["folders", "rename", "x"]],
@@ -44,18 +44,31 @@ test.each([
 });
 
 test("help lists every command", () => {
-  ["  talos  ", "  talos help", "  talos folders  ", "talos folders add <path>", "talos folders remove <folder>", "talos sessions <session> attach", "talos host stop"].forEach((line) =>
+  ["  talos  ", "  talos help", "  talos folders  ", "talos folders add <path>", "talos folders remove <folder>", "talos sessions <session> attach", "talos runner stop"].forEach((line) =>
     expect(HELP_TEXT).toContain(line),
   );
 });
 
 test.each([
-  ["~/code/talos", "/work/here", "/home/joe", "/home/joe/code/talos"],
-  ["~", "/work/here", "/home/joe", "/home/joe"],
-  [".", "/work/here", "/home/joe", "/work/here"],
-  ["../other", "/work/here", "/home/joe", "/work/other"],
-  ["/abs/path/", "/work/here", "/home/joe", "/abs/path"],
-  ["~not-home", "/work/here", "/home/joe", "/work/here/~not-home"],
-])("resolveFolderPath(%p) is %p", (typedPath, currentFolder, homeFolder, expected) => {
+  ["~/code/talos", "/home/joe/code/talos", "/work/here", "/home/joe"],
+  ["~", "/home/joe", "/work/here", "/home/joe"],
+  [".", "/work/here", "/work/here", "/home/joe"],
+  ["../other", "/work/other", "/work/here", "/home/joe"],
+  ["/abs/path/", "/abs/path", "/work/here", "/home/joe"],
+  ["~not-home", "/work/here/~not-home", "/work/here", "/home/joe"],
+])("resolveFolderPath(%p) is %p", (typedPath, expected, currentFolder, homeFolder) => {
   expect(resolveFolderPath(typedPath, currentFolder, homeFolder)).toBe(expected);
+});
+
+test.each([
+  [["folders"], true, false],
+  [["folders", "add", "~/x"], true, false],
+  [["sessions"], false, true],
+  [["sessions", "fix", "stop"], false, true],
+  [["runner", "stop"], false, true],
+  [[], false, false],
+  [["help"], false, false],
+])("%p: a folder command %p, a session command %p", (args, isFolder, isSession) => {
+  const command = parseCommand(args);
+  expect([isFolderCommand(command), isSessionCommand(command)]).toEqual([isFolder, isSession]);
 });

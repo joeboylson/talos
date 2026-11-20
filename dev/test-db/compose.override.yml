@@ -1,0 +1,8 @@
+# Used only by `make test-db`: the emulator alone, on its own port, so it
+# never touches the real dev setup.
+services:
+  aws-emulator:
+    ports: !override
+      - "127.0.0.1:9597:9297"
+  talos-server:
+    env_file: !reset []

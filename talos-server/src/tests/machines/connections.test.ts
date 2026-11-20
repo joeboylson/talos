@@ -12,7 +12,7 @@ const machine = (machineId: string, machineName: string, ownerPersonId: string) 
 const MACHINES = [machine("2", "spark", "joe"), machine("1", "atlas", "joe"), machine("3", "laptop", "sam")];
 const SPARK_REPORT: MachineReport = {
   folders: [{ folderName: "talos", path: "/home/joe/talos" }],
-  sessions: [{ sessionName: "fix-login", folderName: "talos", state: "idle" }],
+  sessions: [{ sessionName: "fix-login", folderName: "talos", state: "idle", asks: {}, openOutputs: [] }],
 };
 const EMPTY_REPORT: MachineReport = { folders: [], sessions: [] };
 

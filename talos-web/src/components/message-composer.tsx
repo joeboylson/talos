@@ -2,6 +2,7 @@ import { ImagePlusIcon, SendIcon, XIcon } from "lucide-react";
 import { useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/icon-button";
 import { Textarea } from "@/components/ui/textarea";
+import { canSendMessage, isSendKey, takeImagesThatFit } from "@/compose-message";
 import { prepareImage, type PreparedImage } from "@/images";
 import { LIMITS } from "talos-shared";
 
@@ -9,8 +10,8 @@ type MessageComposerProps = { onSend: (text: string, images: PreparedImage[]) =>
 
 const imagesOf = (files: Iterable<File>): File[] => [...files].filter((file) => file.type.startsWith("image/"));
 
-// The box for a new message. Enter sends; Shift+Enter starts a new line.
-// Images come from the attach button or from pasting.
+// The box for a new message. Images come from the attach button or from
+// pasting.
 export const MessageComposer = ({ onSend }: MessageComposerProps) => {
   const [typedText, setTypedText] = useState("");
   const [images, setImages] = useState<PreparedImage[]>([]);
@@ -18,11 +19,10 @@ export const MessageComposer = ({ onSend }: MessageComposerProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canAddImages = images.length < LIMITS.maxImagesPerMessage;
-  const canSend = typedText.trim() !== "" || images.length > 0;
+  const canSend = canSendMessage(typedText, images.length);
 
   const addImages = async (files: File[]) => {
-    const roomLeft = LIMITS.maxImagesPerMessage - images.length;
-    const prepared = await Promise.all(files.slice(0, roomLeft).map(prepareImage)).catch((error: unknown) => {
+    const prepared = await Promise.all(takeImagesThatFit(files, images.length).map(prepareImage)).catch((error: unknown) => {
       setProblem(error instanceof Error ? error.message : "Couldn't add that image");
       return [];
     });
@@ -46,7 +46,7 @@ export const MessageComposer = ({ onSend }: MessageComposerProps) => {
     sendMessage();
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey) return;
+    if (!isSendKey(event)) return;
     event.preventDefault();
     sendMessage();
   };

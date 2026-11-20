@@ -9,5 +9,8 @@
   },
   "dependencies": {
     "talos-shared": "workspace:*"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.3"
   }
 }

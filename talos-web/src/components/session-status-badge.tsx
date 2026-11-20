@@ -1,7 +1,7 @@
 import type { SessionStatus } from "talos-shared";
 import { Badge } from "@/components/ui/badge";
 
-// The structured status a session reports when asked (plus the host's "pending"
+// The structured status a session reports when asked (plus the session runner's "pending"
 // and "no-response"). Mirrors SessionStateBadge; dots use fixed status colors.
 const STATUS_LOOKS: Record<SessionStatus["state"], { label: string; dotClass: string }> = {
   working: { label: "Working", dotClass: "bg-blue-500" },

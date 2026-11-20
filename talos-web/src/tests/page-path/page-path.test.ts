@@ -20,4 +20,5 @@ test("buildLocationPath is readPageLocation's opposite", () => {
   expect(buildLocationPath(sessionLocation)).toBe("/sessions/atlas/fix-login");
   expect(readPageLocation(buildLocationPath(sessionLocation))).toEqual(sessionLocation);
   expect(buildLocationPath({ pageKind: "folders", machineName: null, sessionName: null })).toBe("/folders");
+  expect(buildLocationPath({ pageKind: "sessions", machineName: "atlas", sessionName: null })).toBe("/sessions");
 });

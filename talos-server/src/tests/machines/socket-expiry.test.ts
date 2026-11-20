@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import type { Logger } from "talos-shared";
 import { CLOSE_CODES } from "../../constants";
 import { createConnections, type SocketData } from "../../connections";
@@ -32,4 +32,17 @@ test("the keep-alive sweep closes a page socket whose session has expired, and p
   expect(fresh.record.closedWith).toBeNull();
   expect(fresh.record.pinged).toBe(true);
   expect(machine.record.pinged).toBe(true);
+});
+
+test("a page whose session ends at this very moment is closed", async () => {
+  const nowMs = Date.now();
+  setSystemTime(new Date(nowMs));
+  const connections = createConnections(machinesTable, quietLog);
+  const handlers = connections.websocketHandlers as unknown as Record<string, (socket: unknown) => void>;
+  const endingNow = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: nowMs });
+  openOn(handlers, endingNow);
+  await Bun.sleep(0);
+  connections.pingAllSockets();
+  setSystemTime();
+  expect(endingNow.record.closedWith).toBe(CLOSE_CODES.sessionExpired);
 });

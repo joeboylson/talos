@@ -20,12 +20,16 @@ export const LIMITS = {
   // Each side keeps this many of a session's latest entries, and sends at most
   // this many at once.
   maxEntriesKept: 500,
+  // Dropped markers per batch of entries and per session, so a flood of bad
+  // items can't push out real ones.
+  maxDroppedPerBatch: 10,
+  maxDroppedKept: 20,
   // And no more than this much text across them, newest kept: with up to 50
   // sessions a machine and 20 machines a person, the server holds at most this
   // times 1,000 for one person, and sends it all to each page that opens.
   maxKeptEntryTextLength: 200_000,
   // Longer text is cut to this. It keeps a session's kept entries to a few MB on
-  // the host, in talos and on the server.
+  // the session runner, in talos and on the server.
   maxEntryTextLength: 20_000,
   // A message typed on the page can be longer (a pasted log): it goes once to
   // the session and isn't kept.
@@ -38,6 +42,12 @@ export const LIMITS = {
   maxDecisionChoiceLength: 100,
   maxToolSummaryLength: 1000,
   maxIdTextLength: 200,
+  // A machine's error shown on the page, like a refused answer.
+  maxMachineErrorLength: 300,
+  // Open outputs per session, and the size of one output's fields, so a session's
+  // summary stays small.
+  maxOpenOutputs: 20,
+  maxOutputFieldsBytes: 8 * 1024,
   maxNameTextLength: 100,
   // The page shrinks images before sending, so these are rarely reached.
   maxImagesPerMessage: 4,

@@ -1,0 +1,50 @@
+import { expect, test } from "bun:test";
+import type { SessionEntry } from "talos-shared";
+import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, forgetEntries } from "../../page-state";
+import { sessionKey } from "../../session-rows";
+
+const KEY = sessionKey("m1", "web");
+const OTHER_KEY = sessionKey("m1", "api");
+const prompt = (entryId: string, text: string): SessionEntry => ({ kind: "prompt", position: 0, entryId, text, imageCount: 0 });
+const textEntry = (entryId: string, text: string): SessionEntry => ({ kind: "text", position: 0, entryId, text });
+const entriesFor = (sessionName: string, entries: SessionEntry[]) =>
+  ({ type: "session-entries", machineId: "m1", sessionName, entries }) as const;
+
+test("a saved prompt clears its waiting copy; other entries don't", () => {
+  const waiting = addWaitingPrompt(addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "hi", []), "m1", "web", "hi", []);
+  const afterText = applyServerMessage(waiting, entriesFor("web", [textEntry("t1", "hi")]));
+  expect(afterText.waitingPromptsBySession[KEY]).toHaveLength(2);
+  const afterPrompt = applyServerMessage(afterText, entriesFor("web", [prompt("p1", "hi")]));
+  expect(afterPrompt.waitingPromptsBySession[KEY]).toEqual([{ text: "hi", imagePreviewUrls: [] }]);
+});
+
+test("new entries add to the kept ones, for that session only", () => {
+  const first = applyServerMessage(EMPTY_PAGE_STATE, entriesFor("web", [textEntry("t1", "one")]));
+  const second = applyServerMessage(first, entriesFor("web", [textEntry("t2", "two")]));
+  const other = applyServerMessage(second, entriesFor("api", [textEntry("t3", "three")]));
+  expect(other.entriesBySession[KEY]?.map(({ entryId }) => entryId)).toEqual(["t1", "t2"]);
+  expect(other.entriesBySession[OTHER_KEY]?.map(({ entryId }) => entryId)).toEqual(["t3"]);
+});
+
+test("a server error becomes the notice", () => {
+  expect(applyServerMessage(EMPTY_PAGE_STATE, { type: "error", message: "No such session" }).notice).toBe("No such session");
+});
+
+test("machines and ping replies are kept", () => {
+  const withMachines = applyServerMessage(EMPTY_PAGE_STATE, { type: "machines", machines: [] });
+  const withPong = applyServerMessage(withMachines, { type: "pong", machineId: "m1", machineName: "atlas", roundTripMs: 12 });
+  expect(withPong.machines).toEqual([]);
+  expect(withPong.roundTripMsByMachineId).toEqual({ m1: 12 });
+});
+
+test("a new connection forgets entries but keeps waiting messages", () => {
+  const state = addWaitingPrompt(applyServerMessage(EMPTY_PAGE_STATE, entriesFor("web", [textEntry("t1", "one")])), "m1", "web", "hi", []);
+  const reconnected = forgetEntries(state);
+  expect(reconnected.entriesBySession).toEqual({});
+  expect(reconnected.waitingPromptsBySession[KEY]).toHaveLength(1);
+});
+
+test("a waiting message is kept without its outer spaces, with its previews", () => {
+  const state = addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "  hi\n", ["blob:a"]);
+  expect(state.waitingPromptsBySession[KEY]).toEqual([{ text: "hi", imagePreviewUrls: ["blob:a"] }]);
+});

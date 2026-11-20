@@ -11,10 +11,18 @@ const machine = (machineName: string, sessions: MachineSummary["sessions"]): Mac
 });
 
 const MACHINES = [
-  machine("spark", [{ sessionName: "fix-login", folderName: "talos", state: "working", status: { state: "stuck", note: "blocked on the API", atMs: 1 } }]),
+  machine("spark", [
+    {
+      sessionName: "fix-login",
+      folderName: "talos",
+      state: "working",
+      asks: { status: { state: "answered", atMs: 1, latest: { state: "stuck", note: "blocked on the API" } } },
+      openOutputs: [],
+    },
+  ]),
   machine("atlas", [
-    { sessionName: "web", folderName: "website", state: "idle" },
-    { sessionName: "api", folderName: "talos", state: "needs-you" },
+    { sessionName: "web", folderName: "website", state: "idle", asks: {}, openOutputs: [] },
+    { sessionName: "api", folderName: "talos", state: "needs-you", asks: {}, openOutputs: [] },
   ]),
   machine("laptop", null),
 ];
@@ -34,7 +42,7 @@ test("findSessionRow finds by machine and session name", () => {
 
 describe("removeAnsweredPrompt", () => {
   const waiting = (text: string, imageCount = 0) => ({ text, imagePreviewUrls: Array.from({ length: imageCount }, () => "blob:x") });
-  const saved = (text: string, imageCount = 0) => ({ kind: "prompt", entryId: "e", text, imageCount }) as const;
+  const saved = (text: string, imageCount = 0) => ({ kind: "prompt", position: 0, entryId: "e", text, imageCount }) as const;
 
   test("clears the first matching waiting message only", () => {
     expect(removeAnsweredPrompt([waiting("hi"), waiting("again"), waiting("hi")], saved("hi"))).toEqual([
@@ -51,19 +59,28 @@ describe("removeAnsweredPrompt", () => {
     expect(removeAnsweredPrompt([waiting("look", 1), waiting("look", 2)], saved("look", 2))).toEqual([waiting("look", 1)]);
     expect(removeAnsweredPrompt([waiting("", 1)], saved("", 1))).toEqual([]);
   });
+
+  test("a saved message with fewer images leaves one with more waiting", () => {
+    expect(removeAnsweredPrompt([waiting("look", 2)], saved("look", 1))).toEqual([waiting("look", 2)]);
+  });
+
+  test("matches a saved message that ends in spaces or a new line", () => {
+    expect(removeAnsweredPrompt([waiting("hi")], saved("hi \n"))).toEqual([]);
+  });
 });
 
 test("buildSessionRows carries a session's reported status", () => {
   const rows = buildSessionRows(MACHINES);
   const fix = rows.find((r) => r.sessionName === "fix-login");
   expect(fix?.status).toEqual({ state: "stuck", note: "blocked on the API", atMs: 1 });
-  const other = rows.find((r) => r.sessionName === "new-homepage");
-  expect(other?.status).toBeUndefined();
+  const withoutStatus = rows.find((r) => r.sessionName === "web");
+  expect(withoutStatus).toBeDefined();
+  expect(withoutStatus).not.toHaveProperty("status");
 });
 
-
 test("buildSessionRows carries a session's open decision", () => {
-  const decision = { question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 2 };
-  const machine = { ...MACHINES[0], sessions: [{ sessionName: "pick-db", folderName: "talos", state: "needs-you" as const, decision }] };
+  const decision = { id: "d1", question: "Which database?", choices: ["Postgres", "SQLite"], atMs: 2 };
+  const openOutputs = [{ id: "d1", kind: "decision", fields: { question: decision.question, choices: decision.choices }, atMs: 2 }];
+  const machine = { ...MACHINES[0], sessions: [{ sessionName: "pick-db", folderName: "talos", state: "needs-you" as const, asks: {}, openOutputs }] };
   expect(buildSessionRows([machine])[0]?.decision).toEqual(decision);
 });

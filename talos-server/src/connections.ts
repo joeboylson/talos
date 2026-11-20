@@ -69,7 +69,11 @@ export const chooseMachinesToPing = (ownConnectedMachineIds: string[], requested
 export const chooseSessionName = (typedName: string | undefined, folderName: string, takenNames: string[]): string =>
   pickUniqueName(toIdentifierName(typedName?.trim() || folderName), takenNames);
 
-export const createConnections = (machinesTable: MachinesTable, log: Logger) => {
+export const createConnections = (
+  machinesTable: MachinesTable,
+  log: Logger,
+  relayCoalesceMs: number = SERVER_LIMITS.machineListRelayCoalesceMs,
+) => {
   // The server's only changing state: who's connected, what each connected
   // machine reported, each session's recent entries, and when each
   // unanswered ping went out.
@@ -147,7 +151,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       const machines = machinesByOwner.get(personId);
       if (machines) return sendOwnerMachineList(personId, machines);
       sendMachineListToPages(personId).catch((error: unknown) => log.warn(`couldn't send ${personId}'s machine list: ${error}`));
-    }, SERVER_LIMITS.machineListRelayCoalesceMs);
+    }, relayCoalesceMs);
   };
 
   // A page that just opened gets every kept entry of the person's sessions.
@@ -261,9 +265,16 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
       return machineSocket.send(encode<ServerToMachine>({ type: "stop-session", sessionName: message.sessionName }));
     }
 
-    if (message.type === "ask-for-update") {
-      log.detail(`${displayName} asked session "${message.sessionName}" on "${machineName}" for a status update`);
-      return machineSocket.send(encode<ServerToMachine>({ type: "ask-for-update", sessionName: message.sessionName }));
+    if (message.type === "ask-for-output") {
+      const { sessionName, kind } = message;
+      log.detail(`${displayName} asked session "${sessionName}" on "${machineName}" for a ${kind}`);
+      return machineSocket.send(encode<ServerToMachine>({ type: "ask-for-output", sessionName, kind }));
+    }
+
+    if (message.type === "answer-output") {
+      const { sessionName, outputId, choice } = message;
+      log.detail(`${displayName} answered a question in session "${sessionName}" on "${machineName}"`);
+      return machineSocket.send(encode<ServerToMachine>({ type: "answer-output", sessionName, outputId, choice }));
     }
 
     const text = message.text.trim();
@@ -330,6 +341,7 @@ export const createConnections = (machinesTable: MachinesTable, log: Logger) => 
     if (message.type === "pong") return handlePong(machine, message.id);
     if (message.type === "sessions") return handleSessions(machine, message.sessions);
     if (message.type === "session-entries") return handleSessionEntries(machine, message.sessionName, message.entries);
+    if (message.type === "error") return sendToOwnerPages(machine.ownerPersonId, { type: "error", message: `${machine.machineName}: ${message.message}` });
     log.detail(`"${machine.machineName}" has ${message.folders.length} folder(s)`);
     updateReport(machine, { folders: message.folders });
   };

@@ -39,15 +39,19 @@ single functions.
 
 Each block below is listed as what goes in → what comes out.
 
-- **`talos-sessions`** (not created; first to build). Runs Claude Code and gets
-  output back from it.
-  - In: start a session in a folder, send it a message or keys, stop it, resize
-    it, ask it for a structured answer (a status or a decision).
-  - Out: its conversation as entries, its state, its structured answers, its
-    raw terminal output.
-  - Holds: the session runner, the hooks, the structured tools, the lane rules,
-    the transcript reader.
-  - Will live in: `talos/src/talos-sessions/`.
+- **`talos-sessions`** (created). Runs Claude Code and gets output back from it.
+  - In, when the session runner starts: a folder check, a logger, the kinds of
+    output talos defines, and what a normal turn may send.
+  - In, while it runs: start a session in a folder, send it a message or keys,
+    stop it, resize it, ask it for a kind of output, answer an open output by
+    its id.
+  - Out: each session's state, its asks (state and latest answer per kind),
+    its open outputs, its conversation as entries (outputs and dropped markers
+    included), notices like a dropped answer, and its raw terminal output.
+  - Holds: the session runner, the hook script, the MCP server, the lane and
+    output rules, held answers, the transcript reader, and its own copies of
+    the shapes and limits it shares with `talos-shared`.
+  - Lives in: `talos/src/talos-sessions/`, tests in its own `tests/`.
 - **`talos-machine-link`** (not created). Keeps a machine connected to the
   server.
   - In: the machine's key, the server's address, messages to send.
@@ -94,5 +98,5 @@ limits and names). Modules never import it.
 
 ## Order
 
-Start with `talos-sessions`: it has the clearest edge, and the work in
+`talos-sessions` came first: it had the clearest edge, and the work in
 [TASKS.md](TASKS.md) builds on it.

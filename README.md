@@ -45,7 +45,7 @@ outputs and its own tests. Each is a folder in the app for now. Why and how:
 
 | Module | Job | Status |
 | --- | --- | --- |
-| `talos-sessions` | Run Claude Code and get its conversation and structured answers back | Not created (next) |
+| `talos-sessions` | Run Claude Code and get its conversation and structured answers back | Created: `talos/src/talos-sessions/` |
 | `talos-machine-link` | Keep a machine connected to the server | Not created |
 | `talos-relay` | The server's live hub between machines and pages | Not created |
 | `talos-pairing` | Give a new machine its key | Not created |

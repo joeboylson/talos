@@ -30,7 +30,7 @@ and their own tests, used only through their `index.ts`. They're folders in
 the app for now, written so each could become its own package later. Talos is
 the layer that wires them together. See [docs/MODULES.md](docs/MODULES.md).
 
-- `talos-sessions`: run Claude Code and get its conversation and structured answers back. Not created (next).
+- `talos-sessions`: run Claude Code and get its conversation and structured answers back. Created: `talos/src/talos-sessions/`.
 - `talos-machine-link`: keep a machine connected to the server. Not created.
 - `talos-relay`: the server's live hub between machines and pages. Not created.
 - `talos-pairing`: give a new machine its key. Not created.

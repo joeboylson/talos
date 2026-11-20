@@ -13,17 +13,14 @@ below.
 
 Start, watch and control Claude sessions on all your machines from one website.
 
-## Lanes
-
-- **Prose:** the open conversation where a session does its work.
-- **Structured:** short messages with fixed fields, like a status update or a decision, that a program can read and act on.
-
 ## Corrections from the session design
 
 These change the answers below. Where they disagree, these win.
 
-- **Lanes are now one turn shape.** Every turn has an **output** it must give
-  back, and **optional outputs** it may also send:
+- **Lanes are now one turn shape.** The brainstorm's two lanes were **prose**
+  (the open conversation where a session does its work) and **structured**
+  (short messages with fixed fields a program can read). Now every turn has an
+  **output** it must give back, and **optional outputs** it may also send:
   `{ output: "prose", optional: ["decision"] }` for a normal turn, and
   `{ output: "status", optional: [] }` to ask for a status. Prose is one kind of
   output; the others are structured, of a **kind** like status or decision.

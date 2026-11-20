@@ -19,7 +19,8 @@ temp_plus_platform dev guidelines.
   included. Values both sides use belong in `talos-shared`.
   The one exception is a module (docs/MODULES.md): it can't import
   `talos-shared`, so it keeps its own copy of a value both check, and a talos
-  test fails if the copy drifts from `talos-shared`'s.
+  test fails if the copy drifts from `talos-shared`'s. A module keeps its tests
+  inside it, in its own `tests/` folder.
 - **Talk through contracts.** Folders and modules use each other only through
   their exported types and functions, never each other's internals. Each
   folder (`talos`, `talos-server`, `talos-shared`, `talos-web`,

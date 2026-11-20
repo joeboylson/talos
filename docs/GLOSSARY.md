@@ -23,21 +23,20 @@ docs. Use these and no others.
   state is **starting**, **ready**, **working**, or **needs you** (Claude is
   asking something in its terminal; attach to answer).
 - **entry**: one thing in a session's conversation: a message someone sent
-  (with any images), text Claude wrote, or a tool Claude ran.
+  (with any images), text Claude wrote, a tool Claude ran, an output the
+  session sent in a prose turn, or a dropped marker.
+- **dropped marker**: an entry that stands in for an item that failed its
+  check, holding only its kind and why. The item's data is kept aside in the
+  **quarantine file** on the machine, never sent on.
 - **status**: a session's structured state (working, waiting, done, stuck) plus
-  a one-line note, filled in when someone presses "ask for an update". The
-  session reports it by calling the report_status tool; hooks force that call and
-  keep it out of ordinary chat.
+  a one-line note, filled in when someone presses "ask for an update". It's a
+  kind talos asks for; the session reports it by calling the report_status tool.
 - **decision**: a question a session asks its owner while working, with two to
-  four choices. The page shows it as buttons; the owner picks one or types their
-  own answer, which goes to the session as its next message. The session asks by
-  calling the ask_decision tool, then waits.
-- **structured tool**: a typed tool a session calls to hand talos an answer
-  (report_status, ask_decision), checked before it's recorded.
-- **prose turn** and **status turn**: a session's ordinary chat turn is a prose
-  turn, where any tool runs, plus the structured tools meant for chat (like
-  ask_decision). A status turn is one talos starts to ask for a status, where only
-  report_status runs.
+  four choices. It's an optional output, with an id. The page shows it as
+  buttons; a click is answered by its id, and the owner can also type their own
+  answer. It lasts one turn.
+- **structured tool**: the tool a session calls to send an output of a kind
+  (report_status, ask_decision). Its own call isn't shown in the conversation.
 - **attach**: show a session's terminal in your own, to watch or type.
 
 ## Programs
@@ -76,6 +75,29 @@ something.
   or decision.
 - **optional output**: a structured output a session may send during a prose
   turn, like a decision, as its specific layer allows.
+- **kind**: a type of structured output, defined by talos's specific layer:
+  its fields and their check, which fields get typed into a session (and
+  whether those may hold commands), its **choices field** (the list a click
+  picks from), whether the session waits after sending one, and the request
+  talos types to ask for one.
+- **turn shape**: what a turn must hand back and what else it may send. A
+  **prose turn** hands back prose and may send its optional outputs. An
+  **asked-for turn** (like a **status turn**) is one talos starts to ask for a
+  kind: only that kind's tool runs.
+- **lane**: the rules for which turn shape a session is in, and the steps from
+  asking for a kind to its answer.
+- **pending output** and **open output**: an output's call was allowed and
+  given an id (pending), then went through with that id (open). An open
+  output that waits is a question; it closes when the turn after the one that
+  asked it ends.
+- **ask** and **asks list**: asking a session for a kind. The asks list holds,
+  per kind, where the latest ask stands (asking, answered, no response) and its
+  latest answer.
+- **settled**: a session's turn is over and its screen has been still for a
+  moment. Talos types its own text into a session only then, after an Esc.
+- **held answer**: a click on an open output's choice, kept until the session
+  has settled, then typed as `Answer to <id>: <choice>`. The message is
+  `answer-output`.
 
 ## Identifiers
 

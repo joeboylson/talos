@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { Logger } from "talos-shared";
 import type { MachineRecord, MachinesTable } from "../../machines-table";
 import { createPairingRoutes } from "../../pairing-routes";
 import type { RequestChecks } from "../../request-checks";
 import { allowAttempt, allowBytes, readClientAddress } from "../../utils/rate-limit";
+import { PAIRING_LIFETIME_MS } from "../../constants";
 import { SERVER_LIMITS } from "../../limits";
 
 const ORIGIN = "https://talos.test";
@@ -109,6 +110,71 @@ describe("pairing", () => {
   });
 });
 
+describe("pairing over time and limits", () => {
+  afterEach(() => setSystemTime());
+  const freezeAt = (nowMs: number) => setSystemTime(new Date(nowMs));
+
+  test("a code can't be approved once it has expired, even at the very moment it expires", async () => {
+    const startMs = Date.now();
+    freezeAt(startMs);
+    const setup = setUp();
+    const { userCode } = await startPairing(setup);
+    freezeAt(startMs + PAIRING_LIFETIME_MS);
+    expect((await setup.routes.approve(setup.post({ userCode }, "joe"))).status).toBe(404);
+  });
+
+  test("polling an expired pairing says so", async () => {
+    const startMs = Date.now();
+    freezeAt(startMs);
+    const setup = setUp();
+    const { pairingId } = await startPairing(setup);
+    freezeAt(startMs + PAIRING_LIFETIME_MS);
+    expect(await (await setup.routes.poll(setup.post({ pairingId }))).json()).toEqual({ status: "expired" });
+  });
+
+  test("one address can't hold more than its share of waiting pairings", async () => {
+    const setup = setUp();
+    const statuses = [];
+    for (let index = 0; index <= SERVER_LIMITS.maxWaitingPairingsPerAddress; index += 1) {
+      statuses.push((await setup.routes.start(setup.post({ machineName: "x" }), "5.5.5.5")).status);
+    }
+    expect(statuses.at(-1)).toBe(429);
+    expect(statuses.slice(0, -1).every((status) => status === 200)).toBe(true);
+  });
+
+  test("starting counts every attempt, even ones that went nowhere", async () => {
+    const setup = setUp();
+    for (let index = 0; index < SERVER_LIMITS.pairStart.maxAttempts; index += 1) {
+      expect((await setup.routes.start(setup.post({}), "7.7.7.7")).status).toBe(400);
+    }
+    expect((await setup.routes.start(setup.post({ machineName: "atlas" }), "7.7.7.7")).status).toBe(429);
+  });
+
+  test("a person entering too many codes is slowed down", async () => {
+    const setup = setUp();
+    for (let index = 0; index < SERVER_LIMITS.pairApprove.maxAttempts; index += 1) {
+      expect((await setup.routes.approve(setup.post({ userCode: "AAAA-AAAA" }, "joe"))).status).toBe(404);
+    }
+    expect((await setup.routes.approve(setup.post({ userCode: "AAAA-AAAA" }, "joe"))).status).toBe(429);
+  });
+
+  test("the machine limit counts only the approver's own machines", async () => {
+    const evesMachines = Array.from({ length: SERVER_LIMITS.maxMachinesPerPerson }, (_, index) => ({
+      machineId: `e${index}`, machineName: `e${index}`, ownerPersonId: "eve", keyHash: "h", pairedAtMs: 0,
+    }));
+    const setup = setUp(evesMachines);
+    const { pairingId, userCode } = await startPairing(setup);
+    await setup.routes.approve(setup.post({ userCode }, "joe"));
+    expect((await setup.routes.collect(setup.post({ pairingId }))).status).toBe(200);
+  });
+
+  test("a machine name at the length limit is fine", async () => {
+    const setup = setUp();
+    const longestName = "a".repeat(SERVER_LIMITS.maxMachineNameLength);
+    expect((await setup.routes.start(setup.post({ machineName: longestName }), "8.8.8.8")).status).toBe(200);
+  });
+});
+
 describe("allowAttempt", () => {
   const limit = { windowMs: 1000, maxAttempts: 2 };
   test("allows up to the limit in the window, then refuses", () => {
@@ -117,6 +183,9 @@ describe("allowAttempt", () => {
   });
   test("old attempts fall out of the window", () => {
     expect(allowAttempt([0, 10], 1500, limit)).toEqual({ isAllowed: true, timesMs: [1500] });
+  });
+  test("an attempt exactly one window old has fallen out", () => {
+    expect(allowAttempt([0, 500], 1000, limit)).toEqual({ isAllowed: true, timesMs: [500, 1000] });
   });
 });
 

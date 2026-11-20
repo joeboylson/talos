@@ -12,5 +12,8 @@
     "@aws-sdk/lib-dynamodb": "3.1170.0",
     "talos-shared": "workspace:*",
     "talos-web": "workspace:*"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.3"
   }
 }

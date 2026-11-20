@@ -36,6 +36,9 @@
         "talos-shared": "workspace:*",
         "talos-web": "workspace:*",
       },
+      "devDependencies": {
+        "fast-check": "^4.10.3",
+      },
     },
     "talos-shared": {
       "name": "talos-shared",

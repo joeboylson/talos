@@ -1,4 +1,4 @@
-.PHONY: dev down logs desktop talos screenshots server-image security install typecheck test
+.PHONY: dev down logs desktop talos screenshots live-sessions server-image security install typecheck test
 
 # AWS Graviton (arm64) is cheaper than x86 and matches Apple silicon.
 SERVER_PLATFORM ?= linux/arm64
@@ -35,6 +35,12 @@ ifeq ($(TALOS_ARGS),)
 else
 	@bun --env-file=.env talos/src/index.ts $(TALOS_ARGS)
 endif
+
+# Checks talos-sessions with real Claude Code sessions, in a throwaway talos
+# folder: statuses, decisions and answers, permission prompts, and what a
+# hostile session can try. Costs real Claude turns, so it isn't part of test.
+live-sessions: node_modules
+	bun dev/sessions/live.ts
 
 # Retakes every screen of the page into docs/screenshots/, under fixed names,
 # from a throwaway server with made-up data (its own ports; the real dev setup

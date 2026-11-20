@@ -1,4 +1,4 @@
-import type { SessionState } from "talos-shared";
+import type { SessionState } from "../shapes";
 
 // Claude Code's hook events that move a session between states. They also
 // carry where the session's conversation is saved.

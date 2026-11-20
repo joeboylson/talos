@@ -3,13 +3,12 @@
 // prompt-injected session can't reach these.
 import { rm } from "node:fs/promises";
 import type { BunRequest } from "bun";
-import { isIdentifierName, readSentImages } from "talos-shared";
+import { isIdentifierName, readSentImages } from "../shapes";
 import { RUNNER_HOOKS_SOCKET, RUNNER_SOCKET } from "../constants";
-import { readFolders } from "../../folders";
 import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runner-protocol";
 import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
 import { startSession } from "./lifecycle";
-import { log } from "./log";
+import { isAllowedFolder, log } from "./inputs";
 import { sendToSession } from "./messages";
 import { applyStatusLaneEvent, askForStatus } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
@@ -101,8 +100,7 @@ export const controlServeOptions = {
         if (!isRequest) return new Response("expected plain sessionName and folderName, and a path", { status: 400 });
         // The session runner checks the folder list itself, so nothing that reaches its
         // socket can start Claude (and mark it trusted) in any other folder.
-        const isAllowedFolder = (await readFolders()).some((folder) => folder.folderName === folderName && folder.path === path);
-        if (!isAllowedFolder) return new Response(`${path} isn't one of this machine's folders`, { status: 403 });
+        if (!(await isAllowedFolder(folderName, path))) return new Response(`${path} isn't one of this machine's folders`, { status: 403 });
         return startSession({ sessionName, folderName, path });
       },
     },

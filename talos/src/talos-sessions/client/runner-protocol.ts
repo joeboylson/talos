@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
-import { parseJsonOrNull, readSessionEntries, readSessionList, type SessionEntry, type SessionSummary } from "talos-shared";
+import { parseJsonOrNull } from "../json";
+import { readSessionEntries, readSessionList, type SessionEntry, type SessionSummary } from "../shapes";
 
 // What the session runner streams to talos: the session list whenever it
 // changes, and each session's entries as Claude Code saves them.

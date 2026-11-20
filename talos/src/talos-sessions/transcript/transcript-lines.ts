@@ -1,5 +1,7 @@
 import { dirname } from "node:path";
-import { LIMITS, parseJsonOrNull, readSessionEntry, type SessionEntry } from "talos-shared";
+import { parseJsonOrNull } from "../json";
+import { SESSION_LIMITS } from "../limits";
+import { readSessionEntry, type SessionEntry } from "../shapes";
 import { TOOL_SUMMARY_SHOWN_LENGTH, NEWLINE_BYTE } from "../constants";
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
@@ -69,12 +71,12 @@ const readPromptLine = (entryId: string, blocks: ContentBlock[]): SessionEntry[]
 
   const commandOutput = COMMAND_OUTPUT.exec(typedText.trim())?.[1]?.trim();
   if (commandOutput !== undefined) {
-    return commandOutput ? [{ kind: "text", entryId, text: truncate(commandOutput, LIMITS.maxEntryTextLength) }] : [];
+    return commandOutput ? [{ kind: "text", entryId, text: truncate(commandOutput, SESSION_LIMITS.maxEntryTextLength) }] : [];
   }
 
   const promptText = (readCommandPrompt(typedText) ?? typedText.replace(IMAGE_MARKER, "")).trim();
   if (!promptText && imageCount === 0) return [];
-  return [{ kind: "prompt", entryId, text: truncate(promptText, LIMITS.maxEntryTextLength), imageCount }];
+  return [{ kind: "prompt", entryId, text: truncate(promptText, SESSION_LIMITS.maxEntryTextLength), imageCount }];
 };
 
 const readToolEnds = (blocks: ContentBlock[]): TranscriptItem[] =>
@@ -87,10 +89,10 @@ const readToolEnds = (blocks: ContentBlock[]): TranscriptItem[] =>
 const readAssistantLine = (lineId: string, blocks: ContentBlock[]): SessionEntry[] =>
   blocks.flatMap((block, blockIndex): SessionEntry[] => {
     if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
-      return [{ kind: "text", entryId: `${lineId}:${blockIndex}`, text: truncate(block.text, LIMITS.maxEntryTextLength) }];
+      return [{ kind: "text", entryId: `${lineId}:${blockIndex}`, text: truncate(block.text, SESSION_LIMITS.maxEntryTextLength) }];
     }
     if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
-      const toolName = truncate(block.name, LIMITS.maxNameTextLength);
+      const toolName = truncate(block.name, SESSION_LIMITS.maxNameTextLength);
       return [{ kind: "tool", entryId: block.id, toolName, summary: summarizeToolInput(block.input), outcome: "running" }];
     }
     return [];
@@ -134,7 +136,7 @@ export const resolveTranscriptItems = (
       if (readSessionEntry(item) === null) continue;
       stillRunning.set(item.entryId, item);
       const oldestToolId = stillRunning.keys().next().value;
-      if (stillRunning.size > LIMITS.maxEntriesKept && oldestToolId !== undefined) stillRunning.delete(oldestToolId);
+      if (stillRunning.size > SESSION_LIMITS.maxEntriesKept && oldestToolId !== undefined) stillRunning.delete(oldestToolId);
     } else if (item.kind !== "tool-end") {
       entries.push(item);
     } else {

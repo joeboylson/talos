@@ -1,5 +1,5 @@
 import { rename } from "node:fs/promises";
-import { parseJsonOrNull } from "talos-shared";
+import { parseJsonOrNull } from "../json";
 import { CLAUDE_CONFIG_FILE } from "../constants";
 
 // Claude Code asks "Do you trust the files in this folder?" the first time it

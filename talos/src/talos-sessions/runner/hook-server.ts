@@ -6,7 +6,7 @@ import { hookTokenAuthorized, nextSessionState } from "../claude/session-hooks";
 import { readStatusLaneEvent } from "../lanes/status-lane";
 import { allowTranscriptSwitch } from "../transcript/transcript-lines";
 import { becomeReadyWhenQuiet } from "./lifecycle";
-import { log } from "./log";
+import { log } from "./inputs";
 import { applyStatusLaneEvent, setSessionState } from "./session-state";
 import { heldSessions, updateHeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";

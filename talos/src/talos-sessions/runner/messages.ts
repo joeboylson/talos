@@ -1,7 +1,7 @@
 // Typing a message, with any images, into a session.
 import { chmod, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { SentImage } from "talos-shared";
+import type { SentImage } from "../shapes";
 import { TALOS_FOLDER_MODE, IMAGE_PASTE_SETTLE_MS, UPLOAD_FILE_MODE, UPLOADS_FOLDER } from "../constants";
 import { ENTER_KEY, buildMessageWithImages, buildPastedText } from "../terminal";
 import { applyStatusLaneEvent } from "./session-state";

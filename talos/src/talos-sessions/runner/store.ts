@@ -1,7 +1,7 @@
 // The session runner's state: the sessions it holds, one record each, and who is
 // listening for events. Every other runner file reads and changes sessions here.
 import type { Subprocess } from "bun";
-import type { SessionEntry, SessionSummary } from "talos-shared";
+import type { SessionEntry, SessionSummary } from "../shapes";
 import { createCoalescer } from "../coalescer";
 import { encodeRunnerEvent, type RunnerEvent } from "../client/runner-protocol";
 import type { StatusLane } from "../lanes/status-lane";

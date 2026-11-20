@@ -6,7 +6,7 @@
 // structured tools (nothing would record them) and lets everything else through,
 // so it can never hold Claude up. A tool call too big for the session runner to read is
 // denied outright, since talos can't check it.
-import { parseJsonOrNull } from "talos-shared";
+import { parseJsonOrNull } from "./json";
 import { SESSION_ENV_KEYS } from "./constants";
 import { encodeHookLine, readHookAnswer, type HookRequest } from "./client/runner-protocol";
 import { SESSION_LIMITS } from "./limits";

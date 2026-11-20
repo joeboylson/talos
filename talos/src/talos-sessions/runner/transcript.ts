@@ -1,8 +1,8 @@
 // Reading each session's saved conversation as Claude Code writes it.
-import { LIMITS, mergeSessionEntries } from "talos-shared";
+import { mergeSessionEntries } from "../shapes";
 import { isPlainTranscriptFile } from "../transcript/transcript-file";
 import { readCompleteLines, readTranscriptLine, resolveTranscriptItems } from "../transcript/transcript-lines";
-import { log } from "./log";
+import { log } from "./inputs";
 import { broadcast, heldSessions, updateHeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
@@ -43,13 +43,13 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
   heldSessions.set(sessionName, {
     ...session,
     transcript: { ...transcript, readByteCount: transcript.readByteCount + usedByteCount, runningTools: knownTools },
-    entries: mergeSessionEntries(session.entries, entries, LIMITS.maxEntriesKept),
+    entries: mergeSessionEntries(session.entries, entries, SESSION_LIMITS.maxEntriesKept),
   });
   // One read can make more entries than a list may hold (a resumed session's
   // whole file), and an over-long list is turned down whole. Cut it the way the
   // kept list is cut, after a tool's end replaces its start, so talos gets every
   // entry the session runner keeps.
-  const sentEntries = mergeSessionEntries([], entries, LIMITS.maxEntriesKept);
+  const sentEntries = mergeSessionEntries([], entries, SESSION_LIMITS.maxEntriesKept);
   if (sentEntries.length > 0) broadcast({ type: "session-entries", sessionName, entries: sentEntries });
 };
 

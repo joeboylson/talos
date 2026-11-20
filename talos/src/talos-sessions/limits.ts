@@ -1,8 +1,24 @@
-// The caps and safety timeouts the session runner and its hooks keep,
-// in one place. Limits both sides check live in talos-shared's LIMITS.
-import { LIMITS } from "talos-shared";
+// The caps and safety timeouts the session runner and its hooks keep, in one place.
+
+// The module's own copies of limits talos-shared also checks. A talos test
+// (session-limits.test.ts) fails if a copy drifts from talos-shared's value.
+export const COPIED_LIMITS = {
+  maxSessions: 50,
+  maxEntriesKept: 500,
+  maxKeptEntryTextLength: 200_000,
+  maxEntryTextLength: 20_000,
+  maxToolSummaryLength: 1000,
+  maxIdTextLength: 200,
+  maxNameTextLength: 100,
+  maxImagesPerMessage: 4,
+  maxImageBase64Length: 3_000_000,
+  maxIdentifierLength: 40,
+  maxSocketMessageBytes: 16 * 1024 * 1024,
+} as const;
+const LIMITS = COPIED_LIMITS;
 
 export const SESSION_LIMITS = {
+  ...COPIED_LIMITS,
   // A hook request is parsed synchronously on the session runner's one thread, so cap it:
   // a session can't send a huge body that JSON.parse blocks on for seconds (which
   // would make every other session's hook time out and fail open). Real hook requests

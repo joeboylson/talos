@@ -7,7 +7,7 @@ import {
   resolveTranscriptItems,
   summarizeToolInput,
 } from "../transcript/transcript-lines";
-import { LIMITS } from "talos-shared";
+import { SESSION_LIMITS } from "../limits";
 
 describe("readTranscriptLine", () => {
   const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
@@ -178,10 +178,10 @@ describe("running tools", () => {
     expect(resolveTranscriptItems([tool("x".repeat(201))], new Map()).knownTools.size).toBe(0);
   });
   test("at most as many as a session keeps, oldest dropped", () => {
-    const items = Array.from({ length: LIMITS.maxEntriesKept + 10 }, (_unused, i) => tool(`t${i}`));
+    const items = Array.from({ length: SESSION_LIMITS.maxEntriesKept + 10 }, (_unused, i) => tool(`t${i}`));
     const { knownTools } = resolveTranscriptItems(items, new Map());
-    expect(knownTools.size).toBe(LIMITS.maxEntriesKept);
+    expect(knownTools.size).toBe(SESSION_LIMITS.maxEntriesKept);
     expect(knownTools.has("t0")).toBe(false);
-    expect(knownTools.has(`t${LIMITS.maxEntriesKept + 9}`)).toBe(true);
+    expect(knownTools.has(`t${SESSION_LIMITS.maxEntriesKept + 9}`)).toBe(true);
   });
 });

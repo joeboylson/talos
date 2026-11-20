@@ -1,9 +1,9 @@
 // A session's state and its status lane: every change to either goes through here.
-import type { SessionState, SessionSummary } from "talos-shared";
+import type { SessionState, SessionSummary } from "../shapes";
 import { READY_CHECK_MS, READY_QUIET_MS } from "../constants";
 import { STATUS_REQUEST_PROMPT, stepStatusLane, type StatusLaneEvent, type StatusLaneStep } from "../lanes/status-lane";
 import { ENTER_KEY, buildPastedText } from "../terminal";
-import { log } from "./log";
+import { log } from "./inputs";
 import { broadcastSessions, heldSessions, updateHeldSession } from "./store";
 
 const applyDecisionChange = (summary: SessionSummary, change: StatusLaneStep["decisionChange"]): SessionSummary => {

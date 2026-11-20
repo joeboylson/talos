@@ -17,12 +17,13 @@ import {
 } from "../constants";
 import { controlServeOptions } from "./control-server";
 import { startHookServer } from "./hook-server";
-import { log } from "./log";
+import { log, useRunnerInputs, type RunnerInputs } from "./inputs";
 import { applyStatusLaneEvent } from "./session-state";
 import { heldSessions } from "./store";
 import { readAllNewEntries } from "./transcript";
 
-export const runSessionRunner = async (): Promise<void> => {
+export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
+  useRunnerInputs(inputs);
   await Promise.all([rm(RUNNER_SOCKET, { force: true }), rm(RUNNER_HOOKS_SOCKET, { force: true })]);
   // talos (and only talos) connects to the control socket. A session is told the
   // hook socket instead, so a prompt-injected session can't reach the routes that

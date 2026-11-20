@@ -18,11 +18,10 @@ import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
 import { buildHookSettings } from "../claude/session-hooks";
 import { NO_STATUS_LANE } from "../lanes/status-lane";
 import { appendOutput } from "../terminal";
-import { log } from "./log";
+import { log } from "./inputs";
 import { typeIntoSession } from "./messages";
 import { applyStatusLaneEvent, setSessionState } from "./session-state";
 import { broadcastSessions, heldSessions, sendToListeners, updateHeldSession, type Terminal } from "./store";
-import { LIMITS } from "talos-shared";
 import { SESSION_LIMITS } from "../limits";
 
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
@@ -46,7 +45,7 @@ const forgetSession = (sessionName: string, token: string) => {
 
 const refuseNewSession = (sessionName: string): Response | null => {
   if (heldSessions.has(sessionName)) return new Response(`${sessionName} is already running`, { status: 409 });
-  if (heldSessions.size >= LIMITS.maxSessions) return new Response("too many sessions", { status: 429 });
+  if (heldSessions.size >= SESSION_LIMITS.maxSessions) return new Response("too many sessions", { status: 429 });
   return null;
 };
 

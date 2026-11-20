@@ -21,7 +21,8 @@ import {
 import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RUNNER_SCRIPT } from "./constants";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
 import { readFolders, renameFolder, saveFolders } from "./folders";
-import { RUNNER_ROUTES, ensureRunnerRunning, followRunnerEvents, postToRunner, sessionRoute, type RunnerEvent } from "./talos-sessions";
+import { RUNNER_ROUTES, ensureRunnerRunning, followRunnerEvents, postToRunner, sessionRoute } from "./talos-sessions";
+import { toSharedEvent, type SharedRunnerEvent } from "./session-bridge";
 import { startLocalStatusServer } from "./local-status-server";
 import { fetchMachineName, pairMachine } from "./pairing";
 import { connectToServer, type SendToServer } from "./server-connection";
@@ -51,7 +52,7 @@ export const runConnect = async (): Promise<void> => {
   // turn, so the page never gets newer entries before older ones.
   let sessionsAwaitingResend = new Set<string>();
 
-  const keepLatest = (runnerEvent: RunnerEvent) => {
+  const keepLatest = (runnerEvent: SharedRunnerEvent) => {
     if (runnerEvent.type === "sessions") {
       latestSessions = runnerEvent.sessions;
       const liveSessionNames = new Set(latestSessions.map(({ sessionName }) => sessionName));
@@ -111,7 +112,7 @@ export const runConnect = async (): Promise<void> => {
   // unhandled rejection, which would take this machine offline.
   const sendFoldersOrWarn = () => void sendFolders().catch((error: unknown) => log.warn(`talos: couldn't send the folders (${error})`));
 
-  const forwardRunnerEvent = (runnerEvent: RunnerEvent) => {
+  const forwardRunnerEvent = (runnerEvent: SharedRunnerEvent) => {
     keepLatest(runnerEvent);
     if (!sendToServer) return;
     if (runnerEvent.type === "sessions") return sendToServer({ type: "sessions", sessions: runnerEvent.sessions });
@@ -125,7 +126,7 @@ export const runConnect = async (): Promise<void> => {
   // away (`talos runner stop`), a fresh one is started.
   const followRunner = async (): Promise<void> => {
     await ensureRunnerRunning(RUNNER_SCRIPT);
-    await followRunnerEvents(forwardRunnerEvent);
+    await followRunnerEvents((runnerEvent) => forwardRunnerEvent(toSharedEvent(runnerEvent)));
     forwardRunnerEvent({ type: "sessions", sessions: [] });
   };
   const followRunnerWithRetry = (): void => {

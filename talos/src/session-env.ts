@@ -23,3 +23,14 @@ export const buildSessionEnv = (
   const keptEntries = Object.entries(env).filter(([envKey]) => !INHERITED_SESSION_MARKS.includes(envKey));
   return { ...Object.fromEntries(keptEntries), ...sessionVariables };
 };
+
+// A shell that lowers the open-file limit, soft then hard (the hard limit can't
+// go below the soft one), then runs the command that follows. A hard limit can't
+// be raised again from inside, so the session and everything it starts stay
+// under it. If a limit is already lower, the shell leaves it and runs anyway.
+export const withOpenFileLimit = (maxOpenFiles: number): string[] => [
+  "/bin/sh",
+  "-c",
+  `ulimit -Sn ${maxOpenFiles} 2>/dev/null; ulimit -Hn ${maxOpenFiles} 2>/dev/null; exec "$@"`,
+  "talos-session",
+];

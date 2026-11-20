@@ -14,7 +14,7 @@ import {
   UPLOADS_FOLDER,
 } from "../constants";
 import type { StartSessionRequest } from "../host-protocol";
-import { buildSessionEnv } from "../session-env";
+import { buildSessionEnv, withOpenFileLimit } from "../session-env";
 import { buildHookSettings } from "../session-hooks";
 import { NO_STATUS_LANE } from "../status-lane";
 import { appendOutput } from "../terminal";
@@ -69,10 +69,11 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
     [SESSION_ENV_KEYS.hostSocket]: HOST_HOOKS_SOCKET,
     [SESSION_ENV_KEYS.hookToken]: hookToken,
   };
+  // --mcp-config gives every session talos's structured tools (talos-tools.ts);
+  // the PreToolUse hook decides when each may be called.
+  const claudeArgs = [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", MCP_CONFIG_FILE];
   const child = Bun.spawn(
-    // --mcp-config gives every session talos's structured tools (talos-tools.ts);
-    // the PreToolUse hook decides when each may be called.
-    [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", MCP_CONFIG_FILE],
+    [...withOpenFileLimit(TALOS_LIMITS.maxSessionOpenFiles), ...claudeArgs],
     {
       cwd: path,
       env: buildSessionEnv(process.env, hookEnv),

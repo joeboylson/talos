@@ -1,7 +1,7 @@
 // The hooks socket: the only routes a session can reach, its own Claude Code hooks.
-import type { BunRequest } from "bun";
-import { HOOK_TOKEN_HEADER, HOST_HOOKS_SOCKET } from "../constants";
-import { HOST_ROUTES, sessionNameOf } from "../host-protocol";
+import type { Socket } from "bun";
+import { HOST_HOOKS_SOCKET, NEWLINE_BYTE } from "../constants";
+import { encodeHookLine, readHookRequest, type HookAnswer } from "../host-protocol";
 import { hookTokenAuthorized, nextSessionState } from "../session-hooks";
 import { readStatusLaneEvent } from "../status-lane";
 import { allowTranscriptSwitch } from "../transcript-lines";
@@ -54,34 +54,73 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   return decision;
 };
 
-export const hookServeOptions = {
-  unix: HOST_HOOKS_SOCKET,
-  // Bounded so a session can't POST a huge body that blocks the host's one thread
-  // in JSON.parse long enough for other sessions' hooks to time out and fail open.
-  maxRequestBodySize: TALOS_LIMITS.maxHookBodyBytes,
-  routes: {
-    [HOST_ROUTES.health]: new Response("ok"),
-    [HOST_ROUTES.hooks]: {
-      POST: async (request: BunRequest) => {
-        const sessionName = sessionNameOf(request);
-        // The hooks socket is shared by every session, so bind the POST to its
-        // session with a per-session token; a request for a session whose token
-        // it doesn't have is ignored, so one session can't drive another's hooks.
-        const token = heldSessions.get(sessionName)?.hookToken;
-        if (!token || !hookTokenAuthorized(request.headers.get(HOOK_TOKEN_HEADER), token)) {
-          log.warn(`host: ignored a hook for "${sessionName}" with a bad token`);
-          return new Response("");
-        }
-        const hookDetailsText = await request.text();
-        try {
-          // The hook script prints this to Claude Code; empty means no decision.
-          return new Response(handleHook(sessionName, token, hookDetailsText));
-        } catch (error) {
-          log.warn(`host: couldn't handle a hook: ${error}`);
-          return new Response("");
-        }
+// The answer to one hook request. The token check and the hook's handling run
+// in one step, so a session replaced under the same name can't be acted on.
+const answerHookRequest = (line: string): HookAnswer => {
+  const request = readHookRequest(line);
+  if (!request) return { kind: "reply", reply: "" };
+  const { sessionName, token, details } = request;
+  if (!hookTokenAuthorized(token, heldSessions.get(sessionName)?.hookToken)) {
+    log.warn(`host: ignored a hook for "${sessionName}" with a bad token`);
+    return { kind: "reply", reply: "" };
+  }
+  try {
+    // The hook script prints this to Claude Code; empty means no decision.
+    return { kind: "reply", reply: handleHook(sessionName, token, details) };
+  } catch (error) {
+    log.warn(`host: couldn't handle a hook: ${error}`);
+    return { kind: "reply", reply: "" };
+  }
+};
+
+type HookConnection = { chunks: Buffer[]; byteCount: number; deadline: ReturnType<typeof setTimeout> };
+type HookSocket = Socket<HookConnection>;
+
+// Oldest first, so a new connection past the cap closes the oldest: a real
+// hook connects and sends at once, while a flood's idle connections linger.
+const openHookSockets = new Set<HookSocket>();
+
+const closeHookSocket = (socket: HookSocket) => {
+  clearTimeout(socket.data.deadline);
+  openHookSockets.delete(socket);
+  socket.end();
+};
+
+const answerAndClose = (socket: HookSocket, answer: HookAnswer) => {
+  socket.write(encodeHookLine(answer));
+  closeHookSocket(socket);
+};
+
+// The only route a session can reach: its own Claude Code hooks. A request is
+// one line; it's bounded so a session can't send a huge body that blocks the
+// host's one thread in JSON.parse long enough for other sessions' hooks to time
+// out and fail open.
+export const startHookServer = () =>
+  Bun.listen<HookConnection>({
+    unix: HOST_HOOKS_SOCKET,
+    socket: {
+      open: (socket) => {
+        const oldestSocket = openHookSockets.values().next().value;
+        if (openHookSockets.size >= TALOS_LIMITS.maxHookConnections && oldestSocket) closeHookSocket(oldestSocket);
+        socket.data = { chunks: [], byteCount: 0, deadline: setTimeout(() => closeHookSocket(socket), TALOS_LIMITS.hookTimeoutMs) };
+        openHookSockets.add(socket);
+      },
+      data: (socket, chunk) => {
+        if (!openHookSockets.has(socket)) return;
+        socket.data.chunks.push(chunk);
+        socket.data.byteCount += chunk.length;
+        if (socket.data.byteCount > TALOS_LIMITS.maxHookBodyBytes) return answerAndClose(socket, { kind: "too-big" });
+        if (!chunk.includes(NEWLINE_BYTE)) return;
+        const received = Buffer.concat(socket.data.chunks).toString();
+        answerAndClose(socket, answerHookRequest(received.slice(0, received.indexOf("\n"))));
+      },
+      close: (socket) => {
+        clearTimeout(socket.data?.deadline);
+        openHookSockets.delete(socket);
+      },
+      error: (socket, error) => {
+        log.warn(`host: a hook connection failed: ${error}`);
+        closeHookSocket(socket);
       },
     },
-  },
-  fetch: () => new Response("Not found", { status: 404 }),
-};
+  });

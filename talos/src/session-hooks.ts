@@ -62,7 +62,7 @@ export const buildHookSettings = (hookCommand: string, hookEnv: Record<string, s
   });
 };
 
-// Every session on a machine shares one hooks socket, so a hook POST must prove
+// Every session on a machine shares one hooks socket, so a hook request must prove
 // which session it is: the host checks the token it sent against the named
 // session's token. A session knows only its own token, so it can't drive another
 // session's hooks by naming it in the path.

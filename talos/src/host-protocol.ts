@@ -14,8 +14,34 @@ export const HOST_ROUTES = {
   events: "/events",
   sessions: "/sessions",
   stop: "/stop",
-  hooks: "/hooks/:sessionName",
 } as const;
+
+// The hooks socket speaks one JSON line each way, not HTTP, so the host can
+// count and close its connections (a flood of idle ones would otherwise use up
+// its files). The hook sends its session, token and Claude Code's details; the
+// host answers with the hook's reply, or says the request was too big to read.
+export type HookRequest = { sessionName: string; token: string; details: string };
+export type HookAnswer = { kind: "reply"; reply: string } | { kind: "too-big" };
+
+export const encodeHookLine = (value: HookRequest | HookAnswer): string => `${JSON.stringify(value)}\n`;
+
+const fieldOf = (value: unknown, field: string): unknown =>
+  typeof value === "object" && value !== null ? Reflect.get(value, field) : undefined;
+
+export const readHookRequest = (line: string): HookRequest | null => {
+  const value = parseJsonOrNull(line);
+  const [sessionName, token, details] = ["sessionName", "token", "details"].map((field) => fieldOf(value, field));
+  const isRequest = typeof sessionName === "string" && typeof token === "string" && typeof details === "string";
+  return isRequest ? { sessionName, token, details } : null;
+};
+
+export const readHookAnswer = (line: string): HookAnswer | null => {
+  const value = parseJsonOrNull(line);
+  const kind = fieldOf(value, "kind");
+  const reply = fieldOf(value, "reply");
+  if (kind === "too-big") return { kind };
+  return kind === "reply" && typeof reply === "string" ? { kind, reply } : null;
+};
 
 export const sessionRoute = (sessionName: string, action: "send" | "stop" | "ask-update" | "output" | "input" | "resize") =>
   `${HOST_ROUTES.sessions}/${encodeURIComponent(sessionName)}/${action}`;

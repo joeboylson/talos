@@ -17,7 +17,7 @@ import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
 import { buildHookSettings } from "../claude/session-hooks";
 import { NO_LANE } from "../lanes/lane";
-import { NO_OUTPUTS } from "../lanes/outputs";
+import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
 import { log } from "./inputs";
 import { typeIntoSession } from "./messages";
@@ -93,6 +93,8 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
     entries: [],
     lane: NO_LANE,
     outputs: NO_OUTPUTS,
+    nextPosition: 0,
+    placing: NO_PLACING,
     heldAnswers: [],
     hookToken,
     hasDraft: false,

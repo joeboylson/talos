@@ -29,7 +29,7 @@ export type SessionSummary = {
 export const TOOL_OUTCOMES = ["running", "done", "failed"] as const;
 export type ToolOutcome = (typeof TOOL_OUTCOMES)[number];
 
-export type SessionEntry =
+export type UnnumberedEntry =
   | { kind: "prompt"; entryId: string; text: string; imageCount: number }
   | { kind: "text"; entryId: string; text: string }
   | { kind: "tool"; entryId: string; toolName: string; summary: string; outcome: ToolOutcome }
@@ -38,6 +38,12 @@ export type SessionEntry =
   // Stands in for an item that failed its check, so the other end sees something
   // was there. The bad data itself never travels.
   | { kind: "dropped"; entryId: string; droppedKind: string; reason: string };
+
+// position is the item's place in its session's conversation, counted by the
+// session runner as it reads it. Every side keeps entries in that order and
+// trims the lowest first, so an old entry that arrives again can't come back
+// as the newest.
+export type SessionEntry = UnnumberedEntry & { position: number };
 
 // An image sent with a message, as base64.
 export const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
@@ -108,8 +114,17 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
 
 // One entry, or null if it isn't a valid one. Whoever makes entries checks each
 // with this, since readSessionEntries turns down a whole list for one bad entry.
+const isPosition = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+
 export const readSessionEntry = (item: unknown): SessionEntry | null => {
   if (typeof item !== "object" || item === null) return null;
+  const position = fieldOf(item, "position");
+  if (!isPosition(position)) return null;
+  const entry = readUnnumberedEntry(item);
+  return entry && { ...entry, position };
+};
+
+const readUnnumberedEntry = (item: object): UnnumberedEntry | null => {
   const entryId = fieldOf(item, "entryId");
   const kind = fieldOf(item, "kind");
   if (!isTextUpTo(entryId, LIMITS.maxIdTextLength)) return null;
@@ -164,12 +179,14 @@ const MAX_HASHED_LENGTH = 10_000;
 export const toDroppedMarker = (item: unknown, reason: string): SessionEntry => {
   const entryId = typeof item === "object" && item !== null ? fieldOf(item, "entryId") : undefined;
   const kind = typeof item === "object" && item !== null ? fieldOf(item, "kind") : undefined;
+  const position = typeof item === "object" && item !== null ? fieldOf(item, "position") : undefined;
   const hasReadableId = typeof entryId === "string" && entryId.length > 0 && entryId.length <= LIMITS.maxIdTextLength;
   return {
     kind: "dropped",
     entryId: hasReadableId ? entryId : `dropped:${hashOf(String(JSON.stringify(item) ?? "").slice(0, MAX_HASHED_LENGTH))}`,
     droppedKind: isTextUpTo(kind, LIMITS.maxNameTextLength) ? kind : "unknown",
     reason: reason.slice(0, LIMITS.maxNameTextLength),
+    position: isPosition(position) ? position : 0,
   };
 };
 
@@ -223,12 +240,12 @@ const keepNewestWithinTextBudget = (entries: SessionEntry[]): SessionEntry[] => 
   return firstKeptIndex === 0 ? entries : entries.slice(firstKeptIndex);
 };
 
-// Entries arrive again when a tool ends, or after a reconnect. The newer
-// copy replaces the older one in place, and new ones go on the end.
+// Entries arrive again when a tool ends, or after a reconnect: the newer copy
+// replaces the older. All are kept in conversation order, newest last.
 export const mergeSessionEntries = (keptEntries: SessionEntry[], newEntries: SessionEntry[], maxKept: number): SessionEntry[] => {
-  const keptIds = new Set(keptEntries.map((entry) => entry.entryId));
-  const newEntryById = new Map(newEntries.filter(hasEntryId).map((entry) => [entry.entryId, entry]));
-  const updatedEntries = keptEntries.map((entry) => newEntryById.get(entry.entryId) ?? entry);
-  const addedEntries = [...newEntryById.values()].filter((entry) => !keptIds.has(entry.entryId));
-  return capDroppedMarkers(keepNewestWithinTextBudget([...updatedEntries, ...addedEntries].slice(-maxKept)), LIMITS.maxDroppedKept);
+  const entryById = new Map(keptEntries.map((entry) => [entry.entryId, entry]));
+  newEntries.filter(hasEntryId).forEach((entry) => entryById.set(entry.entryId, entry));
+  const inConversationOrder = [...entryById.values()].sort((first, second) => first.position - second.position);
+  return capDroppedMarkers(keepNewestWithinTextBudget(inConversationOrder.slice(-maxKept)), LIMITS.maxDroppedKept);
 };
+

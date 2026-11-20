@@ -166,9 +166,9 @@ describe("identifier names", () => {
 
 // Good entries with a few shared ids, so merges replace as well as add.
 const goodEntry: fc.Arbitrary<SessionEntry> = fc.oneof(
-  fc.record({ kind: fc.constant("text" as const), entryId: fc.constantFrom("a", "b", "c", "d", "e", "f"), text: fc.oneof(shortText, fc.constant("x".repeat(LIMITS.maxEntryTextLength))) }),
-  fc.record({ kind: fc.constant("tool" as const), entryId: fc.constantFrom("a", "b", "t"), toolName: shortText, summary: shortText, outcome: fc.constantFrom(...TOOL_OUTCOMES) }),
-  fc.record({ kind: fc.constant("dropped" as const), entryId: fc.string({ minLength: 1, maxLength: 3 }), droppedKind: name, reason: shortText }),
+  fc.record({ kind: fc.constant("text" as const), position: fc.constant(0), entryId: fc.constantFrom("a", "b", "c", "d", "e", "f"), text: fc.oneof(shortText, fc.constant("x".repeat(LIMITS.maxEntryTextLength))) }),
+  fc.record({ kind: fc.constant("tool" as const), position: fc.constant(0), entryId: fc.constantFrom("a", "b", "t"), toolName: shortText, summary: shortText, outcome: fc.constantFrom(...TOOL_OUTCOMES) }),
+  fc.record({ kind: fc.constant("dropped" as const), position: fc.constant(0), entryId: fc.string({ minLength: 1, maxLength: 3 }), droppedKind: name, reason: shortText }),
 );
 const textLength = (entry: SessionEntry): number =>
   entry.kind === "tool" ? entry.toolName.length + entry.summary.length : entry.kind === "dropped" ? entry.reason.length : entry.kind === "output" ? JSON.stringify(entry.fields).length : entry.text.length;
@@ -182,6 +182,28 @@ describe("mergeSessionEntries", () => {
         expect(merged.reduce((sum, item) => sum + textLength(item), 0)).toBeLessThanOrEqual(LIMITS.maxKeptEntryTextLength);
         expect(merged.filter((item) => item.kind === "dropped").length).toBeLessThanOrEqual(LIMITS.maxDroppedKept);
         expect(new Set(merged.map((item) => item.entryId)).size).toBe(merged.length);
+      }),
+      RUNS,
+    );
+  });
+
+  // A conversation numbered in order; a batch is any stretch of it, sent any number of times.
+  const conversation = fc.uniqueArray(goodEntry, { selector: (item) => item.entryId, maxLength: 30 }).map((items) => items.map((item, position) => ({ ...item, position })));
+  test("the same entries arriving twice change nothing the second time", () => {
+    fc.assert(
+      fc.property(conversation, fc.nat(30), fc.nat(30), fc.integer({ min: 1, max: 40 }), (items, start, overlap, maxKept) => {
+        const kept = mergeSessionEntries([], items.slice(0, start), maxKept);
+        const once = mergeSessionEntries(kept, items.slice(Math.min(overlap, start)), maxKept);
+        expect(mergeSessionEntries(once, items.slice(Math.min(overlap, start)), maxKept)).toEqual(once);
+      }),
+      RUNS,
+    );
+  });
+  test("whatever order a conversation's entries arrive in, they're kept in conversation order", () => {
+    fc.assert(
+      fc.property(conversation.chain((items) => fc.shuffledSubarray(items, { minLength: items.length })), (shuffled) => {
+        const positions = mergeSessionEntries([], shuffled, LIMITS.maxEntriesKept).map(({ position }) => position);
+        expect(positions).toEqual([...positions].sort((first, second) => first - second));
       }),
       RUNS,
     );

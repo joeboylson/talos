@@ -33,7 +33,7 @@ const setUp = async () => {
   return { connections, handlers, send, open, machine, joePage, evePage };
 };
 
-const entryFor = (sessionName: string) => ({ type: "session-entries", sessionName, entries: [{ kind: "text", entryId: "e1", text: "secret" }] });
+const entryFor = (sessionName: string) => ({ type: "session-entries", sessionName, entries: [{ kind: "text", position: 0, entryId: "e1", text: "secret" }] });
 const lastError = (socket: Socket) => parsedMessages(socket.record.sent).filter((message) => message.type === "error").at(-1)?.message;
 const mentionsJoesMachine = (socket: Socket) =>
   parsedMessages(socket.record.sent).some((message) => message.machineId === JOE_MACHINE || String(message.message ?? "").startsWith(`${JOE_MACHINE}:`));

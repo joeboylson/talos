@@ -3,6 +3,7 @@ import {
   allowTranscriptSwitch,
   readCommandPrompt,
   readCompleteLines,
+  numberItems,
   readTranscriptLine,
   resolveTranscriptItems,
   summarizeToolInput,
@@ -47,11 +48,6 @@ describe("readTranscriptLine", () => {
     ]);
   });
 
-  test("a structured tool's own call isn't an entry: its output shows it", () => {
-    const content = [{ type: "tool_use", id: "t1", name: "mcp__talos__ask_decision", input: { question: "?" } }];
-    expect(readTranscriptLine(line({ type: "assistant", message: { content } }))).toEqual([]);
-  });
-
   test("a tool's result says it ended", () => {
     const content = [{ type: "tool_result", tool_use_id: "t1", is_error: true, content: "boom" }];
     expect(readTranscriptLine(line({ type: "user", message: { content } }))).toEqual([
@@ -80,7 +76,7 @@ describe("readTranscriptLine", () => {
 });
 
 describe("resolveTranscriptItems", () => {
-  const running = { kind: "tool", entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" } as const;
+  const running = { kind: "tool", position: 0, entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" } as const;
 
   test("a tool's end sends the tool again with how it went", () => {
     const { entries, knownTools } = resolveTranscriptItems([{ kind: "tool-end", toolUseId: "t1", isFailed: false }], new Map([["t1", running]]));
@@ -108,8 +104,8 @@ describe("resolveTranscriptItems", () => {
   });
 
   test("an entry that fails its check becomes a dropped marker, and its data is handed back to keep aside", () => {
-    const longId = { kind: "text", entryId: "x".repeat(201), text: "hi" } as const;
-    const fine = { kind: "text", entryId: "ok", text: "hi" } as const;
+    const longId = { kind: "text", position: 0, entryId: "x".repeat(201), text: "hi" } as const;
+    const fine = { kind: "text", position: 0, entryId: "ok", text: "hi" } as const;
     const { entries, rejected } = resolveTranscriptItems([longId, fine], new Map());
     expect(entries[0]).toMatchObject({ kind: "dropped", droppedKind: "text" });
     expect(entries[0]?.entryId).toMatch(/^dropped:/);
@@ -124,7 +120,7 @@ describe("resolveTranscriptItems", () => {
   });
 
   test("stays linear on a large read (would be seconds if quadratic)", () => {
-    const items = Array.from({ length: 50_000 }, (_unused, i) => ({ kind: "text" as const, entryId: `e${i}`, text: "x" }));
+    const items = Array.from({ length: 50_000 }, (_unused, i) => ({ kind: "text" as const, position: 0, entryId: `e${i}`, text: "x" }));
     const startMs = Date.now();
     const { entries } = resolveTranscriptItems(items, new Map());
     expect(entries.length).toBe(50_000);
@@ -183,7 +179,7 @@ test("command tags are found in linear time, even with many unclosed ones", () =
 });
 
 describe("running tools", () => {
-  const tool = (entryId: string) => ({ kind: "tool", entryId, toolName: "Bash", summary: "", outcome: "running" }) as const;
+  const tool = (entryId: string) => ({ kind: "tool", position: 0, entryId, toolName: "Bash", summary: "", outcome: "running" }) as const;
   test("a tool the shared reader would turn down isn't tracked", () => {
     expect(resolveTranscriptItems([tool("x".repeat(201))], new Map()).knownTools.size).toBe(0);
   });
@@ -216,5 +212,27 @@ describe("transcript edges", () => {
   test("a tool whose id isn't text isn't an entry", () => {
     const content = [{ type: "tool_use", id: 7, name: "Bash", input: {} }];
     expect(readTranscriptLine(line({ type: "assistant", message: { content } }))).toEqual([]);
+  });
+});
+
+describe("numbering in conversation order", () => {
+  test("items are numbered from the session's next number; a tool's end takes its tool's number", () => {
+    const { items, nextPosition } = numberItems(
+      [
+        { kind: "text", entryId: "a", text: "hi" },
+        { kind: "tool", entryId: "t1", toolName: "Bash", summary: "", outcome: "running" },
+        { kind: "tool-end", toolUseId: "t1", isFailed: false },
+        { kind: "structured-call", toolUseId: "s1" },
+      ],
+      7,
+    );
+    expect(nextPosition).toBe(10);
+    const { entries, structuredCalls } = resolveTranscriptItems(items, new Map());
+    expect(entries.map(({ entryId, position }) => `${entryId}@${position}`)).toEqual(["a@7", "t1@8", "t1@8"]);
+    expect(structuredCalls).toEqual([{ toolUseId: "s1", position: 9 }]);
+  });
+  test("a structured tool's call holds its place instead of showing", () => {
+    const content = [{ type: "tool_use", id: "s1", name: "mcp__talos__ask_decision", input: {} }];
+    expect(readTranscriptLine(JSON.stringify({ uuid: "u1", type: "assistant", message: { content } }))).toEqual([{ kind: "structured-call", toolUseId: "s1" }]);
   });
 });

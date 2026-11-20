@@ -79,3 +79,32 @@ export const stepOutputs = (outputs: Outputs, event: OutputsEvent): OutputsStep 
   if (event.type === "turn-ended") return closeWhere(outputs, (output) => output.askedInTurn < outputs.turn);
   return closeWhere(outputs, (output) => output.id === event.id);
 };
+
+// An output sent in a normal turn shows in the conversation in its call's place.
+// Its two halves arrive apart: the output goes through (a hook), and the call is
+// read from the conversation. Whichever comes first waits for the other, at
+// most as many of each as a session keeps open.
+export type CallPlace = { toolUseId: string; position: number };
+export type OutputPlacing = { waitingOutputs: PendingOutput[]; waitingPlaces: CallPlace[] };
+export const NO_PLACING: OutputPlacing = { waitingOutputs: [], waitingPlaces: [] };
+
+export const placeOutputs = (
+  placing: OutputPlacing,
+  arrivedOutputs: readonly PendingOutput[],
+  arrivedPlaces: readonly CallPlace[],
+): { placing: OutputPlacing; placed: { output: PendingOutput; position: number }[] } => {
+  const outputs = [...placing.waitingOutputs, ...arrivedOutputs];
+  const places = [...placing.waitingPlaces, ...arrivedPlaces];
+  const placed = outputs.flatMap((output) => {
+    const place = places.find(({ toolUseId }) => toolUseId === output.toolUseId);
+    return place ? [{ output, position: place.position }] : [];
+  });
+  const placedIds = new Set(placed.map(({ output }) => output.toolUseId));
+  return {
+    placing: {
+      waitingOutputs: outputs.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxOpenOutputs),
+      waitingPlaces: places.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxOpenOutputs),
+    },
+    placed,
+  };
+};

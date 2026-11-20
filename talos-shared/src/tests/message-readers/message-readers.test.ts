@@ -70,7 +70,7 @@ describe("readServerToMachine", () => {
 
 describe("readMachineToServer", () => {
   test("keeps entries for a plainly named session", () => {
-    const message = { type: "session-entries", sessionName: "fix", entries: [{ kind: "text", entryId: "a", text: "hi" }] };
+    const message = { type: "session-entries", sessionName: "fix", entries: [{ kind: "text", position: 0, entryId: "a", text: "hi" }] };
     expect(readMachineToServer(message) as unknown).toEqual(message);
   });
   test("leaves an oddly named session out of a session list", () => {

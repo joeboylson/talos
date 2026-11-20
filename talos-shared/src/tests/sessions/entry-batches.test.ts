@@ -3,7 +3,7 @@ import { batchEntriesBySize } from "../../entry-batches";
 import { type SessionEntry } from "../../sessions";
 import { LIMITS } from "../../limits";
 
-const textEntry = (entryId: string, length: number): SessionEntry => ({ kind: "text", entryId, text: "x".repeat(length) });
+const textEntry = (entryId: string, length: number): SessionEntry => ({ kind: "text", position: 0, entryId, text: "x".repeat(length) });
 const sizeOf = (entry: SessionEntry) => Buffer.byteLength(JSON.stringify(entry));
 
 describe("batchEntriesBySize", () => {
@@ -21,7 +21,7 @@ describe("batchEntriesBySize", () => {
   });
 
   test("counts bytes, not characters", () => {
-    const entry: SessionEntry = { kind: "text", entryId: "a", text: "é".repeat(10) };
+    const entry: SessionEntry = { kind: "text", position: 0, entryId: "a", text: "é".repeat(10) };
     expect(batchEntriesBySize([entry], 1000)[0].byteCount).toBe(sizeOf(entry));
   });
 

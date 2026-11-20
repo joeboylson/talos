@@ -193,9 +193,9 @@ describe("outputs", () => {
 // Entries over a few ids, valid and not, so merges overlap.
 const entryId = fc.constantFrom("e1", "e2", "e3", "e4", "dropped:1", "dropped:2");
 const sessionEntry: fc.Arbitrary<SessionEntry> = fc.oneof(
-  fc.record({ kind: fc.constant("text" as const), entryId, text: fc.string({ maxLength: 30 }) }),
-  fc.record({ kind: fc.constant("tool" as const), entryId, toolName: fc.constant("Bash"), summary: fc.string({ maxLength: 10 }), outcome: fc.constantFrom("running" as const, "done" as const, "failed" as const) }),
-  fc.record({ kind: fc.constant("dropped" as const), entryId, droppedKind: fc.constant("text"), reason: fc.constant("failed its check") }),
+  fc.record({ kind: fc.constant("text" as const), position: fc.constant(0), entryId, text: fc.string({ maxLength: 30 }) }),
+  fc.record({ kind: fc.constant("tool" as const), position: fc.constant(0), entryId, toolName: fc.constant("Bash"), summary: fc.string({ maxLength: 10 }), outcome: fc.constantFrom("running" as const, "done" as const, "failed" as const) }),
+  fc.record({ kind: fc.constant("dropped" as const), position: fc.constant(0), entryId, droppedKind: fc.constant("text"), reason: fc.constant("failed its check") }),
 );
 const markerCount = (entries: SessionEntry[]) => entries.filter(({ kind }) => kind === "dropped").length;
 

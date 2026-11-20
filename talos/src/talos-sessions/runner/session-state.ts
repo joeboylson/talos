@@ -3,7 +3,7 @@ import { mergeSessionEntries, type SessionEntry, type SessionState, type Session
 import { READY_CHECK_MS, READY_QUIET_MS } from "../constants";
 import { findKind } from "../kinds";
 import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
-import { stepOutputs, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
+import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
 import { SESSION_LIMITS } from "../limits";
 import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
 import { ENTER_KEY, ESC_KEY, ESC_PAUSE_MS, buildPastedText } from "../terminal";
@@ -27,9 +27,24 @@ const withOpenOutputs = (summary: SessionSummary, outputs: Outputs): SessionSumm
   return { ...summary, openOutputs: firstShown === -1 ? [] : shown.slice(firstShown) };
 };
 
-// An output sent in a normal turn shows in the conversation too. An asked-for
-// kind's answer shows in the summary only.
-const toOutputEntry = ({ id, kind, fields }: PendingOutput): SessionEntry => ({ kind: "output", entryId: id, outputKind: kind, fields });
+const toOutputEntry = ({ output: { id, kind, fields }, position }: { output: PendingOutput; position: number }): SessionEntry => ({
+  kind: "output",
+  entryId: id,
+  outputKind: kind,
+  fields,
+  position,
+});
+
+// Adds outputs to the conversation once both halves are in (see placeOutputs).
+export const placeOutputEntries = (sessionName: string, arrivedOutputs: PendingOutput[], arrivedPlaces: CallPlace[]): void => {
+  const session = heldSessions.get(sessionName);
+  if (!session || (arrivedOutputs.length === 0 && arrivedPlaces.length === 0)) return;
+  const { placing, placed } = placeOutputs(session.placing, arrivedOutputs, arrivedPlaces);
+  const outputEntries = placed.map(toOutputEntry);
+  const entries = outputEntries.length > 0 ? mergeSessionEntries(session.entries, outputEntries, SESSION_LIMITS.maxEntriesKept) : session.entries;
+  saveSession(sessionName, session, { placing, entries });
+  if (outputEntries.length > 0) broadcast({ type: "session-entries", sessionName, entries: outputEntries });
+};
 
 const saveSession = (sessionName: string, session: HeldSession, changes: Partial<HeldSession>): void => {
   const next = { ...session, ...changes };
@@ -78,10 +93,10 @@ export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): voi
   if (step.outputs === session.outputs) return;
   const summary = step.outputs.open === session.outputs.open ? session.summary : withOpenOutputs(session.summary, step.outputs);
   const heldAnswers = keptHeld(session.heldAnswers, step.closedIds, Date.now());
-  const outputEntries = step.opened && !findKind(catalog(), step.opened.kind)?.requestText ? [toOutputEntry(step.opened)] : [];
-  const entries = outputEntries.length > 0 ? mergeSessionEntries(session.entries, outputEntries, SESSION_LIMITS.maxEntriesKept) : session.entries;
-  saveSession(sessionName, session, { outputs: step.outputs, summary, heldAnswers, entries });
-  if (outputEntries.length > 0) broadcast({ type: "session-entries", sessionName, entries: outputEntries });
+  saveSession(sessionName, session, { outputs: step.outputs, summary, heldAnswers });
+  // An output sent in a normal turn shows in the conversation too. An asked-for
+  // kind's answer shows in the summary only.
+  if (step.opened && !findKind(catalog(), step.opened.kind)?.requestText) placeOutputEntries(sessionName, [step.opened], []);
   notify(sessionName, session.heldAnswers.filter((answer) => !heldAnswers.includes(answer)));
   if (step.opened) applyLaneEvent(sessionName, { type: "went-through", output: step.opened });
 };

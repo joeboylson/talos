@@ -5,7 +5,7 @@ import type { SessionEntry, SessionSummary } from "../shapes";
 import { createCoalescer } from "../coalescer";
 import { encodeRunnerEvent, type RunnerEvent } from "../client/runner-protocol";
 import type { Lane } from "../lanes/lane";
-import type { Outputs } from "../lanes/outputs";
+import type { OutputPlacing, Outputs } from "../lanes/outputs";
 import type { HeldAnswer } from "../lanes/held";
 import { SESSION_LIMITS } from "../limits";
 
@@ -30,6 +30,9 @@ export type HeldSession = {
   entries: SessionEntry[];
   lane: Lane;
   outputs: Outputs;
+  // The next number in the conversation, and outputs waiting for their place.
+  nextPosition: number;
+  placing: OutputPlacing;
   heldAnswers: HeldAnswer[];
   // Proves a hook POST on the shared hooks socket came from this session.
   hookToken: string;

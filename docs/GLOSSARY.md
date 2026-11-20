@@ -25,6 +25,9 @@ docs. Use these and no others.
 - **entry**: one thing in a session's conversation: a message someone sent
   (with any images), text Claude wrote, a tool Claude ran, an output the
   session sent in a prose turn, or a dropped marker.
+- **position**: an entry's place in its session's conversation, counted by the
+  session runner as it reads it. Every side keeps entries in that order and
+  trims the oldest first, so an entry that arrives again lands in its place.
 - **dropped marker**: an entry that stands in for an item that failed its
   check, holding only its kind and why. The item's data is kept aside in the
   **quarantine file** on the machine, never sent on.

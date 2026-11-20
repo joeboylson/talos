@@ -12,8 +12,8 @@ import {
 } from "../shapes";
 
 const session = (extra: object = {}) => ({ sessionName: "fix", folderName: "talos", state: "idle", asks: {}, openOutputs: [], ...extra });
-const text = (entryId: string, body = "hi"): SessionEntry => ({ kind: "text", entryId, text: body });
-const marker = (entryId: string): SessionEntry => ({ kind: "dropped", entryId, droppedKind: "text", reason: "bad" });
+const text = (entryId: string, body = "hi"): SessionEntry => ({ kind: "text", position: 0, entryId, text: body });
+const marker = (entryId: string): SessionEntry => ({ kind: "dropped", position: 0, entryId, droppedKind: "text", reason: "bad" });
 
 describe("readSessionList", () => {
   test("a bad session is left out and the rest kept", () => {
@@ -56,17 +56,17 @@ describe("readSentImages", () => {
 
 describe("readSessionEntry and readSessionEntries", () => {
   test.each([
-    ["a negative image count", { kind: "prompt", entryId: "a", text: "x", imageCount: -1 }],
-    ["a fractional image count", { kind: "prompt", entryId: "a", text: "x", imageCount: 1.5 }],
-    ["an output whose fields are a list", { kind: "output", entryId: "a", outputKind: "decision", fields: [] }],
-    ["an output whose fields are too big in bytes", { kind: "output", entryId: "a", outputKind: "decision", fields: { text: "é".repeat(SESSION_LIMITS.maxOutputFieldsBytes / 2) } }],
-    ["a tool with an unknown outcome", { kind: "tool", entryId: "a", toolName: "Bash", summary: "", outcome: "maybe" }],
-    ["a marker with a long reason", { kind: "dropped", entryId: "a", droppedKind: "text", reason: "x".repeat(SESSION_LIMITS.maxNameTextLength + 1) }],
+    ["a negative image count", { kind: "prompt", position: 0, entryId: "a", text: "x", imageCount: -1 }],
+    ["a fractional image count", { kind: "prompt", position: 0, entryId: "a", text: "x", imageCount: 1.5 }],
+    ["an output whose fields are a list", { kind: "output", position: 0, entryId: "a", outputKind: "decision", fields: [] }],
+    ["an output whose fields are too big in bytes", { kind: "output", position: 0, entryId: "a", outputKind: "decision", fields: { text: "é".repeat(SESSION_LIMITS.maxOutputFieldsBytes / 2) } }],
+    ["a tool with an unknown outcome", { kind: "tool", position: 0, entryId: "a", toolName: "Bash", summary: "", outcome: "maybe" }],
+    ["a marker with a long reason", { kind: "dropped", position: 0, entryId: "a", droppedKind: "text", reason: "x".repeat(SESSION_LIMITS.maxNameTextLength + 1) }],
   ])("%s is turned down", (_name, item) => {
     expect(readSessionEntry(item)).toBeNull();
   });
   test("a good output is kept", () => {
-    const output = { kind: "output", entryId: "a", outputKind: "decision", fields: { question: "?" } };
+    const output = { kind: "output", position: 0, entryId: "a", outputKind: "decision", fields: { question: "?" } };
     expect(readSessionEntry(output) as unknown).toEqual(output);
   });
   test("a list over the entry cap is turned down", () => {
@@ -80,13 +80,13 @@ describe("readSessionEntry and readSessionEntries", () => {
 
 describe("toDroppedMarker", () => {
   test("a readable id is kept, so a good copy sent later replaces the marker", () => {
-    expect(toDroppedMarker({ kind: "text", entryId: "e1", text: 5 }, "bad")).toEqual({ kind: "dropped", entryId: "e1", droppedKind: "text", reason: "bad" });
+    expect(toDroppedMarker({ kind: "text", position: 0, entryId: "e1", text: 5 }, "bad")).toEqual({ kind: "dropped", position: 0, entryId: "e1", droppedKind: "text", reason: "bad" });
   });
   test("an unreadable id is hashed, the same way each time", () => {
-    const first = toDroppedMarker({ kind: "text", entryId: 5 }, "bad");
+    const first = toDroppedMarker({ kind: "text", position: 0, entryId: 5 }, "bad");
     expect(first.entryId).toMatch(/^dropped:[0-9a-f]+$/);
-    expect(toDroppedMarker({ kind: "text", entryId: 5 }, "bad").entryId).toBe(first.entryId);
-    expect(toDroppedMarker({ kind: "text", entryId: 6 }, "bad").entryId).not.toBe(first.entryId);
+    expect(toDroppedMarker({ kind: "text", position: 0, entryId: 5 }, "bad").entryId).toBe(first.entryId);
+    expect(toDroppedMarker({ kind: "text", position: 0, entryId: 6 }, "bad").entryId).not.toBe(first.entryId);
   });
   test("a long kind is unknown, and a long reason is cut", () => {
     const dropped = toDroppedMarker({ kind: "x".repeat(SESSION_LIMITS.maxNameTextLength + 1) }, "r".repeat(SESSION_LIMITS.maxNameTextLength + 5));
@@ -116,7 +116,7 @@ describe("mergeSessionEntries", () => {
     expect(merged.map(({ entryId }) => entryId)).toEqual(["b", "c", "d"]);
   });
   test("a new entry that arrives with a kept tool's end is kept too", () => {
-    const running: SessionEntry = { kind: "tool", entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" };
+    const running: SessionEntry = { kind: "tool", position: 0, entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" };
     const merged = mergeSessionEntries([running], [text("x", "new"), { ...running, outcome: "done" }], 10);
     expect(merged.map(({ entryId }) => entryId)).toEqual(["t1", "x"]);
   });

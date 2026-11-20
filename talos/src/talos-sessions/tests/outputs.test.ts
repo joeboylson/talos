@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { NO_OUTPUTS, readOutputsEvent, stepOutputs, type Outputs, type PendingOutput } from "../lanes/outputs";
+import { NO_OUTPUTS, NO_PLACING, placeOutputs, readOutputsEvent, stepOutputs, type Outputs, type PendingOutput } from "../lanes/outputs";
 import { SESSION_LIMITS } from "../limits";
 
 const pendingOf = (id: string, toolUseId = `tu-${id}`, waits = true): PendingOutput => ({ id, toolUseId, kind: "note", fields: { text: id }, atMs: 1, waits });
@@ -106,5 +106,22 @@ describe("several calls at once", () => {
   test("a call whose input is missing opens nothing, and a hook with no body is no event", () => {
     expect(stepOutputs(sent(NO_OUTPUTS, a), { type: "went-through", toolUseId: a.toolUseId, toolInput: null }).opened).toBeNull();
     expect(readOutputsEvent(null, false)).toBeNull();
+  });
+});
+
+describe("an output's place in the conversation", () => {
+  const output = pendingOf("a", "tu-a");
+  test("an output that went through waits for its call's place, then takes it", () => {
+    const first = placeOutputs(NO_PLACING, [output], []);
+    expect(first.placed).toEqual([]);
+    expect(placeOutputs(first.placing, [], [{ toolUseId: "tu-a", position: 7 }])).toEqual({ placing: NO_PLACING, placed: [{ output, position: 7 }] });
+  });
+  test("a call's place read first waits for its output", () => {
+    const first = placeOutputs(NO_PLACING, [], [{ toolUseId: "tu-a", position: 7 }]);
+    expect(placeOutputs(first.placing, [output], []).placed).toEqual([{ output, position: 7 }]);
+  });
+  test("what waits is capped", () => {
+    const places = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 5 }, (_unused, index) => ({ toolUseId: `t${index}`, position: index }));
+    expect(placeOutputs(NO_PLACING, [], places).placing.waitingPlaces.length).toBe(SESSION_LIMITS.maxOpenOutputs);
   });
 });

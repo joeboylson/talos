@@ -141,7 +141,7 @@ const runScenario = async (owners: number[], actions: Action[]) => {
         sendRaw(liveMachine, { type: "sessions", sessions: step.sessions.map((sessionName) => ({ sessionName, folderName: "f0", state: "idle" })) });
         reported.set(machineId, { folders: step.folders, sessions: step.sessions });
       } else if (step.kind === "entries" && liveMachine) {
-        sendRaw(liveMachine, { type: "session-entries", sessionName: step.session, entries: [{ kind: "text", entryId: "e1", text: "secret" }] });
+        sendRaw(liveMachine, { type: "session-entries", sessionName: step.session, entries: [{ kind: "text", position: 0, entryId: "e1", text: "secret" }] });
       } else if (step.kind === "machine-error" && liveMachine) {
         sendRaw(liveMachine, { type: "error", message: "something" });
       } else if (step.kind === "pong" && liveMachine) {

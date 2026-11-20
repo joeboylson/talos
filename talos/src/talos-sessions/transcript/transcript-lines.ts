@@ -2,7 +2,7 @@ import { dirname } from "node:path";
 import { parseJsonOrNull } from "../json";
 import { SESSION_LIMITS } from "../limits";
 import { STRUCTURED_TOOL_PREFIX } from "../kinds";
-import { capDroppedMarkers, readSessionEntry, toDroppedMarker, type SessionEntry } from "../shapes";
+import { capDroppedMarkers, readSessionEntry, toDroppedMarker, type SessionEntry, type UnnumberedEntry } from "../shapes";
 import { TOOL_SUMMARY_SHOWN_LENGTH, NEWLINE_BYTE } from "../constants";
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
@@ -17,9 +17,13 @@ type TranscriptLine = {
 type ContentBlock = { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; is_error?: unknown };
 type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
 
-// What one transcript line holds: entries, and tools that ended (their
-// results are saved as separate lines, after the tool's own line).
-export type TranscriptItem = SessionEntry | { kind: "tool-end"; toolUseId: string; isFailed: boolean };
+// What one transcript line holds: entries, tools that ended (their results are
+// saved as separate lines, after the tool's own line), and structured tool
+// calls, which aren't shown but hold the place their output takes.
+type ToolEnd = { kind: "tool-end"; toolUseId: string; isFailed: boolean };
+type StructuredCall = { kind: "structured-call"; toolUseId: string };
+export type TranscriptItem = UnnumberedEntry | ToolEnd | StructuredCall;
+export type NumberedItem = SessionEntry | ToolEnd | (StructuredCall & { position: number });
 
 const IMAGE_MARKER = /\[Image #\d+\]/g;
 const COMMAND_OUTPUT = /^<local-command-stdout>([\s\S]*)<\/local-command-stdout>$/;
@@ -64,7 +68,7 @@ export const summarizeToolInput = (input: unknown): string => {
   return truncate((firstTellingValue ?? "").replace(/\s+/g, " ").trim(), TOOL_SUMMARY_SHOWN_LENGTH);
 };
 
-const readPromptLine = (entryId: string, blocks: ContentBlock[]): SessionEntry[] => {
+const readPromptLine = (entryId: string, blocks: ContentBlock[]): UnnumberedEntry[] => {
   const typedText = blocks.flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : [])).join("\n");
   const imageCount = blocks.filter((block) => block.type === "image").length;
   const isNote = NOTE_PREFIXES.some((prefix) => typedText.trimStart().startsWith(prefix));
@@ -87,14 +91,16 @@ const readToolEnds = (blocks: ContentBlock[]): TranscriptItem[] =>
       : [],
   );
 
-const readAssistantLine = (lineId: string, blocks: ContentBlock[]): SessionEntry[] =>
-  blocks.flatMap((block, blockIndex): SessionEntry[] => {
+const readAssistantLine = (lineId: string, blocks: ContentBlock[]): TranscriptItem[] =>
+  blocks.flatMap((block, blockIndex): TranscriptItem[] => {
     if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
       return [{ kind: "text", entryId: `${lineId}:${blockIndex}`, text: truncate(block.text, SESSION_LIMITS.maxEntryTextLength) }];
     }
-    // A structured tool's call isn't shown: its output shows it, once it went through.
+    // A structured tool's call isn't shown: its output shows it, once it went
+    // through, in this call's place.
     const isStructured = typeof block.name === "string" && block.name.startsWith(STRUCTURED_TOOL_PREFIX);
-    if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string" && !isStructured) {
+    if (block.type === "tool_use" && typeof block.id === "string" && isStructured) return [{ kind: "structured-call", toolUseId: block.id }];
+    if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
       const toolName = truncate(block.name, SESSION_LIMITS.maxNameTextLength);
       return [{ kind: "tool", entryId: block.id, toolName, summary: summarizeToolInput(block.input), outcome: "running" }];
     }
@@ -124,14 +130,25 @@ export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
 // like an object's own property (toString, __proto__) would break a plain object.
 // An entry that fails its check is replaced by a dropped marker, and handed back
 // in rejected so its data can be kept aside, never sent.
+// Numbers each item in conversation order, from the session's next number. A
+// tool's end isn't numbered: it takes its tool's number when it's resolved.
+export const numberItems = (items: TranscriptItem[], firstPosition: number): { items: NumberedItem[]; nextPosition: number } => {
+  let nextPosition = firstPosition;
+  const numbered = items.map((item): NumberedItem => (item.kind === "tool-end" ? item : ({ ...item, position: nextPosition++ } as NumberedItem)));
+  return { items: numbered, nextPosition };
+};
+
 export const resolveTranscriptItems = (
-  items: TranscriptItem[],
+  items: NumberedItem[],
   knownTools: ReadonlyMap<string, ToolEntry>,
-): { entries: SessionEntry[]; knownTools: Map<string, ToolEntry>; rejected: SessionEntry[] } => {
+): { entries: SessionEntry[]; knownTools: Map<string, ToolEntry>; rejected: SessionEntry[]; structuredCalls: { toolUseId: string; position: number }[] } => {
   const entries: SessionEntry[] = [];
+  const structuredCalls: { toolUseId: string; position: number }[] = [];
   const stillRunning = new Map(knownTools);
   for (const item of items) {
-    if (item.kind === "tool") {
+    if (item.kind === "structured-call") {
+      structuredCalls.push({ toolUseId: item.toolUseId, position: item.position });
+    } else if (item.kind === "tool") {
       entries.push(item);
       // Only a tool that can be shown is tracked, and at most as many as a
       // session keeps, oldest dropped: tools that never end would otherwise grow
@@ -151,7 +168,7 @@ export const resolveTranscriptItems = (
   }
   const rejected = entries.filter((entry) => readSessionEntry(entry) === null);
   const checkedEntries = entries.map((entry) => readSessionEntry(entry) ?? toDroppedMarker(entry, "too long or malformed"));
-  return { entries: capDroppedMarkers(checkedEntries, SESSION_LIMITS.maxDroppedPerBatch), knownTools: stillRunning, rejected };
+  return { entries: capDroppedMarkers(checkedEntries, SESSION_LIMITS.maxDroppedPerBatch), knownTools: stillRunning, rejected, structuredCalls };
 };
 
 // A line Claude Code is still writing has no newline yet, so it waits for

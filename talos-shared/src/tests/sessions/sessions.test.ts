@@ -100,51 +100,51 @@ describe("readSessionDecision / list decision", () => {
 describe("readSessionEntries", () => {
   test("keeps each kind of entry, dropping anything extra", () => {
     const entries = [
-      { kind: "prompt", entryId: "a", text: "hi", imageCount: 1, extra: 1 },
-      { kind: "text", entryId: "b", text: "hello" },
-      { kind: "tool", entryId: "c", toolName: "Bash", summary: "git status", outcome: "running" },
-      { kind: "output", entryId: "d", outputKind: "decision", fields: { question: "?" } },
-      { kind: "dropped", entryId: "e", droppedKind: "text", reason: "failed its check" },
+      { kind: "prompt", position: 0, entryId: "a", text: "hi", imageCount: 1, extra: 1 },
+      { kind: "text", position: 0, entryId: "b", text: "hello" },
+      { kind: "tool", position: 0, entryId: "c", toolName: "Bash", summary: "git status", outcome: "running" },
+      { kind: "output", position: 0, entryId: "d", outputKind: "decision", fields: { question: "?" } },
+      { kind: "dropped", position: 0, entryId: "e", droppedKind: "text", reason: "failed its check" },
     ];
     expect(readSessionEntries(entries)).toEqual([
-      { kind: "prompt", entryId: "a", text: "hi", imageCount: 1 },
-      { kind: "text", entryId: "b", text: "hello" },
-      { kind: "tool", entryId: "c", toolName: "Bash", summary: "git status", outcome: "running" },
-      { kind: "output", entryId: "d", outputKind: "decision", fields: { question: "?" } },
-      { kind: "dropped", entryId: "e", droppedKind: "text", reason: "failed its check" },
+      { kind: "prompt", position: 0, entryId: "a", text: "hi", imageCount: 1 },
+      { kind: "text", position: 0, entryId: "b", text: "hello" },
+      { kind: "tool", position: 0, entryId: "c", toolName: "Bash", summary: "git status", outcome: "running" },
+      { kind: "output", position: 0, entryId: "d", outputKind: "decision", fields: { question: "?" } },
+      { kind: "dropped", position: 0, entryId: "e", droppedKind: "text", reason: "failed its check" },
     ]);
   });
 
   test.each([
     [null],
-    [Array.from({ length: LIMITS.maxEntriesKept + 1 }, (_, index) => ({ kind: "text", entryId: `${index}`, text: "" }))],
+    [Array.from({ length: LIMITS.maxEntriesKept + 1 }, (_, index) => ({ kind: "text", position: 0, entryId: `${index}`, text: "" }))],
   ])("rejects what isn't a list of entries %#", (value) => {
     expect(readSessionEntries(value)).toBeNull();
   });
 
   test.each([
-    [{ kind: "text", entryId: "a", text: 2 }, "text"],
-    [{ kind: "text", entryId: "a", text: "x".repeat(LIMITS.maxEntryTextLength + 1) }, "text"],
-    [{ kind: "prompt", entryId: "a", text: "hi", imageCount: -1 }, "prompt"],
-    [{ kind: "tool", entryId: "a", toolName: "Bash", summary: "", outcome: "maybe" }, "tool"],
+    [{ kind: "text", position: 0, entryId: "a", text: 2 }, "text"],
+    [{ kind: "text", position: 0, entryId: "a", text: "x".repeat(LIMITS.maxEntryTextLength + 1) }, "text"],
+    [{ kind: "prompt", position: 0, entryId: "a", text: "hi", imageCount: -1 }, "prompt"],
+    [{ kind: "tool", position: 0, entryId: "a", toolName: "Bash", summary: "", outcome: "maybe" }, "tool"],
     [{ kind: "other", entryId: "a" }, "other"],
   ])("puts a dropped marker in place of a bad entry, keeping the rest %#", (bad, droppedKind) => {
-    const good = { kind: "text", entryId: "b", text: "hi" };
-    expect(readSessionEntries([bad, good]) as unknown).toEqual([{ kind: "dropped", entryId: "a", droppedKind, reason: "failed its check" }, good]);
+    const good = { kind: "text", position: 0, entryId: "b", text: "hi" };
+    expect(readSessionEntries([bad, good]) as unknown).toEqual([{ kind: "dropped", position: 0, entryId: "a", droppedKind, reason: "failed its check" }, good]);
   });
 
   test("a bad entry with no readable id gets the same marker id each time it's sent", () => {
-    const bad = { kind: "text", entryId: 5, text: "hi" };
+    const bad = { kind: "text", position: 0, entryId: 5, text: "hi" };
     const first = readSessionEntries([bad])?.[0];
     expect(first?.entryId).toMatch(/^dropped:/);
     expect(readSessionEntries([bad])?.[0]).toEqual(first);
   });
 
   test("markers are capped per batch and per session, so they can't push out real entries", () => {
-    const bad = Array.from({ length: LIMITS.maxDroppedPerBatch + 5 }, (_, index) => ({ kind: "text", entryId: `bad${index}`, text: 1 }));
+    const bad = Array.from({ length: LIMITS.maxDroppedPerBatch + 5 }, (_, index) => ({ kind: "text", position: 0, entryId: `bad${index}`, text: 1 }));
     expect(readSessionEntries(bad)?.length).toBe(LIMITS.maxDroppedPerBatch);
-    const markers = Array.from({ length: LIMITS.maxDroppedKept + 5 }, (_, index) => ({ kind: "dropped" as const, entryId: `m${index}`, droppedKind: "text", reason: "x" }));
-    const good = { kind: "text" as const, entryId: "g", text: "hi" };
+    const markers = Array.from({ length: LIMITS.maxDroppedKept + 5 }, (_, index) => ({ kind: "dropped" as const, position: 0, entryId: `m${index}`, droppedKind: "text", reason: "x" }));
+    const good = { kind: "text" as const, position: 0, entryId: "g", text: "hi" };
     const merged = mergeSessionEntries([good], markers, LIMITS.maxEntriesKept);
     expect(merged.filter((entry) => entry.kind === "dropped").length).toBe(LIMITS.maxDroppedKept);
     expect(merged[0]).toEqual(good);
@@ -172,11 +172,11 @@ describe("readSentImages", () => {
 });
 
 describe("mergeSessionEntries", () => {
-  const running = { kind: "tool", entryId: "t", toolName: "Bash", summary: "ls", outcome: "running" } as const;
-  const text = { kind: "text", entryId: "x", text: "hi" } as const;
+  const running = { kind: "tool", position: 0, entryId: "t", toolName: "Bash", summary: "ls", outcome: "running" } as const;
+  const text = { kind: "text", position: 0, entryId: "x", text: "hi" } as const;
 
   test("keeps the newest entries within the kept text budget, dropping the oldest", () => {
-    const big = (entryId: string) => ({ kind: "text" as const, entryId, text: "x".repeat(LIMITS.maxEntryTextLength) });
+    const big = (entryId: string) => ({ kind: "text" as const, position: 0, entryId, text: "x".repeat(LIMITS.maxEntryTextLength) });
     const count = LIMITS.maxKeptEntryTextLength / LIMITS.maxEntryTextLength + 3;
     const entries = Array.from({ length: count }, (_unused, i) => big(`e${i}`));
     const kept = mergeSessionEntries([], entries, LIMITS.maxEntriesKept);
@@ -197,7 +197,7 @@ describe("mergeSessionEntries", () => {
   });
 
   test("new entries go on the end, and old ones fall off past the limit", () => {
-    const merged = mergeSessionEntries([running, text], [{ kind: "text", entryId: "y", text: "more" }], 2);
+    const merged = mergeSessionEntries([running, text], [{ kind: "text", position: 0, entryId: "y", text: "more" }], 2);
     expect(merged.map((entry) => entry.entryId)).toEqual(["x", "y"]);
   });
 
@@ -211,8 +211,8 @@ describe("mergeSessionEntries", () => {
   });
 });
 
-const textOf = (entryId: string, length = 0): SessionEntry => ({ kind: "text", entryId, text: "x".repeat(length) });
-const markerOf = (entryId: string): SessionEntry => ({ kind: "dropped", entryId, droppedKind: "text", reason: "x" });
+const textOf = (entryId: string, length = 0): SessionEntry => ({ kind: "text", position: 0, entryId, text: "x".repeat(length) });
+const markerOf = (entryId: string): SessionEntry => ({ kind: "dropped", position: 0, entryId, droppedKind: "text", reason: "x" });
 const bigEntries = (count: number) => Array.from({ length: count }, (_unused, index) => textOf(`e${index}`, LIMITS.maxEntryTextLength));
 const fieldsOfBytes = (byteCount: number) => ({ a: "x".repeat(byteCount - JSON.stringify({ a: "" }).length) });
 
@@ -223,7 +223,7 @@ describe("limits: exactly at the limit is kept, one past is turned down", () => 
     expect(readSessionDecision({ id: "d1", question: "?", choices, atMs: 1 })).not.toBeNull();
     expect(readSessionEntries(Array.from({ length: LIMITS.maxEntriesKept }, (_unused, index) => textOf(`${index}`)))).not.toBeNull();
     expect(readSentImages(Array.from({ length: LIMITS.maxImagesPerMessage }, () => ({ mediaType: "image/png", dataBase64: "AAAA" })))).not.toBeNull();
-    expect(readSessionEntry({ kind: "output", entryId: "o", outputKind: "note", fields: fieldsOfBytes(LIMITS.maxOutputFieldsBytes) })).not.toBeNull();
+    expect(readSessionEntry({ kind: "output", position: 0, entryId: "o", outputKind: "note", fields: fieldsOfBytes(LIMITS.maxOutputFieldsBytes) })).not.toBeNull();
   });
 
   test("a session list holds at most maxSessions", () => {
@@ -234,7 +234,7 @@ describe("limits: exactly at the limit is kept, one past is turned down", () => 
 
   test("output fields are measured in bytes, not characters", () => {
     const wideFields = { note: "é".repeat(LIMITS.maxOutputFieldsBytes / 2) };
-    expect(readSessionEntry({ kind: "output", entryId: "o", outputKind: "note", fields: wideFields })).toBeNull();
+    expect(readSessionEntry({ kind: "output", position: 0, entryId: "o", outputKind: "note", fields: wideFields })).toBeNull();
   });
 });
 
@@ -246,7 +246,7 @@ describe("bad parts of a session are left out", () => {
   });
 
   test("null fields aren't fields", () => {
-    expect(readSessionEntry({ kind: "output", entryId: "o", outputKind: "note", fields: null })).toBeNull();
+    expect(readSessionEntry({ kind: "output", position: 0, entryId: "o", outputKind: "note", fields: null })).toBeNull();
     expect(sessionWith({ asks: { status: { state: "answered", atMs: 1, latest: null } } }).asks).toEqual({ status: { state: "answered", atMs: 1 } });
   });
 
@@ -266,14 +266,14 @@ describe("bad parts of a session are left out", () => {
 
 describe("readSessionEntry checks every field of every kind", () => {
   test("a prompt with no images is kept", () => {
-    expect(readSessionEntry({ kind: "prompt", entryId: "a", text: "hi", imageCount: 0 })).not.toBeNull();
+    expect(readSessionEntry({ kind: "prompt", position: 0, entryId: "a", text: "hi", imageCount: 0 })).not.toBeNull();
   });
 
   test.each([
-    ["a tool with a bad name", { kind: "tool", entryId: "a", toolName: 5, summary: "ls", outcome: "done" }],
-    ["an output with a bad kind", { kind: "output", entryId: "a", outputKind: 5, fields: {} }],
-    ["a marker with a bad reason", { kind: "dropped", entryId: "a", droppedKind: "text", reason: 5 }],
-    ["a marker with a bad kind", { kind: "dropped", entryId: "a", droppedKind: 5, reason: "x" }],
+    ["a tool with a bad name", { kind: "tool", position: 0, entryId: "a", toolName: 5, summary: "ls", outcome: "done" }],
+    ["an output with a bad kind", { kind: "output", position: 0, entryId: "a", outputKind: 5, fields: {} }],
+    ["a marker with a bad reason", { kind: "dropped", position: 0, entryId: "a", droppedKind: "text", reason: 5 }],
+    ["a marker with a bad kind", { kind: "dropped", position: 0, entryId: "a", droppedKind: 5, reason: "x" }],
     ["an unknown kind shaped like a marker", { kind: "other", entryId: "a", droppedKind: "x", reason: "y" }],
   ])("turns down %s", (_name, item) => {
     expect(readSessionEntry(item)).toBeNull();
@@ -282,7 +282,7 @@ describe("readSessionEntry checks every field of every kind", () => {
 
 describe("dropped markers", () => {
   test("different bad items with no readable id get different marker ids", () => {
-    const markers = readSessionEntries([{ kind: "text", entryId: 5, text: "a" }, { kind: "text", entryId: 6, text: "b" }])!;
+    const markers = readSessionEntries([{ kind: "text", position: 0, entryId: 5, text: "a" }, { kind: "text", position: 0, entryId: 6, text: "b" }])!;
     expect(markers[0]?.entryId).not.toBe(markers[1]?.entryId);
   });
 
@@ -314,15 +314,38 @@ describe("mergeSessionEntries edge cases", () => {
   });
 
   test("the text budget counts a tool's name and summary, and an output's fields", () => {
-    const tool: SessionEntry = { kind: "tool", entryId: "t", toolName: "B", summary: "x".repeat(LIMITS.maxToolSummaryLength), outcome: "done" };
-    const output: SessionEntry = { kind: "output", entryId: "o", outputKind: "note", fields: { a: "x".repeat(100) } };
+    const tool: SessionEntry = { kind: "tool", position: 0, entryId: "t", toolName: "B", summary: "x".repeat(LIMITS.maxToolSummaryLength), outcome: "done" };
+    const output: SessionEntry = { kind: "output", position: 0, entryId: "o", outputKind: "note", fields: { a: "x".repeat(100) } };
     const budgetCount = LIMITS.maxKeptEntryTextLength / LIMITS.maxEntryTextLength;
     expect(mergeSessionEntries([], [...bigEntries(budgetCount), tool], LIMITS.maxEntriesKept).map((entry) => entry.entryId)[0]).toBe("e1");
     expect(mergeSessionEntries([], [...bigEntries(budgetCount), output], LIMITS.maxEntriesKept).map((entry) => entry.entryId)[0]).toBe("e1");
   });
 
+  const at = (entryId: string, position: number, length = 0): SessionEntry => ({ kind: "text", position, entryId, text: "x".repeat(length) });
+  test("entries are kept in conversation order, whatever order they arrive in", () => {
+    expect(mergeSessionEntries([at("b", 2)], [at("c", 3), at("a", 1)], 10).map(({ entryId }) => entryId)).toEqual(["a", "b", "c"]);
+  });
+  test("an old entry that arrives again after it was trimmed stays trimmed", () => {
+    const conversation = Array.from({ length: 6 }, (_unused, index) => at(`e${index}`, index));
+    const once = mergeSessionEntries([], conversation, 4);
+    expect(once.map(({ entryId }) => entryId)).toEqual(["e2", "e3", "e4", "e5"]);
+    expect(mergeSessionEntries(once, conversation, 4)).toEqual(once);
+  });
+  test("past the text budget too, the same entries twice change nothing", () => {
+    const conversation = Array.from({ length: LIMITS.maxKeptEntryTextLength / LIMITS.maxEntryTextLength + 2 }, (_unused, index) => at(`e${index}`, index, LIMITS.maxEntryTextLength));
+    const once = mergeSessionEntries([], conversation, LIMITS.maxEntriesKept);
+    expect(mergeSessionEntries(once, conversation, LIMITS.maxEntriesKept)).toEqual(once);
+  });
+  test.each([
+    ["no position", { kind: "text", entryId: "a", text: "hi" }],
+    ["a negative position", { kind: "text", position: -1, entryId: "a", text: "hi" }],
+    ["a position that isn't whole", { kind: "text", position: 1.5, entryId: "a", text: "hi" }],
+  ])("an entry with %s is turned down", (_name, item) => {
+    expect(readSessionEntry(item)).toBeNull();
+  });
+
   test("a new entry that arrives with a kept tool's end is kept too", () => {
-    const running: SessionEntry = { kind: "tool", entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" };
+    const running: SessionEntry = { kind: "tool", position: 0, entryId: "t1", toolName: "Bash", summary: "ls", outcome: "running" };
     const merged = mergeSessionEntries([running], [textOf("x"), { ...running, outcome: "done" }], LIMITS.maxEntriesKept);
     expect(merged.map((entry) => entry.entryId)).toEqual(["t1", "x"]);
   });

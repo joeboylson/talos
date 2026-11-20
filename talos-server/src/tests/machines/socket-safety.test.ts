@@ -45,9 +45,9 @@ test("garbage of any kind is dropped quietly", async () => {
 test("entries for a session the machine never reported are dropped", async () => {
   const { page, machine, send } = await setUp();
   const pageSentBefore = page.sent.length;
-  send(machine, { type: "session-entries", sessionName: "made-up", entries: [{ kind: "text", entryId: "e", text: "x" }] });
+  send(machine, { type: "session-entries", sessionName: "made-up", entries: [{ kind: "text", position: 0, entryId: "e", text: "x" }] });
   expect(page.sent.length).toBe(pageSentBefore);
-  send(machine, { type: "session-entries", sessionName: "fix", entries: [{ kind: "text", entryId: "e", text: "x" }] });
+  send(machine, { type: "session-entries", sessionName: "fix", entries: [{ kind: "text", position: 0, entryId: "e", text: "x" }] });
   expect(page.sent.length).toBe(pageSentBefore + 1);
 });
 

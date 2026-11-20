@@ -143,27 +143,29 @@ const atlas = await connectMachine(
     {
       sessionName: "fix-login",
       entries: [
-        { kind: "prompt", entryId: "p1", text: "Why does sign-in fail after the session expires?", imageCount: 0 },
-        { kind: "tool", entryId: "t1", toolName: "Read", summary: "talos-server/src/auth-routes.ts", outcome: "done" },
-        { kind: "tool", entryId: "t2", toolName: "Grep", summary: "signInState", outcome: "done" },
+        { kind: "prompt", position: 0, entryId: "p1", text: "Why does sign-in fail after the session expires?", imageCount: 0 },
+        { kind: "tool", position: 0, entryId: "t1", toolName: "Read", summary: "talos-server/src/auth-routes.ts", outcome: "done" },
+        { kind: "tool", position: 0, entryId: "t2", toolName: "Grep", summary: "signInState", outcome: "done" },
         {
           kind: "text",
+          position: 0,
           entryId: "x1",
           text: "The page keeps the **old session cookie**, so `/api/auth/me` returns 401 and the page sends you to GitHub, but the callback finds no sign-in state cookie.\n\nI changed the sign-in route to set a fresh state cookie every time. Want me to add a test for it?",
         },
-        { kind: "prompt", entryId: "p2", text: "/tdd add the test", imageCount: 1 },
-        { kind: "tool", entryId: "t3", toolName: "Edit", summary: "talos-server/src/tests/auth/session.test.ts", outcome: "done" },
-        { kind: "tool", entryId: "t4", toolName: "Bash", summary: "Run the server tests", outcome: "failed" },
-        { kind: "tool", entryId: "t5", toolName: "Bash", summary: "Run the server tests again", outcome: "running" },
+        { kind: "prompt", position: 0, entryId: "p2", text: "/tdd add the test", imageCount: 1 },
+        { kind: "tool", position: 0, entryId: "t3", toolName: "Edit", summary: "talos-server/src/tests/auth/session.test.ts", outcome: "done" },
+        { kind: "tool", position: 0, entryId: "t4", toolName: "Bash", summary: "Run the server tests", outcome: "failed" },
+        { kind: "tool", position: 0, entryId: "t5", toolName: "Bash", summary: "Run the server tests again", outcome: "running" },
       ],
     },
     {
       sessionName: "deploy",
       entries: [
-        { kind: "prompt", entryId: "d-p1", text: "Ship the sign-in fix", imageCount: 0 },
-        { kind: "dropped", entryId: "d-x1", droppedKind: "text", reason: "too long or malformed" },
+        { kind: "prompt", position: 0, entryId: "d-p1", text: "Ship the sign-in fix", imageCount: 0 },
+        { kind: "dropped", position: 0, entryId: "d-x1", droppedKind: "text", reason: "too long or malformed" },
         {
           kind: "output",
+          position: 0,
           entryId: "5a0e2c1b-7d3f-4a6e-9b8c-1d2e3f4a5b6c",
           outputKind: "decision",
           fields: { question: "Deploy to staging first, or straight to production?", choices: ["Staging first", "Production"] },

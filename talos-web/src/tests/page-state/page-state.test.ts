@@ -5,8 +5,8 @@ import { sessionKey } from "../../session-rows";
 
 const KEY = sessionKey("m1", "web");
 const OTHER_KEY = sessionKey("m1", "api");
-const prompt = (entryId: string, text: string): SessionEntry => ({ kind: "prompt", entryId, text, imageCount: 0 });
-const textEntry = (entryId: string, text: string): SessionEntry => ({ kind: "text", entryId, text });
+const prompt = (entryId: string, text: string): SessionEntry => ({ kind: "prompt", position: 0, entryId, text, imageCount: 0 });
+const textEntry = (entryId: string, text: string): SessionEntry => ({ kind: "text", position: 0, entryId, text });
 const entriesFor = (sessionName: string, entries: SessionEntry[]) =>
   ({ type: "session-entries", machineId: "m1", sessionName, entries }) as const;
 

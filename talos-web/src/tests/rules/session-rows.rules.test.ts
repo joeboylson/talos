@@ -67,7 +67,7 @@ const waiting: fc.Arbitrary<WaitingPrompt> = fc.record({
   text: text.map((t) => t.trim()),
   imagePreviewUrls: fc.array(fc.constant("blob:x"), { maxLength: 3 }),
 });
-const saved = fc.record({ kind: fc.constant("prompt" as const), entryId: fc.constant("e"), text, imageCount: fc.nat(3) });
+const saved = fc.record({ kind: fc.constant("prompt" as const), position: fc.constant(0), entryId: fc.constant("e"), text, imageCount: fc.nat(3) });
 const matches = (prompt: WaitingPrompt, answer: { text: string; imageCount: number }) =>
   prompt.text === answer.text.trim() && prompt.imagePreviewUrls.length === answer.imageCount;
 
@@ -91,7 +91,7 @@ test("every sent message clears its own waiting prompt once saved, in the order 
         text: t.trim(),
         imagePreviewUrls: Array.from({ length: imageCount }, () => "blob:x"),
       }));
-      const savedPrompts = messages.map((m) => ({ kind: "prompt" as const, entryId: "e", ...m }));
+      const savedPrompts = messages.map((m) => ({ kind: "prompt" as const, position: 0, entryId: "e", ...m }));
       expect(savedPrompts.reduce(removeAnsweredPrompt, waitingPrompts)).toEqual([]);
     }),
     { seed: 20261124, numRuns: RUNS },

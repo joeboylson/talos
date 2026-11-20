@@ -15,12 +15,12 @@ describe("talos-sessions' copies of talos-shared's rules", () => {
   });
 
   const entryLists = [
-    [{ kind: "text", entryId: "a", text: "hi" }, { kind: "prompt", entryId: "b", text: "x", imageCount: 2 }],
-    [{ kind: "tool", entryId: "c", toolName: "Bash", summary: "ls", outcome: "done" }, { kind: "dropped", entryId: "d", droppedKind: "text", reason: "x" }],
-    [{ kind: "text", entryId: 5, text: "hi" }, { kind: "text", entryId: "e", text: "x".repeat(LIMITS.maxEntryTextLength + 1) }, { kind: "other" }],
-    Array.from({ length: LIMITS.maxDroppedPerBatch + 3 }, (_, index) => ({ kind: "text", entryId: `f${index}`, text: 1 })),
+    [{ kind: "text", position: 0, entryId: "a", text: "hi" }, { kind: "prompt", position: 0, entryId: "b", text: "x", imageCount: 2 }],
+    [{ kind: "tool", position: 0, entryId: "c", toolName: "Bash", summary: "ls", outcome: "done" }, { kind: "dropped", position: 0, entryId: "d", droppedKind: "text", reason: "x" }],
+    [{ kind: "text", position: 0, entryId: 5, text: "hi" }, { kind: "text", position: 0, entryId: "e", text: "x".repeat(LIMITS.maxEntryTextLength + 1) }, { kind: "other" }],
+    Array.from({ length: LIMITS.maxDroppedPerBatch + 3 }, (_, index) => ({ kind: "text", position: 0, entryId: `f${index}`, text: 1 })),
     Array.from({ length: LIMITS.maxDroppedPerBatch + 3 }, () => ({})),
-    [{ kind: "output", entryId: "g", outputKind: "decision", fields: { text: "é".repeat(LIMITS.maxOutputFieldsBytes / 2) } }],
+    [{ kind: "output", position: 0, entryId: "g", outputKind: "decision", fields: { text: "é".repeat(LIMITS.maxOutputFieldsBytes / 2) } }],
     null,
   ];
   test.each(entryLists.map((entries) => [entries]))("the entry check agrees on %#", (entries) => {

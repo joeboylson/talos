@@ -1,7 +1,8 @@
 // Reading each session's saved conversation as Claude Code writes it.
 import { mergeSessionEntries } from "../shapes";
 import { isPlainTranscriptFile } from "../transcript/transcript-file";
-import { readCompleteLines, readTranscriptLine, resolveTranscriptItems } from "../transcript/transcript-lines";
+import { numberItems, readCompleteLines, readTranscriptLine, resolveTranscriptItems } from "../transcript/transcript-lines";
+import { placeOutputEntries } from "./session-state";
 import { log } from "./inputs";
 import { quarantine } from "./quarantine";
 import { broadcast, heldSessions, updateHeldSession } from "./store";
@@ -37,13 +38,14 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
     }
     return;
   }
-  const { entries, knownTools, rejected } = resolveTranscriptItems(lines.flatMap(readTranscriptLine), transcript.runningTools);
-  quarantine(sessionName, rejected);
-
   const session = heldSessions.get(sessionName);
   if (!session || session.transcript?.path !== transcript.path) return;
+  const { items, nextPosition } = numberItems(lines.flatMap(readTranscriptLine), session.nextPosition);
+  const { entries, knownTools, rejected, structuredCalls } = resolveTranscriptItems(items, transcript.runningTools);
+  quarantine(sessionName, rejected);
   heldSessions.set(sessionName, {
     ...session,
+    nextPosition,
     transcript: { ...transcript, readByteCount: transcript.readByteCount + usedByteCount, runningTools: knownTools },
     entries: mergeSessionEntries(session.entries, entries, SESSION_LIMITS.maxEntriesKept),
   });
@@ -53,6 +55,7 @@ const readNewEntries = async (sessionName: string): Promise<void> => {
   // entry the session runner keeps.
   const sentEntries = mergeSessionEntries([], entries, SESSION_LIMITS.maxEntriesKept);
   if (sentEntries.length > 0) broadcast({ type: "session-entries", sessionName, entries: sentEntries });
+  placeOutputEntries(sessionName, [], structuredCalls);
 };
 
 // One read at a time per session, so the same lines are never read twice.

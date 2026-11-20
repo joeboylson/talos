@@ -39,7 +39,7 @@ describe("the runner's event stream", () => {
   const sessions = [{ sessionName: "fix", folderName: "talos", state: "idle", asks: {}, openOutputs: [] }] as const;
   test.each([
     ["the session list", { type: "sessions", sessions }],
-    ["a session's entries", { type: "session-entries", sessionName: "fix", entries: [{ kind: "text", entryId: "a", text: "hi" }] }],
+    ["a session's entries", { type: "session-entries", sessionName: "fix", entries: [{ kind: "text", position: 0, entryId: "a", text: "hi" }] }],
     ["a notice", { type: "notice", sessionName: "fix", message: "An answer was dropped" }],
   ])("%s comes back as it went", (_name, runnerEvent) => {
     const line = encodeRunnerEvent(runnerEvent as RunnerEvent);

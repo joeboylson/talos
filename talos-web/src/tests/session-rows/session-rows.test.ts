@@ -42,7 +42,7 @@ test("findSessionRow finds by machine and session name", () => {
 
 describe("removeAnsweredPrompt", () => {
   const waiting = (text: string, imageCount = 0) => ({ text, imagePreviewUrls: Array.from({ length: imageCount }, () => "blob:x") });
-  const saved = (text: string, imageCount = 0) => ({ kind: "prompt", entryId: "e", text, imageCount }) as const;
+  const saved = (text: string, imageCount = 0) => ({ kind: "prompt", position: 0, entryId: "e", text, imageCount }) as const;
 
   test("clears the first matching waiting message only", () => {
     expect(removeAnsweredPrompt([waiting("hi"), waiting("again"), waiting("hi")], saved("hi"))).toEqual([

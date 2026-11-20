@@ -24,7 +24,7 @@ export type SessionDecision = { question: string; choices: string[]; atMs: numbe
 
 // A session's structured status, filled in when someone asks for an update.
 // The session itself picks one of REPORTED_STATUSES via the report_status tool;
-// the host adds "pending" (asked, waiting) and "no-response" (didn't report).
+// the session runner adds "pending" (asked, waiting) and "no-response" (didn't report).
 export const REPORTED_STATUSES = ["working", "waiting", "done", "stuck"] as const;
 export type ReportedStatus = (typeof REPORTED_STATUSES)[number];
 export const SESSION_STATUS_STATES = [...REPORTED_STATUSES, "pending", "no-response"] as const;

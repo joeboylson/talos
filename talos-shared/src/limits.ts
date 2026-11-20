@@ -25,7 +25,7 @@ export const LIMITS = {
   // times 1,000 for one person, and sends it all to each page that opens.
   maxKeptEntryTextLength: 200_000,
   // Longer text is cut to this. It keeps a session's kept entries to a few MB on
-  // the host, in talos and on the server.
+  // the session runner, in talos and on the server.
   maxEntryTextLength: 20_000,
   // A message typed on the page can be longer (a pasted log): it goes once to
   // the session and isn't kept.

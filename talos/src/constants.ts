@@ -16,6 +16,3 @@ export const CREDENTIALS_FILE_MODE = 0o600;
 
 // The session runner's start-up script, which talos spawns.
 export const RUNNER_SCRIPT = new URL("./session-runner.ts", import.meta.url).pathname;
-
-// Ctrl-\ leaves an attached session without stopping it.
-export const DETACH_KEY = 0x1c;

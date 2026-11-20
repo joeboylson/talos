@@ -4,22 +4,25 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDecisionOf, statusOf, type SessionSummary } from "../../talos-shared/src";
+import { openDecisionOf, statusOf } from "../../talos-shared/src";
+import { RUNNER_SCRIPT } from "../../talos/src/constants";
+import { connectToSessions, type SessionSummary } from "../../talos/src/talos-sessions";
+import { askRunner } from "../../talos/src/talos-sessions/client/hook-client";
+import { runnerFetch } from "../../talos/src/talos-sessions/client/runner-client";
+import { RUNNER_ROUTES } from "../../talos/src/talos-sessions/client/runner-protocol";
+import { HOOK_SCRIPT, homePaths } from "../../talos/src/talos-sessions/constants";
 
-export const ROOT = new URL("../../talos/src/", import.meta.url).pathname;
+// The talos folder lives here too: the session runner talos spawns reads its
+// folder list from TALOS_HOME, which it inherits.
 export const HOME = mkdtempSync(join(tmpdir(), "talos-live-"));
 process.env.TALOS_HOME = HOME;
 
-const sessions = await import(`${ROOT}talos-sessions/index.ts`);
-const constants = await import(`${ROOT}constants.ts`);
-const hookClient = await import(`${ROOT}talos-sessions/client/hook-client.ts`);
-const runnerConstants = await import(`${ROOT}talos-sessions/constants.ts`);
-export const { RUNNER_ROUTES, sessionRoute } = sessions;
-export const postToRunner = (route: string, body: unknown): Promise<Response> => sessions.postToRunner(HOME, route, body);
-export const runnerFetch = (route: string, init?: RequestInit): Promise<Response> => sessions.runnerFetch(HOME, route, init);
-export const isRunnerRunning = (): Promise<boolean> => sessions.isRunnerRunning(HOME);
-export const RUNNER_HOOKS_SOCKET: string = runnerConstants.homePaths(HOME).hooksSocket;
-export const HOOK_SCRIPT: string = runnerConstants.HOOK_SCRIPT;
+export const calls = connectToSessions({ home: HOME, runnerScript: RUNNER_SCRIPT });
+export const isRunnerRunning = calls.isRunning;
+// Reach-ins: what a hostile session does, which no plain call offers.
+export const RUNNER_HOOKS_SOCKET: string = homePaths(HOME).hooksSocket;
+export { HOOK_SCRIPT };
+export const rawEvents = (init: RequestInit) => runnerFetch(HOME, RUNNER_ROUTES.events, init);
 
 // Each check gets its own folder; extra Claude Code settings go in its .claude.
 export const makeFolder = (folderName: string, projectSettings?: object): string => {
@@ -35,11 +38,11 @@ export const allowFolder = (folderName: string, path: string) => {
   writeFileSync(join(HOME, "folders.json"), JSON.stringify(folders));
 };
 
-export const startRunner = () => sessions.ensureRunnerRunning(HOME, constants.RUNNER_SCRIPT);
-export const stopRunner = () => postToRunner(RUNNER_ROUTES.stop, {}).catch(() => {});
+export const startRunner = () => calls.ensureRunning();
+export const stopRunner = () => calls.stopRunner().catch(() => {});
 
 export const rawSession = async (sessionName: string): Promise<SessionSummary | undefined> =>
-  ((await (await runnerFetch(RUNNER_ROUTES.sessions)).json()) as SessionSummary[]).find((session) => session.sessionName === sessionName);
+  (await calls.sessions()).find((session) => session.sessionName === sessionName);
 
 export const sessionView = async (sessionName: string) => {
   const session = await rawSession(sessionName);
@@ -59,23 +62,23 @@ export const waitFor = async (sessionName: string, check: (session: SessionView)
 };
 
 export const startSession = async (sessionName: string, folderName: string, path: string) => {
-  const response = await postToRunner(RUNNER_ROUTES.sessions, { sessionName, folderName, path });
-  if (!response.ok) throw new Error(`couldn't start ${sessionName}: ${await response.text()}`);
+  const result = await calls.start(sessionName, folderName, path);
+  if (!result.ok) throw new Error(`couldn't start ${sessionName}: ${result.reason}`);
   return waitFor(sessionName, (session) => session.state === "idle", 60_000);
 };
 
-export const send = (sessionName: string, text: string) => postToRunner(sessionRoute(sessionName, "send"), { text });
+export const send = (sessionName: string, text: string) => calls.send(sessionName, text);
 // Keys as an attached terminal sends them.
-export const typeKeys = (sessionName: string, keys: string) => runnerFetch(sessionRoute(sessionName, "input"), { method: "POST", body: keys });
-export const ask = (sessionName: string, kind: string) => postToRunner(sessionRoute(sessionName, "ask"), { kind });
-export const answer = (sessionName: string, outputId: string, choice: number) =>
-  postToRunner(sessionRoute(sessionName, "answer"), { outputId, choice });
-export const stopSession = (sessionName: string) => postToRunner(sessionRoute(sessionName, "stop"), {});
+export const typeKeys = (sessionName: string, keys: string) => calls.keys(sessionName, keys);
+export const ask = (sessionName: string, kind: string) => calls.ask(sessionName, kind);
+export const answer = (sessionName: string, outputId: string, choice: number) => calls.answer(sessionName, outputId, choice);
+export const stopSession = (sessionName: string) => calls.stop(sessionName);
 
 // The session's screen as text, for checking what it showed.
 export const screen = async (sessionName: string): Promise<string> => {
-  const response = await runnerFetch(sessionRoute(sessionName, "output"), { timeout: false } as RequestInit);
-  const reader = response.body!.getReader();
+  const shown = await calls.screen(sessionName);
+  if (!shown.ok) throw new Error(shown.reason);
+  const reader = shown.stream.getReader();
   setTimeout(() => reader.cancel(), 1000);
   let text = "";
   while (true) {
@@ -105,7 +108,7 @@ export const tokenOf = async (sessionName: string): Promise<string> => {
 
 // Sends a hook as the session would, and returns the runner's answer.
 export const forgeHook = (sessionName: string, token: string, details: object) =>
-  hookClient.askRunner(RUNNER_HOOKS_SOCKET, { sessionName, token, details: JSON.stringify(details) });
+  askRunner(RUNNER_HOOKS_SOCKET, { sessionName, token, details: JSON.stringify(details) });
 
 // Runs the real hook script, as Claude Code does, and returns what it prints.
 export const runHookScript = async (env: Record<string, string>, details: object): Promise<string> => {

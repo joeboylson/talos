@@ -7,3 +7,4 @@ for (let index = 0; index < count; index += 1) {
   held.push(await Bun.connect({ unix: socketPath, socket: { data: () => {}, error: () => {} } }).catch(() => null));
 }
 await Bun.sleep(60_000);
+export {};

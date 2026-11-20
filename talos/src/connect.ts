@@ -21,7 +21,7 @@ import {
 import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
 import { readFolders, renameFolder, saveFolders } from "./folders";
-import { RUNNER_ROUTES, ensureRunnerRunning, followRunnerEvents, postToRunner, sessionRoute } from "./talos-sessions";
+import { connectToSessions, type Result } from "./talos-sessions";
 import { toSharedEvent, type SharedRunnerEvent } from "./session-bridge";
 import { startLocalStatusServer } from "./local-status-server";
 import { fetchMachineName, pairMachine } from "./pairing";
@@ -38,6 +38,7 @@ export const runConnect = async (): Promise<void> => {
   const serverOrigin = httpOriginFromServerUrl(serverUrl);
   const wantedMachineName = toIdentifierName(process.env[ENV_KEYS.machineName] || hostname());
   const log = createLogger(readLogsMode(process.env[ENV_KEYS.logsMode]));
+  const sessions = connectToSessions({ home: TALOS_FOLDER, runnerScript: RUNNER_SCRIPT });
 
   // What talos changes as it runs: whether it's connected, the name the server
   // gave it, how to reach the server while connected, and the latest sessions
@@ -128,8 +129,8 @@ export const runConnect = async (): Promise<void> => {
   // Sessions run in the session runner, which outlives talos. If the session runner goes
   // away (`talos runner stop`), a fresh one is started.
   const followRunner = async (): Promise<void> => {
-    await ensureRunnerRunning(TALOS_FOLDER, RUNNER_SCRIPT);
-    await followRunnerEvents(TALOS_FOLDER, (runnerEvent) => forwardRunnerEvent(toSharedEvent(runnerEvent)));
+    await sessions.ensureRunning();
+    await sessions.follow((runnerEvent) => forwardRunnerEvent(toSharedEvent(runnerEvent))).ended;
     forwardRunnerEvent({ type: "sessions", sessions: [] });
   };
   const followRunnerWithRetry = (): void => {
@@ -138,13 +139,17 @@ export const runConnect = async (): Promise<void> => {
       .finally(() => setTimeout(followRunnerWithRetry, RECONNECT_DELAY_MS));
   };
 
+  const reportRefusal = (result: Result) => {
+    if (!result.ok) sendToServer?.({ type: "error", message: result.reason.slice(0, LIMITS.maxMachineErrorLength) });
+  };
+
   // A session starts only in a folder this machine allows, found by name in
   // its own folder list: the page never sends a path.
   const startSession = async (folderName: string, sessionName: string) => {
     const folder = (await readFolders()).find((candidate) => candidate.folderName === folderName);
     if (!folder) return log.warn(`talos: no folder called ${folderName}; not starting ${sessionName}`);
-    const response = await postToRunner(TALOS_FOLDER, RUNNER_ROUTES.sessions, { sessionName, folderName, path: folder.path });
-    if (!response.ok) log.warn(`talos: couldn't start ${sessionName}: ${await response.text()}`);
+    const result = await sessions.start(sessionName, folderName, folder.path);
+    if (!result.ok) log.warn(`talos: couldn't start ${sessionName}: ${result.reason}`);
   };
 
   // The owner, on the page: renamed this machine or a folder, or started,
@@ -152,29 +157,22 @@ export const runConnect = async (): Promise<void> => {
   const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
     if (message.type === "start-session") return startSession(message.folderName, message.sessionName);
     if (message.type === "send-to-session") {
-      const response = await postToRunner(TALOS_FOLDER, sessionRoute(message.sessionName, "send"), {
-        text: message.text,
-        images: message.images,
-      });
-      if (!response.ok) log.warn(`talos: couldn't send to ${message.sessionName}: ${await response.text()}`);
+      const result = await sessions.send(message.sessionName, message.text, message.images);
+      if (!result.ok) log.warn(`talos: couldn't send to ${message.sessionName}: ${result.reason}`);
       return;
     }
     if (message.type === "stop-session") {
-      await postToRunner(TALOS_FOLDER, sessionRoute(message.sessionName, "stop"), {});
+      await sessions.stop(message.sessionName);
       return;
     }
     if (message.type === "ask-for-output") {
-      const response = await postToRunner(TALOS_FOLDER, sessionRoute(message.sessionName, "ask"), { kind: message.kind });
-      if (!response.ok) sendToServer?.({ type: "error", message: (await response.text()).slice(0, LIMITS.maxMachineErrorLength) });
-      return;
+      return reportRefusal(await sessions.ask(message.sessionName, message.kind));
     }
     // A refused answer (its question closed, or the session was replaced) is
     // shown on the owner's page, so a click never fails silently.
     if (message.type === "answer-output") {
       const { sessionName, outputId, choice } = message;
-      const response = await postToRunner(TALOS_FOLDER, sessionRoute(sessionName, "answer"), { outputId, choice });
-      if (!response.ok) sendToServer?.({ type: "error", message: (await response.text()).slice(0, LIMITS.maxMachineErrorLength) });
-      return;
+      return reportRefusal(await sessions.answer(sessionName, outputId, choice));
     }
     if (message.type === "machine-name") {
       machineName = message.machineName;

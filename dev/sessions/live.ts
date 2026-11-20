@@ -14,8 +14,7 @@ import {
   rawSession,
   RUNNER_HOOKS_SOCKET,
   runHookScript,
-  runnerFetch,
-  RUNNER_ROUTES,
+  rawEvents,
   savedConversation,
   screen,
   send,
@@ -57,12 +56,12 @@ const normalSession = async (label: string, projectSettings?: object) => {
   const id = asked?.decision?.id ?? "";
   check(`${label}: a decision opens with an id`, id.length > 0);
   check(`${label}: the session saw that id`, (await savedConversation(`${HOME}/work/${name}`)).includes(`Asked as ${id}`));
-  check(`${label}: a click is taken`, (await answer(name, id, 1)).status === 204);
-  check(`${label}: a second click is refused`, (await answer(name, id, 0)).status === 409);
+  check(`${label}: a click is taken`, (await answer(name, id, 1)).ok);
+  check(`${label}: a second click is refused`, (await answer(name, id, 0)).ok === false);
   const after = await waitFor(name, (session) => session.state === "idle" && session.decision === null);
   check(`${label}: the answer goes in and the question closes`, after !== null);
 
-  const events = await runnerFetch(RUNNER_ROUTES.events, { timeout: false } as RequestInit);
+  const events = await rawEvents({ timeout: false } as RequestInit);
   const reader = events.body!.getReader();
   setTimeout(() => reader.cancel(), 1500);
   let text = "";
@@ -104,7 +103,7 @@ const permissionPrompt = async () => {
   await Bun.sleep(3000);
   check("a permission prompt shows mid-turn", prompted !== null && /Do you want|Yes/.test(await screen(name)));
   await ask(name, "status");
-  check("a click during the prompt is held, not refused", (await answer(name, id, 0)).status === 204);
+  check("a click during the prompt is held, not refused", (await answer(name, id, 0)).ok);
   await Bun.sleep(5000);
   const waiting = await rawSession(name);
   check("the queued ask waits", waiting?.asks.status?.state === "asking");
@@ -177,7 +176,7 @@ const hostileSession = async () => {
   check("hooks are still answered during an 11,000-connection flood", answers.every((reply) => reply?.kind === "reply"), `${answers.filter((reply) => reply?.kind === "reply").length}/10`);
 
   // A reader that stops reading is cut off, and nothing else waits on it.
-  const stalled = await runnerFetch(RUNNER_ROUTES.events, { timeout: false } as RequestInit);
+  const stalled = await rawEvents({ timeout: false } as RequestInit);
   await send(name, "Print the numbers 1 to 400, one per line, as plain text. No tools.");
   await waitFor(name, (session) => session.state === "idle");
   check("a reader that stops reading doesn't stall the runner", (await rawSession(name)) !== undefined && stalled.ok);
@@ -191,7 +190,7 @@ const hostileSession = async () => {
   await startSession(name, name, `${HOME}/work/${name}`);
   const oldTokenStop = await forgeHook(name, token, { hook_event_name: "Stop" });
   check("the replaced session's old token does nothing", oldTokenStop?.kind === "reply" && oldTokenStop.reply === "");
-  check("an answer to the old session's question is refused", (await answer(name, oldId, 0)).status === 409);
+  check("an answer to the old session's question is refused", (await answer(name, oldId, 0)).ok === false);
   await stopSession(name);
 };
 

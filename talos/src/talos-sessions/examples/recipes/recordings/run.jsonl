@@ -1,0 +1,14 @@
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[]}"}
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[{\"sessionName\":\"example\",\"folderName\":\"work\",\"state\":\"starting\",\"asks\":{},\"openOutputs\":[]}]}"}
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[{\"sessionName\":\"example\",\"folderName\":\"work\",\"state\":\"idle\",\"asks\":{},\"openOutputs\":[]}]}"}
+{"type":"key","key":"Scale the lasagne for six servings."}
+{"type":"key","key":"\r"}
+{"type":"result","action":{"do":"send","text":"Scale the lasagne for six servings."},"result":{"ok":true}}
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[{\"sessionName\":\"example\",\"folderName\":\"work\",\"state\":\"working\",\"asks\":{},\"openOutputs\":[]}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"prompt\",\"entryId\":\"id-1\",\"text\":\"Scale the lasagne for six servings.\",\"imageCount\":0,\"position\":0}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"tool\",\"entryId\":\"toolu_017PZcNX5E9YZFCMuNxGPNkW\",\"toolName\":\"Bash\",\"summary\":\"List recipes and show the lasagne\",\"outcome\":\"running\",\"position\":1}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"tool\",\"entryId\":\"toolu_017PZcNX5E9YZFCMuNxGPNkW\",\"toolName\":\"Bash\",\"summary\":\"List recipes and show the lasagne\",\"outcome\":\"done\",\"position\":1}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"tool\",\"entryId\":\"toolu_01AL98LZagseeqL8qEDwdzGk\",\"toolName\":\"Bash\",\"summary\":\"Scale lasagne amounts by 1.5\",\"outcome\":\"running\",\"position\":2}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"tool\",\"entryId\":\"toolu_01AL98LZagseeqL8qEDwdzGk\",\"toolName\":\"Bash\",\"summary\":\"Scale lasagne amounts by 1.5\",\"outcome\":\"done\",\"position\":2}]}"}
+{"type":"event","line":"{\"type\":\"sessions\",\"sessions\":[{\"sessionName\":\"example\",\"folderName\":\"work\",\"state\":\"idle\",\"asks\":{},\"openOutputs\":[]}]}"}
+{"type":"event","line":"{\"type\":\"session-entries\",\"sessionName\":\"example\",\"entries\":[{\"kind\":\"text\",\"entryId\":\"id-2:0\",\"text\":\"I scaled `book/lasagne.md` from 4 servings to 6 by multiplying every amount by 1.5, and changed the \\\"Serves\\\" line to 6. Most amounts are now round numbers (for example 750 g mince and 18 sheets), but the onion comes out at 1½. Use 2 if you'd rather not keep half an onion. You'll probably need a bigger dish, and the baking time may need to go up a little.\",\"position\":3}]}"}

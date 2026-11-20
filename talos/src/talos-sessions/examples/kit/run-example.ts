@@ -38,7 +38,9 @@ export const prepareRun = (exampleFolder: string) => {
   return { home, work };
 };
 
-export const runExample = async <State>(exampleFolder: string, view: ExampleView<State>) => {
+// farewell runs once the session runner has stopped, with the run's folder, and
+// gives back lines to print on the way out.
+export const runExample = async <State>(exampleFolder: string, view: ExampleView<State>, farewell?: (home: string) => string[]) => {
   const mode = readMode();
   const recordingFile = join(exampleFolder, "recordings", "run.jsonl");
   let state = view.initial;
@@ -71,7 +73,8 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
         mkdirSync(join(exampleFolder, "recordings"), { recursive: true });
         writeFileSync(recordingFile, saveRecording(recorded, home));
       }
-      process.stdout.write(`\r\n${home} has what this run made.\r\n`);
+      const lines = [...(farewell?.(home) ?? []), `${home} has what this run made.`];
+      process.stdout.write(`\r\n${lines.join("\r\n")}\r\n`);
       process.exit(code);
     })();
     return stopping;

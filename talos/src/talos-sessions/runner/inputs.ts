@@ -1,6 +1,6 @@
 // What talos passes in to runSessionRunner. Every runner file reads them from
 // here, so none makes its own logger or folder check when it loads.
-import { homePaths, type HomePaths } from "../constants";
+import { CLAUDE_COMMAND, CLAUDE_CONFIG_FILE, homePaths, type HomePaths } from "../constants";
 import type { Catalog, OutputKind, TurnShape } from "../kinds";
 
 export type SessionsLogger = {
@@ -22,6 +22,10 @@ export type RunnerInputs = {
   // Put each folder's trust setting back when the session runner stops. An
   // example's session runner does; talos's leaves its folders trusted.
   restoreTrustOnStop?: boolean;
+  // The command that runs Claude Code, and the settings file it reads trust
+  // from. Tests pass stand-ins, so they never touch the real ~/.claude.json.
+  claudeCommand?: readonly string[];
+  claudeConfigFile?: string;
 };
 
 const given: RunnerInputs = {
@@ -47,5 +51,8 @@ export const isAllowedFolder: FolderCheck = (folderName, path) => given.isAllowe
 export const paths = (): HomePaths => homePaths(given.home);
 
 export const restoresTrust = (): boolean => given.restoreTrustOnStop === true;
+
+export const claudeCommand = (): readonly string[] => given.claudeCommand ?? [CLAUDE_COMMAND];
+export const claudeConfigFile = (): string => given.claudeConfigFile ?? CLAUDE_CONFIG_FILE;
 
 export const catalog = (): Catalog => ({ kinds: given.kinds, proseTurn: given.proseTurn });

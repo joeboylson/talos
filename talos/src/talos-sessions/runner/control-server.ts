@@ -8,7 +8,7 @@ import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runne
 import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
 import { endSession, startSession } from "./lifecycle";
 import { noSuchSession, refuse } from "./refuse";
-import { isAllowedFolder, log, paths, restoresTrust } from "./inputs";
+import { claudeConfigFile, isAllowedFolder, log, paths, restoresTrust } from "./inputs";
 import { restoreTrust } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
 import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
@@ -79,7 +79,7 @@ const stopRunner = async () => {
   await Promise.all([...heldSessions.values()].map(endSession));
   // Only once every session has exited: Claude Code writes its settings as it
   // closes, which would undo a change made sooner.
-  if (restoresTrust()) await restoreTrust(trustChanges).catch((error: unknown) => log.warn(`runner: couldn't put trust back: ${error}`));
+  if (restoresTrust()) await restoreTrust(trustChanges, claudeConfigFile()).catch((error: unknown) => log.warn(`runner: couldn't put trust back: ${error}`));
   const { runnerSocket, hooksSocket } = paths();
   await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
   setTimeout(() => process.exit(0), 50);

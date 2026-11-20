@@ -3,7 +3,6 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { trustFolder } from "../claude/claude-trust";
 import {
-  CLAUDE_COMMAND,
   HOOK_SCRIPT,
   READY_CHECK_MS,
   READY_QUIET_MS,
@@ -16,7 +15,7 @@ import { buildHookSettings } from "../claude/session-hooks";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
-import { log, paths, restoresTrust } from "./inputs";
+import { claudeCommand, claudeConfigFile, log, paths, restoresTrust } from "./inputs";
 import { refuse } from "./refuse";
 
 const SESSION_EXIT_WAIT_MS = 5000;
@@ -53,7 +52,7 @@ const refuseNewSession = (sessionName: string): Response | null => {
 export const startSession = async ({ sessionName, folderName, path }: StartSessionRequest): Promise<Response> => {
   const refusal = refuseNewSession(sessionName);
   if (refusal) return refusal;
-  const trustChange = await trustFolder(path);
+  const trustChange = await trustFolder(path, claudeConfigFile());
   if (trustChange && restoresTrust()) trustChanges.push(trustChange);
   // Checked again after the wait: two starts of the same name can both pass the
   // first check, and the second would leave the first one's process running
@@ -72,7 +71,7 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
   };
   // --mcp-config gives every session talos's structured tools (tools-server.ts);
   // the PreToolUse hook decides when each may be called.
-  const claudeArgs = [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", paths().mcpConfig];
+  const claudeArgs = [...claudeCommand(), "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", paths().mcpConfig];
   const child = Bun.spawn(
     [...withOpenFileLimit(SESSION_LIMITS.maxSessionOpenFiles), ...claudeArgs],
     {

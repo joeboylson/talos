@@ -1,4 +1,4 @@
-import { rename } from "node:fs/promises";
+import { realpath, rename } from "node:fs/promises";
 import { parseJsonOrNull } from "../json";
 import { CLAUDE_CONFIG_FILE } from "../constants";
 
@@ -15,14 +15,17 @@ export const markTrusted = (claudeConfig: Record<string, unknown>, folderPath: s
 
 // Written to a new file and then swapped in, so Claude Code never reads a
 // half-written settings file.
+// Claude Code records trust under the folder's real path, so a path through a
+// link (like macOS's /var, which is /private/var) is resolved first.
 export const trustFolder = async (folderPath: string): Promise<void> => {
+  const realFolderPath = await realpath(folderPath);
   const configFile = Bun.file(CLAUDE_CONFIG_FILE);
   const currentText = (await configFile.exists()) ? await configFile.text() : "{}";
   const claudeConfig = parseJsonOrNull(currentText);
   if (typeof claudeConfig !== "object" || claudeConfig === null) {
     throw new Error(`${CLAUDE_CONFIG_FILE} isn't readable settings; talos won't change it`);
   }
-  const trustedConfig = markTrusted(claudeConfig as Record<string, unknown>, folderPath);
+  const trustedConfig = markTrusted(claudeConfig as Record<string, unknown>, realFolderPath);
   if (!trustedConfig) return;
   const newFile = `${CLAUDE_CONFIG_FILE}.talos-${process.pid}`;
   await Bun.write(newFile, JSON.stringify(trustedConfig, null, 2));

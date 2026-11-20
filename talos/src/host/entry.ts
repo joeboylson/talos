@@ -16,7 +16,7 @@ import {
   TRANSCRIPT_CHECK_MS,
 } from "../constants";
 import { controlServeOptions } from "./control-server";
-import { hookServeOptions } from "./hook-server";
+import { startHookServer } from "./hook-server";
 import { log } from "./log";
 import { applyStatusLaneEvent } from "./session-state";
 import { heldSessions } from "./store";
@@ -34,7 +34,7 @@ await Bun.write(
 );
 
 Bun.serve(controlServeOptions as unknown as Parameters<typeof Bun.serve>[0]);
-Bun.serve(hookServeOptions as unknown as Parameters<typeof Bun.serve>[0]);
+startHookServer();
 await chmod(HOST_SOCKET, HOST_SOCKET_MODE);
 await chmod(HOST_HOOKS_SOCKET, HOST_SOCKET_MODE);
 setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);

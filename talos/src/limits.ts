@@ -25,8 +25,17 @@ export const TALOS_LIMITS = {
   // Rapid session state/status changes collapse into one roster broadcast per this
   // window, so a session flapping its state can't flood the host→server uplink.
   sessionsBroadcastCoalesceMs: 100,
-  // The hook script must never hold Claude up.
+  // The hook script must never hold Claude up. A hook connection that hasn't
+  // sent its whole request in this time is closed too, so idle ones can't pile up.
   hookTimeoutMs: 2000,
+  // Hook connections the host holds at once; past it, the oldest is closed.
+  // Well under the host's own file limit, so a flood of connections can't use
+  // up the files it needs for the control socket and sessions.
+  maxHookConnections: 256,
+  // Open files each Claude session (and everything it starts) may have: plenty
+  // for real work, and it can't be raised from inside, so one session can't open
+  // enough connections to use up the host's.
+  maxSessionOpenFiles: 2048,
   // Past this, a starting session is typed into even if its screen hasn't settled.
   readyLongestWaitMs: 15_000,
   // A status request that goes unanswered this long becomes "no response".

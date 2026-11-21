@@ -174,18 +174,20 @@ const stepLaneWhenSettled = async (sessionName: string, token: string): Promise<
 };
 
 export const askForOutput = (sessionName: string, kind: unknown): Response => {
+  // A malformed request is turned down before anything is looked up, so it
+  // always throws for the caller, whatever session it names.
+  if (typeof kind !== "string" || !findKind(catalog(), kind)?.requestText) return new Response("expected a kind that can be asked for", { status: 400 });
   const session = heldSessions.get(sessionName);
   if (!session) return noSuchSession(sessionName);
-  if (typeof kind !== "string" || !findKind(catalog(), kind)?.requestText) return new Response("expected a kind that can be asked for", { status: 400 });
   if (session.lane.stage !== "none") return refuse("already-asking", "It's already being asked for something");
   applyLaneEvent(sessionName, { type: "ask", kind });
   return new Response(null, { status: 204 });
 };
 
 export const answerOutput = (sessionName: string, outputId: unknown, choice: unknown): Response => {
+  if (typeof outputId !== "string" || !Number.isInteger(choice)) return new Response("expected an output id and a choice", { status: 400 });
   const session = heldSessions.get(sessionName);
   if (!session) return noSuchSession(sessionName);
-  if (typeof outputId !== "string" || !Number.isInteger(choice)) return new Response("expected an output id and a choice", { status: 400 });
   const answer = readAnswer(session.outputs, session.heldAnswers, catalog(), outputId, Number(choice), Date.now());
   if ("code" in answer) return refuse(answer.code, answer.reason);
   saveSession(sessionName, session, { heldAnswers: [...session.heldAnswers, answer] });

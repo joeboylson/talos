@@ -86,11 +86,26 @@ export const buildMessageWithImages = (text: string, imagePaths: string[]): stri
   [text.trim(), ...imagePaths].filter(Boolean).join("\n\n");
 
 // Keeps the most recent output, so someone attaching sees the current screen.
+// Where it's cut, it starts at the next escape code or line (within a few KB),
+// so the screen never begins with half of one shown as text; failing that,
+// past any half of a character.
+const CLEAN_START_SEARCH_BYTES = 4096;
+const cleanStart = (cut: Uint8Array): number => {
+  const searched = cut.subarray(0, CLEAN_START_SEARCH_BYTES);
+  const escAt = searched.indexOf(0x1b);
+  const lineAt = searched.indexOf(0x0a);
+  const starts = [escAt, lineAt === -1 ? -1 : lineAt + 1].filter((at) => at >= 0);
+  if (starts.length > 0) return Math.min(...starts);
+  const firstWhole = searched.findIndex((byte) => (byte & 0xc0) !== 0x80);
+  return firstWhole === -1 ? 0 : firstWhole;
+};
 export const appendOutput = (output: Uint8Array, chunk: Uint8Array, maxBytes: number): Uint8Array => {
   const combined = new Uint8Array(output.length + chunk.length);
   combined.set(output);
   combined.set(chunk, output.length);
-  return combined.length > maxBytes ? combined.slice(combined.length - maxBytes) : combined;
+  if (combined.length <= maxBytes) return combined;
+  const cut = combined.subarray(combined.length - maxBytes);
+  return cut.slice(cleanStart(cut));
 };
 
 // A Ctrl key as a terminal sends it: its byte, or once Claude Code turns on

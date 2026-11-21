@@ -19,6 +19,14 @@ test("buildMessageWithImages puts each image's path after the text", () => {
   expect(buildMessageWithImages("", ["/u/a.png"])).toBe("/u/a.png");
 });
 
+test("appendOutput cut mid escape code or character starts at the next whole one", () => {
+  const screen = new TextEncoder().encode("\x1b[31mred\x1b[0m café\x1b[2Jnext");
+  const cutMidCode = appendOutput(new Uint8Array(), screen, screen.length - 2);
+  expect(new TextDecoder().decode(cutMidCode).startsWith("\x1b")).toBe(true);
+  const accented = new TextEncoder().encode("ééééé");
+  const cutMidCharacter = appendOutput(new Uint8Array(), accented, accented.length - 1);
+  expect(new TextDecoder().decode(cutMidCharacter)).toBe("éééé");
+});
 test("appendOutput keeps only the most recent bytes", () => {
   const output = appendOutput(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]), 4);
   expect([...output]).toEqual([2, 3, 4, 5]);

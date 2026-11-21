@@ -139,37 +139,30 @@ export const runConnect = async (): Promise<void> => {
       .finally(() => setTimeout(followRunnerWithRetry, RECONNECT_DELAY_MS));
   };
 
+  // What the owner tried and couldn't do is shown on their page, so a click
+  // never fails silently.
+  const tellPage = (problem: string) => sendToServer?.({ type: "error", message: problem.slice(0, LIMITS.maxMachineErrorLength) });
   const reportRefusal = (result: Result) => {
-    if (!result.ok) sendToServer?.({ type: "error", message: result.reason.slice(0, LIMITS.maxMachineErrorLength) });
+    if (!result.ok) tellPage(result.reason);
   };
 
   // A session starts only in a folder this machine allows, found by name in
   // its own folder list: the page never sends a path.
   const startSession = async (folderName: string, sessionName: string) => {
     const folder = (await readFolders()).find((candidate) => candidate.folderName === folderName);
-    if (!folder) return log.warn(`talos: no folder called ${folderName}; not starting ${sessionName}`);
-    const result = await sessions.start(sessionName, folderName, folder.path);
-    if (!result.ok) log.warn(`talos: couldn't start ${sessionName}: ${result.reason}`);
+    if (!folder) return tellPage(`There's no folder called ${folderName}`);
+    reportRefusal(await sessions.start(sessionName, folderName, folder.path));
   };
 
   // The owner, on the page: renamed this machine or a folder, or started,
   // messaged or stopped a session.
   const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
     if (message.type === "start-session") return startSession(message.folderName, message.sessionName);
-    if (message.type === "send-to-session") {
-      const result = await sessions.send(message.sessionName, message.text, message.images);
-      if (!result.ok) log.warn(`talos: couldn't send to ${message.sessionName}: ${result.reason}`);
-      return;
-    }
-    if (message.type === "stop-session") {
-      await sessions.stop(message.sessionName);
-      return;
-    }
+    if (message.type === "send-to-session") return reportRefusal(await sessions.send(message.sessionName, message.text, message.images));
+    if (message.type === "stop-session") return reportRefusal(await sessions.stop(message.sessionName));
     if (message.type === "ask-for-output") {
       return reportRefusal(await sessions.ask(message.sessionName, message.kind));
     }
-    // A refused answer (its question closed, or the session was replaced) is
-    // shown on the owner's page, so a click never fails silently.
     if (message.type === "answer-output") {
       const { sessionName, outputId, choice } = message;
       return reportRefusal(await sessions.answer(sessionName, outputId, choice));
@@ -215,12 +208,14 @@ export const runConnect = async (): Promise<void> => {
       serverUrl,
       machineKey,
       log,
-      // The session runner can be down (restarting, or `talos runner stop`), so a page
-      // command can fail; log it rather than let Bun quit on the rejection.
+      // The session runner can be down (restarting, or `talos runner stop`), or
+      // answer in a way this talos doesn't know, so a page command can fail; the
+      // page is told, and it's logged rather than let Bun quit on the rejection.
       onServerMessage: (message) =>
-        void handleServerMessage(message).catch((error: unknown) =>
-          log.warn(`talos: couldn't handle ${message.type} from the server (${error})`),
-        ),
+        void handleServerMessage(message).catch((error: unknown) => {
+          log.warn(`talos: couldn't handle ${message.type} from the server (${error})`);
+          tellPage("That didn't reach the session runner; try again");
+        }),
       onOpen: (send) => {
         sendToServer = send;
         sendFoldersOrWarn();

@@ -81,7 +81,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   // socket can start Claude (and mark it trusted) in any other folder.
   if (!(await isAllowedFolder(folderName, path))) return refuse("folder-not-allowed", `${path} isn't one of the allowed folders`, 403);
   // An allowed folder can be gone since it was added.
-  if (!existsSync(path)) return refuse("folder-not-allowed", `${path} isn't there any more`, 403);
+  if (!existsSync(path)) return refuse("folder-not-allowed", `${folderName} isn't there any more`, 403);
   const trustChange = await trustFolder(path, claudeConfigFile());
   if (trustChange && restoresTrust()) await keepTrustChange(trustChange);
   if (runnerState.isStopping) return STOPPING();

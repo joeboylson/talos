@@ -20,8 +20,9 @@ docs. Use these and no others.
 - **folder**: a folder on a machine that its owner allows sessions in. Only
   `talos` on that machine can add or remove one; the page just shows them.
 - **session**: a Claude Code conversation that `talos` runs in a folder. Its
-  state is **starting**, **ready**, **working**, or **needs you** (Claude is
-  asking something in its terminal; attach to answer).
+  state is **starting**, **ready** (`idle` in code), **working**, or **needs
+  you** (a permission prompt in its terminal, or an open question waiting for
+  its answer).
 - **entry**: one thing in a session's conversation: a message someone sent
   (with any images), text Claude wrote, a tool Claude ran, an output the
   session sent in a prose turn, or a dropped marker.
@@ -91,13 +92,19 @@ something.
   asking for a kind to its answer.
 - **pending output** and **open output**: an output's call was allowed and
   given an id (pending), then went through with that id (open). An open
-  output that waits is a question; it closes when the turn after the one that
-  asked it ends.
+  output that waits is a question; it closes when the person's turn after the
+  one that asked it ends. Turns talos types (an answer, an asked-for request)
+  don't count, and only a turn's end counts.
 - **ask** and **asks list**: asking a session for a kind. The asks list holds,
   per kind, where the latest ask stands (asking, answered, no response) and its
   latest answer.
 - **settled**: a session's turn is over and its screen has been still for a
-  moment. Talos types its own text into a session only then, after an Esc.
+  moment. Talos types its own text into a session only then, after an Esc,
+  and only if no draft is waiting. One thing types into a session at a time:
+  a message, talos's text, or the person's keys.
+- **draft**: text the person has in a session's input box. It keeps talos's
+  typing waiting and ends a queued ask; one no key has touched for a minute
+  stops counting.
 - **held answer**: a click on an open output's choice, kept until the session
   has settled, then typed as `Answer to <id>: <choice>`. The message is
   `answer-output`.
@@ -108,11 +115,13 @@ something.
   several, and talos can switch a session between them.
 - **home**: the folder a module keeps its own files in, handed to it by the
   program using it. Talos's is `~/.talos`; an example's is its `run/` folder.
-- **plain calls**: how a program uses `talos-sessions` (`connectToSessions`):
-  start, send, ask, answer, keys, stop, follow, attach.
+- **plain calls**: how a program uses `talos-sessions` (`connectToSessions`,
+  given its home and the script that runs its session runner): start, send,
+  ask, answer, keys, resize, screen, stop, sessions, follow, attach, and
+  isRunning, ensureRunning and stopRunner for the session runner itself.
 - **result**: what a plain call gives back: done, or a **refusal**, which holds
-  a short fixed **code** a program can check (like `closed`) and a reason to
-  show.
+  a short fixed **code** a program can check (like `closed`; the list is in
+  docs/MODULES.md) and a reason to show.
 - **notice**: something the session runner tells a program didn't happen, like
   a dropped answer.
 - **folder check**: the program's rule for which folders a session may start in.

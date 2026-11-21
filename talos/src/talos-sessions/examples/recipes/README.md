@@ -24,6 +24,7 @@ come back) · `^C` quit, listing the files that changed.
   recipes.
 - `runner.ts`, `view.ts`, `changes.ts`, `main.ts`: the example. `view.ts` is pure.
 - `tests/`: free tests, in `make test`. `live-check.ts`: a real run, by hand.
+- `recordings/run.jsonl`: a recorded run, which `MODE=replay` plays back.
 
 ## What it can't keep to itself
 

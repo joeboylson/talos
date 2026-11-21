@@ -18,10 +18,12 @@ Keys: type a question and ⏎ · `s` summary · `^A` the session's own terminal
 
 ## What's where
 
-- `data/`: `shop.db` (built by `build.ts`), and the session's `CLAUDE.md` and
-  `.claude/settings.json`. Copied fresh into `run/work/` each run.
-- `run/`: the last run, kept so you can look: the session runner's socket and
-  log, the MCP config, and `work/`, the session's copy of the data.
+- `data/`: `shop.db` and `build.ts`, which builds it, and the session's
+  `CLAUDE.md` and `.claude/settings.json`. Copied fresh into `run/work/` each run.
+- `run/`: the last run, kept so you can look: the session runner's home (its
+  sockets, lock, log, MCP config and trust record) and `work/`, the session's
+  copy of the data.
+- `recordings/run.jsonl`: a recorded run, which `MODE=replay` plays back.
 - `kinds.ts`, `runner.ts`, `view.ts`, `main.ts`: the example. `view.ts` is pure.
 - `tests/`: free tests, in `make test`. `live-check.ts`: a real run, by hand.
 

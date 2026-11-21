@@ -89,6 +89,18 @@ describe("another person's page", () => {
     expect(joePage.record.closedWith).toBe(CLOSE_CODES.signedOut);
     expect(evePage.record.closedWith).toBeNull();
   });
+
+  test("a page whose sign-in check began before a sign-out is closed too, and gets nothing", async () => {
+    const { connections, open, send, machine } = await setUp();
+    const checkedBefore = { ...pageData("joe"), checkedAtMs: Date.now() - 1000 } as SocketData;
+    connections.disconnectPersonPages("joe");
+    const latePage = await open(checkedBefore);
+    send(machine, entryFor("fix"));
+    expect(latePage.record.closedWith).toBe(CLOSE_CODES.signedOut);
+    expect(latePage.record.sent).toEqual([]);
+    const afterSignIn = await open({ ...pageData("joe"), checkedAtMs: Date.now() + 1 } as SocketData);
+    expect(afterSignIn.record.closedWith).toBeNull();
+  });
 });
 
 describe("commands from the owner", () => {

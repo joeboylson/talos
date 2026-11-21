@@ -19,8 +19,8 @@ test("the keep-alive sweep closes a page socket whose session has expired, and p
   const connections = createConnections(machinesTable, quietLog);
   const handlers = connections.websocketHandlers as unknown as Record<string, (socket: unknown) => void>;
 
-  const expired = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() - 1000 });
-  const fresh = fakeSocket({ role: "page", personId: "sam", displayName: "sam", expiresAtMs: Date.now() + 60_000 });
+  const expired = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() - 1000, checkedAtMs: Date.now() });
+  const fresh = fakeSocket({ role: "page", personId: "sam", displayName: "sam", expiresAtMs: Date.now() + 60_000, checkedAtMs: Date.now() });
   const machine = fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe" });
   [expired, fresh, machine].forEach((socket) => openOn(handlers, socket));
   await Bun.sleep(0);
@@ -39,7 +39,7 @@ test("a page whose session ends at this very moment is closed", async () => {
   setSystemTime(new Date(nowMs));
   const connections = createConnections(machinesTable, quietLog);
   const handlers = connections.websocketHandlers as unknown as Record<string, (socket: unknown) => void>;
-  const endingNow = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: nowMs });
+  const endingNow = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: nowMs, checkedAtMs: Date.now() });
   openOn(handlers, endingNow);
   await Bun.sleep(0);
   connections.pingAllSockets();

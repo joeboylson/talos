@@ -29,7 +29,9 @@ import { SERVER_LIMITS } from "./limits";
 
 export type SocketData =
   | { role: "machine"; machineId: string; machineName: string; ownerPersonId: string }
-  | { role: "page"; personId: string; displayName: string; expiresAtMs: number };
+  // checkedAtMs: when its sign-in check began, so a sign-out during the check
+  // still counts (see openSocket).
+  | { role: "page"; personId: string; displayName: string; expiresAtMs: number; checkedAtMs: number };
 type Socket = ServerWebSocket<SocketData>;
 type MachineData = Extract<SocketData, { role: "machine" }>;
 
@@ -201,8 +203,11 @@ export const createConnections = (
     });
   };
 
-  // After someone signs out everywhere, their open pages stop getting updates.
+  // After someone signs out everywhere, their open pages stop getting updates,
+  // and so does one whose sign-in check was already under way.
+  const signedOutAtMsByPerson = new Map<string, number>();
   const disconnectPersonPages = (personId: string): void => {
+    signedOutAtMsByPerson.set(personId, Date.now());
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) =>
       pageSocket.close(CLOSE_CODES.signedOut, "signed out"),
     );
@@ -353,6 +358,8 @@ export const createConnections = (
 
   const openSocket = async (socket: Socket): Promise<void> => {
     if (socket.data.role === "page") {
+      const signedOutAtMs = signedOutAtMsByPerson.get(socket.data.personId) ?? -Infinity;
+      if (socket.data.checkedAtMs <= signedOutAtMs) return socket.close(CLOSE_CODES.signedOut, "signed out");
       pageSockets.add(socket);
       log.detail(`${socket.data.displayName} connected to the live updates`);
       // From the kept copy, or a numbered read (which sends to this page too),

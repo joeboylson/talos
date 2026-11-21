@@ -82,6 +82,7 @@ export const pageData = (personId: string, expiresAtMs = Date.now() + SESSION_LI
   personId,
   displayName: personId,
   expiresAtMs,
+  checkedAtMs: Date.now(),
 });
 
 export const machineData = (machineId: string, ownerPersonId: string): SocketData => ({

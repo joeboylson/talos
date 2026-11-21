@@ -65,10 +65,11 @@ export const decideSocket = async (
 ): Promise<SocketDecision> => {
   const requestPath = new URL(request.url).pathname;
   if (requestPath === SERVER_ROUTES.pageSocket) {
+    const checkedAtMs = Date.now();
     const person = await checks.readTrustedPerson(request);
     if (!person) return { response: textResponse("Not signed in", 401) };
     const { personId, displayName, expiresAtMs } = person;
-    return { data: { role: "page", personId, displayName, expiresAtMs } };
+    return { data: { role: "page", personId, displayName, expiresAtMs, checkedAtMs } };
   }
   if (requestPath === SERVER_ROUTES.machineSocket) {
     const machine = await machineRoutes.findMachineForRequest(request);

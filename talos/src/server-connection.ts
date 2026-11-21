@@ -1,6 +1,8 @@
 import {
   BEARER_PREFIX,
+  KEEP_ALIVE_GONE_MS,
   SERVER_ROUTES,
+  WS_CLOSE_CODES,
   encode,
   parseJsonOrNull,
   readServerToMachine,
@@ -20,23 +22,51 @@ type ServerConnectionOptions = {
   // Everything but pings, which are answered here.
   onServerMessage: (message: Exclude<ServerToMachine, { type: "ping" }>) => void;
   log: Logger;
+  // How long a silent server is waited for (tests shorten it).
+  silentAfterMs?: number;
 };
+
+const CLOSE_WAIT_MS = 5000;
 
 // talos always calls the server, never the other way round, so this machine
 // doesn't have to accept connections from anywhere.
 export const connectToServer = (options: ServerConnectionOptions): void => {
-  const { serverUrl, machineKey, onConnectionChange, onOpen, onServerMessage, log } = options;
+  const { serverUrl, machineKey, onConnectionChange, onOpen, onServerMessage, log, silentAfterMs = KEEP_ALIVE_GONE_MS } = options;
   const socket = new WebSocket(new URL(SERVER_ROUTES.machineSocket, serverUrl), {
     headers: { Authorization: `${BEARER_PREFIX}${machineKey}` },
   });
 
+  // The server writes at least every 30 s; hearing nothing for longer means it
+  // or the network is gone (a frozen server, a laptop waking on another
+  // network), so the connection is closed and the usual reconnect takes over.
+  let silenceTimer: ReturnType<typeof setTimeout> | undefined;
+  const heardFromServer = () => {
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
+      log.event("talos: heard nothing from the server for too long; reconnecting");
+      socket.close();
+      // A close on a dead network may never finish, so it's taken as done.
+      setTimeout(() => closed(WS_CLOSE_CODES.silent, "heard nothing"), CLOSE_WAIT_MS);
+    }, silentAfterMs);
+  };
+  let isClosed = false;
+  const closed = (code: number, reason: string) => {
+    if (isClosed) return;
+    isClosed = true;
+    clearTimeout(silenceTimer);
+    log.event(`talos: disconnected (${code}${reason ? `: ${reason}` : ""})`);
+    onConnectionChange(false, code);
+  };
+
   socket.onopen = () => {
+    heardFromServer();
     onConnectionChange(true);
     log.event(`talos: connected to ${serverUrl}`);
     onOpen((message) => socket.send(encode<MachineToServer>(message)));
   };
 
   socket.onmessage = (event) => {
+    heardFromServer();
     const message = readServerToMachine(parseJsonOrNull(String(event.data)));
     if (!message) return log.warn("talos: the server sent a message talos can't read; ignoring it");
     if (message.type !== "ping") return onServerMessage(message);
@@ -44,8 +74,5 @@ export const connectToServer = (options: ServerConnectionOptions): void => {
     socket.send(encode<MachineToServer>({ type: "pong", id: message.id }));
   };
 
-  socket.onclose = (event) => {
-    log.event(`talos: disconnected (${event.code}${event.reason ? `: ${event.reason}` : ""})`);
-    onConnectionChange(false, event.code);
-  };
+  socket.onclose = (event) => closed(event.code, event.reason);
 };

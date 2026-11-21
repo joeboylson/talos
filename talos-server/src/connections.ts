@@ -1,5 +1,6 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import {
+  KEEP_ALIVE_GONE_MS,
   LIMITS,
   batchEntriesBySize,
   encode,
@@ -223,13 +224,26 @@ export const createConnections = (
   // Runs on the keep-alive timer. A page socket is authorized only at connect,
   // so this is where an expired session is cut: open == trusted only until the
   // cookie would have expired.
-  const pingAllSockets = (): void => {
+  // When each socket was last heard from (a message, or the answer to a ping),
+  // so one that's gone silent (a sleeping laptop, a phone off the network) is
+  // closed instead of looking connected for good.
+  const lastHeardAtMs = new Map<Socket, number>();
+  // Not a page's ping, so its answer only says talos is there.
+  const KEEP_ALIVE_PING_ID = "keep-alive";
+  const heardFrom = (socket: Socket) => lastHeardAtMs.set(socket, steadyNow());
+
+  // Machines also get a ping of talos's own, which talos answers and which
+  // tells talos the server is still there.
+  const pingAllSockets = (heardNowMs = steadyNow()): void => {
     const nowMs = Date.now();
     const expiredPages = [...pageSockets].filter((socket) => socket.data.role === "page" && socket.data.expiresAtMs <= nowMs);
     expiredPages.forEach((socket) => socket.close(CLOSE_CODES.sessionExpired, "session expired"));
     const isExpired = new Set(expiredPages);
     [...machineSockets.values(), ...pageSockets].forEach((socket) => {
-      if (!isExpired.has(socket)) socket.ping();
+      if (isExpired.has(socket)) return;
+      if (heardNowMs - (lastHeardAtMs.get(socket) ?? heardNowMs) > KEEP_ALIVE_GONE_MS) return socket.close(CLOSE_CODES.silent, "heard nothing for too long");
+      socket.ping();
+      if (socket.data.role === "machine") socket.send(encode<ServerToMachine>({ type: "ping", id: KEEP_ALIVE_PING_ID }));
     });
   };
 
@@ -442,10 +456,16 @@ export const createConnections = (
 
   const websocketHandlers: WebSocketHandler<SocketData> = {
     open(socket) {
+      heardFrom(socket);
       openSocket(socket).catch((error: unknown) => reportSocketError(socket, error));
     },
 
+    pong(socket) {
+      heardFrom(socket);
+    },
+
     message(socket, rawMessage) {
+      heardFrom(socket);
       // Drop before parsing if this socket is over its byte or message budget, so
       // a flood of large frames or of tiny ones can't block the single server
       // thread for every other owner. Bytes, not characters, are what's parsed.
@@ -478,6 +498,7 @@ export const createConnections = (
     },
 
     close(socket) {
+      lastHeardAtMs.delete(socket);
       waitingSends.delete(socket);
       socketByteWindows.delete(socket);
       socketMessageWindows.delete(socket);

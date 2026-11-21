@@ -1,5 +1,6 @@
 import { expect, setSystemTime, test } from "bun:test";
-import type { Logger } from "talos-shared";
+import { KEEP_ALIVE_GONE_MS, type Logger } from "talos-shared";
+import { steadyNow } from "../../utils/steady-clock";
 import { CLOSE_CODES } from "../../constants";
 import { createConnections, type SocketData } from "../../connections";
 import type { MachinesTable } from "../../machines-table";
@@ -45,4 +46,20 @@ test("a page whose session ends at this very moment is closed", async () => {
   connections.pingAllSockets();
   setSystemTime();
   expect(endingNow.record.closedWith).toBe(CLOSE_CODES.sessionExpired);
+});
+
+test("a socket heard from lately is kept and pinged; one silent too long (a sleeping laptop) is closed", async () => {
+  const connections = createConnections(machinesTable, quietLog);
+  const handlers = connections.websocketHandlers as unknown as Record<string, (socket: unknown, message?: unknown) => void>;
+  const sent: string[] = [];
+  const machine = { ...fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe", checkedAtMs: 0 }), send: (text: string) => sent.push(text) };
+  const page = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 3_600_000, checkedAtMs: Date.now() });
+  [machine, page].forEach((socket) => openOn(handlers, socket));
+  await Bun.sleep(0);
+  connections.pingAllSockets();
+  expect(sent.some((text) => JSON.parse(text).type === "ping")).toBe(true);
+  handlers.pong?.(page);
+  connections.pingAllSockets(steadyNow() + KEEP_ALIVE_GONE_MS + 1000);
+  expect(machine.record.closedWith).toBe(CLOSE_CODES.silent);
+  expect(page.record.closedWith).toBe(CLOSE_CODES.silent);
 });

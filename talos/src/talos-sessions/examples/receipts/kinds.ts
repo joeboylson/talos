@@ -1,14 +1,18 @@
 // receipts' kinds. expense and skipped are sent on their own and don't wait; a
 // question waits for the person, who answers by picking one of its choices; a
 // tally is only ever asked for.
-import { cleanLine, type OutputKind } from "../../index";
+import { cleanLine, saysSomething, type OutputKind } from "../../index";
 
 export const CATEGORIES = ["travel", "lodging", "meals", "supplies", "software", "events", "personal"] as const;
 const MAX_TEXT = 120;
 
 type Fields = Record<string, unknown>;
 const field = (input: unknown, name: string): unknown => (typeof input === "object" && input !== null ? Reflect.get(input, name) : undefined);
-const shortText = (value: unknown): string | null => (typeof value === "string" && value.trim() && value.length <= MAX_TEXT ? cleanLine(value) : null);
+// Checked once cleaned, so text of only invisible characters isn't kept as blank.
+const shortText = (value: unknown): string | null => {
+  const cleaned = typeof value === "string" && value.length <= MAX_TEXT ? cleanLine(value) : "";
+  return saysSomething(cleaned) ? cleaned : null;
+};
 // No receipt is this big; past it the row runs off the screen.
 const MAX_AMOUNT = 1e9;
 const isAmount = (value: unknown): value is number => typeof value === "number" && value >= 0 && value <= MAX_AMOUNT;

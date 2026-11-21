@@ -27,6 +27,7 @@ describe("receipts' kinds", () => {
   test("a question needs 2 to 4 different choices, typed in without commands", () => {
     expect(readQuestion({ file: "07.txt", question: "Business expense?", choices: ["Business", "Personal"] })).not.toBeNull();
     expect(readQuestion({ file: "07.txt", question: "?", choices: ["Same", "Same"] })).toBeNull();
+    expect(readQuestion({ file: "07.txt", question: "Business expense?", choices: [" \u200b", "Personal"] })).toBeNull();
     expect(QUESTION).toMatchObject({ waits: true, choicesField: "choices", typedFields: { choices: { allowCommands: false } } });
   });
   test("a tally is only asked for, and its totals are checked", () => {

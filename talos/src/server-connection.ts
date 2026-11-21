@@ -14,7 +14,8 @@ export type SendToServer = (message: MachineToServer) => void;
 type ServerConnectionOptions = {
   serverUrl: string;
   machineKey: string;
-  onConnectionChange: (isConnected: boolean) => void;
+  // closeCode says why a connection closed (see WS_CLOSE_CODES).
+  onConnectionChange: (isConnected: boolean, closeCode?: number) => void;
   onOpen: (sendToServer: SendToServer) => void;
   // Everything but pings, which are answered here.
   onServerMessage: (message: Exclude<ServerToMachine, { type: "ping" }>) => void;
@@ -45,6 +46,6 @@ export const connectToServer = (options: ServerConnectionOptions): void => {
 
   socket.onclose = (event) => {
     log.event(`talos: disconnected (${event.code}${event.reason ? `: ${event.reason}` : ""})`);
-    onConnectionChange(false);
+    onConnectionChange(false, event.code);
   };
 };

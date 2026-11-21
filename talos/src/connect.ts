@@ -14,6 +14,7 @@ import {
   readLogsMode,
   requireEnv,
   toIdentifierName,
+  WS_CLOSE_CODES,
   type ServerToMachine,
   type SessionEntry,
   type SessionSummary,
@@ -128,15 +129,24 @@ export const runConnect = async (): Promise<void> => {
 
   // Sessions run in the session runner, which outlives talos. If the session runner goes
   // away (`talos runner stop`), a fresh one is started.
+  // The page is told which sessions ended with the runner, since they and
+  // anything waiting in them go without a word otherwise.
+  const forgetRunnerSessions = () => {
+    const ended = latestSessions.map(({ sessionName }) => sessionName);
+    if (ended.length > 0) tellPage(`The session runner stopped; ended ${ended.join(", ")}`);
+    forwardRunnerEvent({ type: "sessions", sessions: [] });
+  };
   const followRunner = async (): Promise<void> => {
     await sessions.ensureRunning();
     await sessions.follow((runnerEvent) => forwardRunnerEvent(toSharedEvent(runnerEvent))).ended;
-    forwardRunnerEvent({ type: "sessions", sessions: [] });
   };
   const followRunnerWithRetry = (): void => {
     followRunner()
       .catch((error: unknown) => log.warn(`talos: lost the session runner (${error})`))
-      .finally(() => setTimeout(followRunnerWithRetry, RECONNECT_DELAY_MS));
+      .finally(() => {
+        forgetRunnerSessions();
+        setTimeout(followRunnerWithRetry, RECONNECT_DELAY_MS);
+      });
   };
 
   // What the owner tried and couldn't do is shown on their page, so a click
@@ -221,10 +231,16 @@ export const runConnect = async (): Promise<void> => {
         sendFoldersOrWarn();
         void sendLatest(send).catch((error: unknown) => log.warn(`talos: couldn't send the latest entries (${error})`));
       },
-      onConnectionChange: (isNowConnected) => {
+      onConnectionChange: (isNowConnected, closeCode) => {
         isConnected = isNowConnected;
         if (isNowConnected) return;
         sendToServer = null;
+        // Another talos on this machine connected with its key: reconnecting
+        // would replace it, and it would replace this one, back and forth.
+        if (closeCode === WS_CLOSE_CODES.machineReplaced) {
+          log.warn("talos: another talos on this machine took over; this one stops");
+          process.exit(0);
+        }
         setTimeout(connectWithRetry, RECONNECT_DELAY_MS);
       },
     });

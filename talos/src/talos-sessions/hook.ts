@@ -4,8 +4,9 @@
 // lane the session runner returns a PreToolUse allow/deny or a Stop block, which
 // Claude Code then enforces. If the session runner is slow or unreachable it denies the
 // structured tools (nothing would record them) and lets everything else through,
-// so it can never hold Claude up. A tool call too big for the session runner to read is
-// denied outright, since talos can't check it.
+// so it can never hold Claude up. A tool call too big for the session runner to read,
+// or one it was reached for but didn't answer, is denied outright, since talos
+// couldn't check it.
 import { parseJsonOrNull } from "./json";
 import { SESSION_ENV_KEYS } from "./constants";
 import { askRunner } from "./client/hook-client";
@@ -22,7 +23,7 @@ const answer = sessionName && runnerSocket ? await askRunner(runnerSocket, { ses
 const decision =
   answer?.kind === "reply"
     ? hookReplyFromRunner(parseJsonOrNull(hookDetails), answer.reply)
-    : answer?.kind === "too-big"
+    : answer?.kind === "too-big" || answer?.kind === "no-answer"
       ? hookReplyWhenTooBig(parseJsonOrNull(hookDetails))
       : hookReplyWhenRunnerUnreachable(parseJsonOrNull(hookDetails));
 if (decision) process.stdout.write(decision);

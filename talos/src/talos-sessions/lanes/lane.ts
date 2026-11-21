@@ -52,7 +52,7 @@ export type LaneStep = {
 };
 
 const RUNNER_UNREACHABLE_REASON = "talos can't record that right now.";
-const TOO_BIG_REASON = "This tool call is too big for talos to check.";
+const TOO_BIG_REASON = "talos couldn't check this tool call (too big, or no answer in time); try again.";
 type RunningLane = Extract<Lane, { stage: "asking" | "answered" }>;
 const isAskedTurnRunning = (lane: Lane): lane is RunningLane => lane.stage === "asking" || lane.stage === "answered";
 
@@ -117,7 +117,8 @@ export const hookReplyFromRunner = (hookDetails: unknown, reply: string): string
 };
 
 // What hook.ts prints when the session runner turned the hook down as too big to
-// read: a tool call talos couldn't check doesn't run, since in an asked-for turn it must not.
+// read, or didn't answer it: a tool call talos couldn't check doesn't run, since
+// in an asked-for turn it must not.
 export const hookReplyWhenTooBig = (hookDetails: unknown): string =>
   readLaneEvent(hookDetails)?.type === "pre-tool-use" ? denyToolDecision(TOO_BIG_REASON) : "";
 

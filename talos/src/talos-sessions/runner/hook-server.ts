@@ -81,8 +81,7 @@ const answerHookRequest = (line: string): HookAnswer => {
 type HookConnection = { chunks: Buffer[]; byteCount: number; deadline: ReturnType<typeof setTimeout> };
 type HookSocket = Socket<HookConnection>;
 
-// Oldest first, so a new connection past the cap closes the oldest: a real
-// hook connects and sends at once, while a flood's idle connections linger.
+// In the order they opened, so the cap can close the oldest idle one.
 const openHookSockets = new Set<HookSocket>();
 
 const closeHookSocket = (socket: HookSocket) => {
@@ -105,8 +104,11 @@ export const startHookServer = (hooksSocket: string) =>
     unix: hooksSocket,
     socket: {
       open: (socket) => {
-        const oldestSocket = openHookSockets.values().next().value;
-        if (openHookSockets.size >= SESSION_LIMITS.maxHookConnections && oldestSocket) closeHookSocket(oldestSocket);
+        // Past the cap, the oldest that hasn't sent anything goes first: a real
+        // hook sends at once, a flood's idle connections don't.
+        const sockets = [...openHookSockets];
+        const evicted = sockets.find(({ data }) => data.byteCount === 0) ?? sockets[0];
+        if (openHookSockets.size >= SESSION_LIMITS.maxHookConnections && evicted) closeHookSocket(evicted);
         socket.data = { chunks: [], byteCount: 0, deadline: setTimeout(() => closeHookSocket(socket), SESSION_LIMITS.hookTimeoutMs) };
         openHookSockets.add(socket);
       },

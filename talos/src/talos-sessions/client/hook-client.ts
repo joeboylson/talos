@@ -3,11 +3,13 @@
 import { SESSION_LIMITS } from "../limits";
 import { encodeHookLine, readHookAnswer, type HookAnswer, type HookRequest } from "./runner-protocol";
 
-// Sends one request line and reads the session runner's one answer line. A big request
-// goes in pieces, as the socket takes them.
-const askRunnerText = (runnerSocket: string, request: HookRequest): Promise<string> =>
+// Sends one request line and reads the session runner's one answer line. A big
+// request goes in pieces, as the socket takes them. Gives null if it connected
+// but no answer came: closed early, or out of time.
+const askRunnerText = (runnerSocket: string, request: HookRequest): Promise<string | null> =>
   new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timed out")), SESSION_LIMITS.hookTimeoutMs);
+    let isOpen = false;
+    const timer = setTimeout(() => (isOpen ? resolve(null) : reject(new Error("timed out"))), SESSION_LIMITS.hookTimeoutMs);
     let unsent = Buffer.from(encodeHookLine(request));
     let received = "";
     const decoder = new TextDecoder();
@@ -18,7 +20,10 @@ const askRunnerText = (runnerSocket: string, request: HookRequest): Promise<stri
     Bun.connect({
       unix: runnerSocket,
       socket: {
-        open: sendMore,
+        open: (socket) => {
+          isOpen = true;
+          sendMore(socket);
+        },
         drain: (socket) => {
           if (unsent.length > 0) sendMore(socket);
         },
@@ -27,11 +32,11 @@ const askRunnerText = (runnerSocket: string, request: HookRequest): Promise<stri
         },
         close: () => {
           clearTimeout(timer);
-          resolve(received);
+          resolve(received.includes("\n") ? received : null);
         },
-        error: (_socket, error) => {
+        error: () => {
           clearTimeout(timer);
-          reject(error);
+          resolve(null);
         },
         connectError: (_socket, error) => {
           clearTimeout(timer);
@@ -41,8 +46,11 @@ const askRunnerText = (runnerSocket: string, request: HookRequest): Promise<stri
     }).catch(reject);
   });
 
-// null when the session runner can't be reached or answers nonsense.
-export const askRunner = (runnerSocket: string, request: HookRequest): Promise<HookAnswer | null> =>
+// null when the session runner can't be reached or answers nonsense. no-answer
+// when it was reached but didn't answer: it's there, so a call it would have
+// checked mustn't run unchecked (a flood of connections can cut a hook off).
+export type HookResult = HookAnswer | { kind: "no-answer" } | null;
+export const askRunner = (runnerSocket: string, request: HookRequest): Promise<HookResult> =>
   askRunnerText(runnerSocket, request)
-    .then((received) => readHookAnswer(received.split("\n")[0] ?? ""))
+    .then((received): HookResult => (received === null ? { kind: "no-answer" } : readHookAnswer(received.split("\n")[0] ?? "")))
     .catch(() => null);

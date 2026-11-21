@@ -21,6 +21,7 @@ describe("explorer's kinds", () => {
     ["a type it can't draw", { ...chart, type: "pie" }],
     ["too many labels", { ...chart, labels: Array.from({ length: MAX_LABELS + 1 }, (_, index) => `${index}`), series: [{ name: "r", values: Array(MAX_LABELS + 1).fill(1) }] }],
     ["a value that isn't a number", { ...chart, series: [{ name: "revenue", values: [10, "20"] }] }],
+    ["a value too big to draw", { ...chart, series: [{ name: "revenue", values: [-1e308, 1e308] }] }],
   ])("a chart with %s is turned down", (_name, input) => {
     expect(readChart(input)).toBeNull();
   });

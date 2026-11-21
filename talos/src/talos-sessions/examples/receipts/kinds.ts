@@ -9,7 +9,9 @@ const MAX_TEXT = 120;
 type Fields = Record<string, unknown>;
 const field = (input: unknown, name: string): unknown => (typeof input === "object" && input !== null ? Reflect.get(input, name) : undefined);
 const shortText = (value: unknown): string | null => (typeof value === "string" && value.trim() && value.length <= MAX_TEXT ? cleanLine(value) : null);
-const isAmount = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+// No receipt is this big; past it the row runs off the screen.
+const MAX_AMOUNT = 1e9;
+const isAmount = (value: unknown): value is number => typeof value === "number" && value >= 0 && value <= MAX_AMOUNT;
 const isCurrency = (value: unknown): value is string => typeof value === "string" && /^[A-Z]{3}$/.test(value);
 const isCategory = (value: unknown): value is string => CATEGORIES.some((category) => category === value);
 const isDate = (value: unknown): value is string =>
@@ -41,7 +43,9 @@ export const readTally = (input: unknown): Fields | null => {
     const [category, currency, amount] = ["category", "currency", "amount"].map((name) => field(total, name));
     return isCategory(category) && isCurrency(currency) && isAmount(amount) ? { category, currency, amount } : null;
   });
-  return read.every((total) => total !== null) ? { totals: read } : null;
+  // One total per category and currency, or the view would draw both.
+  const keys = new Set(read.map((total) => total && `${total.category} ${total.currency}`));
+  return read.every((total) => total !== null) && keys.size === read.length ? { totals: read } : null;
 };
 
 const text = { type: "string", maxLength: MAX_TEXT };

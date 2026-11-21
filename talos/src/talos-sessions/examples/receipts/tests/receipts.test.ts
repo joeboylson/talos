@@ -18,6 +18,7 @@ describe("receipts' kinds", () => {
     ["a date that isn't one", { ...expense, date: "2025-02-30" }],
     ["an amount that isn't a number", { ...expense, amount: "24.60" }],
     ["a negative amount", { ...expense, amount: -1 }],
+    ["an amount too big to be a receipt", { ...expense, amount: 1e20 }],
     ["a currency that isn't a code", { ...expense, currency: "£" }],
     ["a category not on the list", { ...expense, category: "fun" }],
   ])("an expense with %s is turned down", (_name, input) => {
@@ -33,6 +34,8 @@ describe("receipts' kinds", () => {
     expect(PROSE_TURN.optional).not.toContain("tally");
     expect(readTally({ totals: [{ category: "travel", currency: "GBP", amount: 24.6 }] })).not.toBeNull();
     expect(readTally({ totals: [{ category: "travel", currency: "GBP", amount: "lots" }] })).toBeNull();
+    const meals = { category: "meals", currency: "GBP", amount: 1 };
+    expect(readTally({ totals: [meals, { ...meals, amount: 9999 }] })).toBeNull();
     expect(KINDS.map(({ kind }) => kind)).toEqual(["expense", "skipped", "question", "tally"]);
   });
 });

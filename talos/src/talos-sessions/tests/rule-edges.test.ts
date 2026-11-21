@@ -129,7 +129,7 @@ describe("clean", () => {
 });
 
 describe("shapes", () => {
-  const text = (entryId: string, position: number): SessionEntry => ({ kind: "text", entryId, position, text: "t" });
+  const text = (entryId: string, position: number, body = "t"): SessionEntry => ({ kind: "text", entryId, position, text: body });
   const marker = (entryId: string, position: number): SessionEntry => ({ kind: "dropped", entryId, position, droppedKind: "text", reason: "r" });
   test("markers capped before trimming, so dropped markers don't take real entries' places", () => {
     const markers = Array.from({ length: SESSION_LIMITS.maxDroppedKept + 5 }, (_, i) => marker(`m${i}`, i + 1));
@@ -143,11 +143,11 @@ describe("shapes", () => {
     expect(mergeSessionEntries([text("b", 2)], [text("a", 1)], 10).map(({ entryId }) => entryId)).toEqual(["a", "b"]);
   });
   test("a newer copy replaces the kept one", () => {
-    expect(mergeSessionEntries([{ ...text("a", 1), text: "old" }], [{ ...text("a", 1), text: "new" }], 10)).toEqual([{ ...text("a", 1), text: "new" }]);
+    expect(mergeSessionEntries([text("a", 1, "old")], [text("a", 1, "new")], 10)).toEqual([text("a", 1, "new")]);
   });
   test("entries whose text is exactly the kept budget are all kept", () => {
     const each = SESSION_LIMITS.maxEntryTextLength;
-    const entries = Array.from({ length: SESSION_LIMITS.maxKeptEntryTextLength / each }, (_, i) => ({ ...text(`b${i}`, i), text: "x".repeat(each) }));
+    const entries = Array.from({ length: SESSION_LIMITS.maxKeptEntryTextLength / each }, (_, i) => text(`b${i}`, i, "x".repeat(each)));
     expect(mergeSessionEntries([], entries, 100).length).toBe(entries.length);
   });
   test("an ask's latest answer over the fields cap is left out when reading", () => {

@@ -107,7 +107,7 @@ const runScenario = async (owners: number[], actions: Action[]) => {
 
     if (step.kind === "open-machine") {
       const machineId = machineIdOf(step.machine);
-      const socket = fakeSocket({ role: "machine", machineId, machineName: machineId, ownerPersonId: ownerOf.get(machineId) ?? "" });
+      const socket = fakeSocket({ role: "machine", machineId, machineName: machineId, ownerPersonId: ownerOf.get(machineId) ?? "", checkedAtMs: 0 });
       machineSockets.set(machineId, socket);
       allMachineSockets.push(socket);
       reported.set(machineId, { folders: [], sessions: [] });

@@ -73,13 +73,14 @@ export const decideSocket = async (
     return { data: { role: "page", personId, displayName, expiresAtMs, checkedAtMs } };
   }
   if (requestPath === SERVER_ROUTES.machineSocket) {
+    const checkedAtMs = steadyNow();
     const machine = await machineRoutes.findMachineForRequest(request);
     if (!machine) {
       log.warn("turned away a machine with an unknown key");
       return { response: textResponse("Unknown machine key", 401) };
     }
     const { machineId, machineName, ownerPersonId } = machine;
-    return { data: { role: "machine", machineId, machineName, ownerPersonId } };
+    return { data: { role: "machine", machineId, machineName, ownerPersonId, checkedAtMs } };
   }
   return null;
 };

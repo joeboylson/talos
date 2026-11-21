@@ -16,7 +16,7 @@ const fakeSocket = (data: SocketData) => {
 const setUp = async () => {
   const connections = createConnections(machinesTable, quietLog);
   const handlers = connections.websocketHandlers as unknown as Record<string, (...args: unknown[]) => unknown>;
-  const machine = fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe" });
+  const machine = fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe", checkedAtMs: 0 });
   const page = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000, checkedAtMs: Date.now() });
   handlers.open?.(machine);
   handlers.open?.(page);

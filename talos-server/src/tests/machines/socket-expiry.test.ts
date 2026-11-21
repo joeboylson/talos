@@ -21,7 +21,7 @@ test("the keep-alive sweep closes a page socket whose session has expired, and p
 
   const expired = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() - 1000, checkedAtMs: Date.now() });
   const fresh = fakeSocket({ role: "page", personId: "sam", displayName: "sam", expiresAtMs: Date.now() + 60_000, checkedAtMs: Date.now() });
-  const machine = fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe" });
+  const machine = fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe", checkedAtMs: 0 });
   [expired, fresh, machine].forEach((socket) => openOn(handlers, socket));
   await Bun.sleep(0);
 

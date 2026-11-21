@@ -90,6 +90,7 @@ export const machineData = (machineId: string, ownerPersonId: string): SocketDat
   machineId,
   machineName: machineId,
   ownerPersonId,
+  checkedAtMs: 0,
 });
 
 export const parsedMessages = (sent: string[]) => sent.map((text) => JSON.parse(text) as { type: string } & Record<string, unknown>);

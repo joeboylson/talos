@@ -29,7 +29,9 @@ import type { MachineRecord, MachinesTable } from "./machines-table";
 import { SERVER_LIMITS } from "./limits";
 
 export type SocketData =
-  | { role: "machine"; machineId: string; machineName: string; ownerPersonId: string }
+  // checkedAtMs: when its key check began, so a removal during the check
+  // still counts (see openSocket).
+  | { role: "machine"; machineId: string; machineName: string; ownerPersonId: string; checkedAtMs: number }
   // checkedAtMs: when its sign-in check began, so a sign-out during the check
   // still counts (see openSocket).
   | { role: "page"; personId: string; displayName: string; expiresAtMs: number; checkedAtMs: number };
@@ -99,15 +101,38 @@ export const createConnections = (
       socket.data.role === "machine" ? socket.data.ownerPersonId === personId : socket.data.personId === personId,
     );
 
+  // What goes to a page waits while its socket is backed up, and goes on when it
+  // drains (Bun drops a message sent past its limit): a page opening gets every
+  // kept history, which can be far more than a socket takes at once.
+  const waitingSends = new Map<Socket, string[]>();
+  const sendToPage = (pageSocket: Socket, text: string): void => {
+    const waiting = waitingSends.get(pageSocket);
+    if (waiting) return void waiting.push(text);
+    const sent = pageSocket.send(text);
+    if (sent === 0) waitingSends.set(pageSocket, [text]);
+    else if (sent === -1) waitingSends.set(pageSocket, []);
+  };
+  const sendWaiting = (pageSocket: Socket): void => {
+    const waiting = waitingSends.get(pageSocket);
+    if (!waiting) return;
+    while (waiting.length > 0) {
+      const sent = pageSocket.send(waiting[0]!);
+      if (sent === 0) return;
+      waiting.shift();
+      if (sent === -1) return;
+    }
+    waitingSends.delete(pageSocket);
+  };
+
   const sendToOwnerPages = (personId: string, message: ServerToPage) => {
     const encodedMessage = encode(message);
-    findOwnedSockets(pageSockets, personId).forEach((pageSocket) => pageSocket.send(encodedMessage));
+    findOwnedSockets(pageSockets, personId).forEach((pageSocket) => sendToPage(pageSocket, encodedMessage));
   };
 
   const sendMachineList = (pageSocket: Socket, machines: MachineRecord[]) => {
     if (pageSocket.data.role !== "page") return;
     const machineSummaries = buildMachineSummaries(machines, reportsByMachineId, pageSocket.data.personId);
-    pageSocket.send(encode<ServerToPage>({ type: "machines", machines: machineSummaries }));
+    sendToPage(pageSocket, encode<ServerToPage>({ type: "machines", machines: machineSummaries }));
   };
 
   // Each owner's machines as of the last table read. Every change to the table
@@ -121,6 +146,10 @@ export const createConnections = (
   // Two reads for one owner can finish out of order; only the newest one sends,
   // so the page never ends on an older list.
   const tableReadCountByOwner = new Map<string, number>();
+  // The newest read whose list was sent, so an older read that worked is still
+  // sent when a newer one failed.
+  const sentReadByOwner = new Map<string, number>();
+  const startedNamesByMachine = new Map<string, Set<string>>();
 
   const sendOwnerMachineList = (personId: string, machines: MachineRecord[]) =>
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) => sendMachineList(pageSocket, machines));
@@ -135,9 +164,9 @@ export const createConnections = (
       throw error;
     });
     const machines = allMachines.filter((machine) => machine.ownerPersonId === personId);
-    const isNewestRead = tableReadCountByOwner.get(personId) === readNumber;
-    if (!isNewestRead) return;
-    machinesByOwner.set(personId, machines);
+    if (readNumber <= (sentReadByOwner.get(personId) ?? 0)) return;
+    sentReadByOwner.set(personId, readNumber);
+    if (tableReadCountByOwner.get(personId) === readNumber) machinesByOwner.set(personId, machines);
     sendOwnerMachineList(personId, machines);
   };
 
@@ -167,7 +196,7 @@ export const createConnections = (
         // message that big can be dropped, hiding the session from the page.
         const entries = entriesByMachine.get(machineId)?.get(sessionName) ?? [];
         batchEntriesBySize(entries, LIMITS.maxEntriesBatchBytes).forEach((batch) =>
-          pageSocket.send(encode<ServerToPage>({ type: "session-entries", machineId, sessionName, entries: batch.entries })),
+          sendToPage(pageSocket, encode<ServerToPage>({ type: "session-entries", machineId, sessionName, entries: batch.entries })),
         );
       });
     });
@@ -214,7 +243,11 @@ export const createConnections = (
     );
   };
 
+  // A removed machine is cut off, and so is one whose key check was already
+  // under way when it was removed.
+  const removedAtMsByMachine = new Map<string, number>();
   const disconnectMachine = (machineId: string): void => {
+    removedAtMsByMachine.set(machineId, steadyNow());
     machineSockets.get(machineId)?.close(CLOSE_CODES.machineRemoved, "removed from the page");
   };
 
@@ -225,7 +258,7 @@ export const createConnections = (
     const targetMachineIds = chooseMachinesToPing(ownConnectedMachineIds, requestedMachineId);
     if (targetMachineIds.length === 0) {
       log.detail(`${displayName} pressed Ping, but no matching machine of theirs is connected`);
-      pageSocket.send(encode<ServerToPage>({ type: "error", message: NO_MACHINES_MESSAGE }));
+      sendToPage(pageSocket, encode<ServerToPage>({ type: "error", message: NO_MACHINES_MESSAGE }));
       return;
     }
     log.detail(`${displayName} pinged ${targetMachineIds.length} machine(s)`);
@@ -248,7 +281,7 @@ export const createConnections = (
     displayName: string,
     message: Exclude<PageToServer, { type: "ping" }>,
   ) => {
-    const sendProblem = (problem: string) => pageSocket.send(encode<ServerToPage>({ type: "error", message: problem }));
+    const sendProblem = (problem: string) => sendToPage(pageSocket, encode<ServerToPage>({ type: "error", message: problem }));
     const machineSocket = machineSockets.get(message.machineId);
     const isOwnMachine = machineSocket?.data.role === "machine" && machineSocket.data.ownerPersonId === personId;
     const report = reportsByMachineId.get(message.machineId);
@@ -259,7 +292,11 @@ export const createConnections = (
     if (message.type === "start-session") {
       const hasFolder = report.folders.some((folder) => folder.folderName === message.folderName);
       if (!hasFolder) return sendProblem("That folder isn't on that machine");
-      const sessionName = chooseSessionName(message.sessionName, message.folderName, sessionNames);
+      // Names handed out since the machine last reported are taken too, so two
+      // starts close together don't get the same one.
+      const started = startedNamesByMachine.get(message.machineId) ?? new Set<string>();
+      const sessionName = chooseSessionName(message.sessionName, message.folderName, [...sessionNames, ...started]);
+      startedNamesByMachine.set(message.machineId, new Set([...started, sessionName]));
       log.event(`${displayName} started session "${sessionName}" in "${message.folderName}" on "${machineName}"`);
       return machineSocket.send(encode<ServerToMachine>({ type: "start-session", folderName: message.folderName, sessionName }));
     }
@@ -297,7 +334,7 @@ export const createConnections = (
     if (!message) {
       // Told, not only logged, so the page doesn't wait forever on a message
       // (like one over the text limit) that never went anywhere.
-      pageSocket.send(encode<ServerToPage>({ type: "error", message: "That couldn't be sent" }));
+      sendToPage(pageSocket, encode<ServerToPage>({ type: "error", message: "That couldn't be sent" }));
       return log.warn(`${displayName}'s page sent a message the server can't read`);
     }
     if (message.type === "ping") return handlePing(pageSocket, personId, displayName, message.machineId);
@@ -316,6 +353,7 @@ export const createConnections = (
     const liveNames = new Set(sessions.map(({ sessionName }) => sessionName));
     [...(keptByName?.keys() ?? [])].filter((sessionName) => !liveNames.has(sessionName)).forEach((sessionName) => keptByName?.delete(sessionName));
     log.detail(`"${machine.machineName}" has ${sessions.length} session(s)`);
+    startedNamesByMachine.delete(machine.machineId);
     updateReport(machine, { sessions });
   };
 
@@ -376,7 +414,8 @@ export const createConnections = (
       }
       return;
     }
-    const { machineId, machineName, ownerPersonId } = socket.data;
+    const { machineId, machineName, ownerPersonId, checkedAtMs } = socket.data;
+    if (checkedAtMs <= (removedAtMsByMachine.get(machineId) ?? -Infinity)) return socket.close(CLOSE_CODES.machineRemoved, "removed from the page");
     machineSockets.get(machineId)?.close(CLOSE_CODES.machineReplaced, "replaced by a newer connection");
     machineSockets.set(machineId, socket);
     reportsByMachineId.set(machineId, { folders: [], sessions: [] });
@@ -434,7 +473,12 @@ export const createConnections = (
       }
     },
 
+    drain(socket) {
+      sendWaiting(socket);
+    },
+
     close(socket) {
+      waitingSends.delete(socket);
       socketByteWindows.delete(socket);
       socketMessageWindows.delete(socket);
       closeSocket(socket).catch((error: unknown) => reportSocketError(socket, error));

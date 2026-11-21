@@ -10,10 +10,15 @@ const WINDOW_WIDTH: f64 = 900.0;
 const WINDOW_HEIGHT: f64 = 700.0;
 
 // The page is at the server's address over http(s): ws://host:7070 → http://host:7070.
+// Any spelling talos accepts (WSS://, a space first) gives the same page, as
+// talos-shared's httpOriginFromServerUrl does.
 fn page_url_from_server_url(server_url: &str) -> String {
-    match server_url.strip_prefix("ws") {
-        Some(rest_of_url) => format!("http{rest_of_url}"),
-        None => server_url.to_string(),
+    let trimmed = server_url.trim();
+    let scheme_end = trimmed.find(':').unwrap_or(0);
+    match trimmed[..scheme_end].to_ascii_lowercase().as_str() {
+        "wss" => format!("https{}", &trimmed[scheme_end..]),
+        "ws" => format!("http{}", &trimmed[scheme_end..]),
+        _ => trimmed.to_string(),
     }
 }
 
@@ -51,6 +56,13 @@ mod tests {
     fn turns_socket_addresses_into_page_addresses() {
         assert_eq!(page_url_from_server_url("ws://localhost:7070"), "http://localhost:7070");
         assert_eq!(page_url_from_server_url("wss://talos.example.com"), "https://talos.example.com");
+    }
+
+    #[test]
+    fn reads_any_spelling_talos_accepts() {
+        assert_eq!(page_url_from_server_url("WSS://talos.example.com"), "https://talos.example.com");
+        assert_eq!(page_url_from_server_url(" wss://talos.example.com"), "https://talos.example.com");
+        assert_eq!(page_url_from_server_url("Ws://localhost:7070"), "http://localhost:7070");
     }
 
     #[test]

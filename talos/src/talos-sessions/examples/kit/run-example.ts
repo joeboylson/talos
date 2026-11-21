@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { join } from "node:path";
 import { DETACH_KEY, connectToSessions, type Result } from "../../index";
 import { readRecording, recordEvent, saveRecording, toInput, type RecordedLine } from "./recording";
+import { fitScreen } from "./screen";
 import type { Action, ExampleView, Input } from "./view";
 import { CTRL_C } from "./view";
 
@@ -19,8 +20,8 @@ const readMode = (): Mode => {
 };
 
 const draw = <State>(view: ExampleView<State>, state: State) => {
-  // The newest lines that fit: the conversation scrolls up as it grows.
-  const lines = view.render(state, process.stdout.columns || 80).slice(-(process.stdout.rows || 40));
+  const columns = process.stdout.columns || 80;
+  const lines = fitScreen(view.render(state, columns), columns, process.stdout.rows || 40);
   process.stdout.write(`\x1b[2J\x1b[H${lines.join("\r\n")}`);
 };
 

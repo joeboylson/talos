@@ -82,6 +82,18 @@ Each block below is listed as what goes in → what comes out.
   - Out: a machine key, or a pairing still waiting.
   - Will live in: `talos-server/src/talos-pairing/`, with the machine's half in
     `talos/src/talos-pairing/`.
+- **`talos-accounts`** (not created). Keeps several Claude logins and says which
+  one a session should use, so talos can replace janus.
+  - In: the saved logins (long-lived tokens), the switching rules (pin to one,
+    or move at a % of the weekly or 5-hour limit, notify only, move back on
+    reset).
+  - Out: each account's usage and when it resets, and which account a session
+    should use now, with the settings to start it on that account.
+  - Holds: the logins, reading usage, the switching rules.
+  - Needs from `talos-sessions`: extra settings for one session when it
+    starts, and restarting a session with new settings while keeping its
+    conversation, between turns.
+  - Will live in: `talos/src/talos-accounts/`.
 - **`talos-sign-in`** (not created). Signs people in.
   - In: a request.
   - Out: the signed-in person, or none.

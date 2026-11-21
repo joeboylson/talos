@@ -50,6 +50,7 @@ outputs and its own tests. Each is a folder in the app for now. Why and how:
 | `talos-relay` | The server's live hub between machines and pages | Not created |
 | `talos-pairing` | Give a new machine its key | Not created |
 | `talos-sign-in` | Sign people in | Not created |
+| `talos-accounts` | Keep several Claude logins, watch each one's usage, and say which a session should use; replaces janus | Not created |
 | `talos-utils` | General helpers more than one module needs; knows nothing about talos | Not created (only once a second module needs a helper) |
 
 Each module stands on its own: it depends on nothing else in talos, except

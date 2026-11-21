@@ -104,6 +104,8 @@ something.
 
 ## Using a module
 
+- **account**: one Claude login a session can run on. A machine can have
+  several, and talos can switch a session between them.
 - **home**: the folder a module keeps its own files in, handed to it by the
   program using it. Talos's is `~/.talos`; an example's is its `run/` folder.
 - **plain calls**: how a program uses `talos-sessions` (`connectToSessions`):

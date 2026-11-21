@@ -8,7 +8,7 @@ import { TALLY } from "./kinds";
 
 export const START_MESSAGE = "Sort every file in inbox/.";
 const KEPT_ENTRIES = 500;
-const BAR_WIDTH = 30;
+const MAX_BAR_WIDTH = 30;
 
 type OpenOutput = SessionSummary["openOutputs"][number];
 type Total = { category: string; currency: string; amount: number };
@@ -46,12 +46,16 @@ const withTallyAsk = (state: ReceiptsState): { state: ReceiptsState; actions: Ac
 
 const money = (amount: number, currency: string) => `${amount.toFixed(2)} ${currency}`;
 
-const drawTally = (totals: Total[]): string[] => {
+// Each amount before its bar, and the bar sized to what's left, so a narrow
+// screen shortens bars, never amounts.
+const drawTally = (totals: Total[], width: number): string[] => {
   const currencies = [...new Set(totals.map(({ currency }) => currency))];
+  const amountWidth = Math.max(...totals.map(({ amount }) => amount.toFixed(2).length));
+  const barWidth = Math.max(Math.min(width - 10 - amountWidth - 1, MAX_BAR_WIDTH), 1);
   return currencies.flatMap((currency) => {
     const group = totals.filter((total) => total.currency === currency);
     const most = Math.max(...group.map(({ amount }) => amount));
-    return [dim(currency), ...group.map(({ category, amount }) => `${padTo(category, 10)}${cyan(padTo(bar(amount, most, BAR_WIDTH), BAR_WIDTH))} ${amount.toFixed(2)}`)];
+    return [dim(currency), ...group.map(({ category, amount }) => `${padTo(category, 10)}${amount.toFixed(2).padStart(amountWidth)} ${cyan(bar(amount, most, barWidth))}`)];
   });
 };
 
@@ -86,11 +90,12 @@ export const receiptsView: ExampleView<ReceiptsState> = {
     return noActions(state);
   },
   render: (state, columns) => {
-    const width = Math.max(columns, 50);
+    const width = Math.max(columns, 1);
     const expenses = outputsOf(state.entries, "expense");
     const skipped = outputsOf(state.entries, "skipped");
+    // The amount and category first: a narrow screen cuts the end of a line.
     const row = (fields: Record<string, unknown>) =>
-      `${padTo(fit(String(fields.file), 18), 19)}${padTo(String(fields.date), 11)}${padTo(fit(String(fields.shop), 22), 23)}${padTo(money(fields.amount as number, String(fields.currency)), 14)}${fields.category}`;
+      `${padTo(money(fields.amount as number, String(fields.currency)), 14)}${padTo(String(fields.category), 15)}${padTo(String(fields.date), 11)}${padTo(fit(String(fields.shop), 22), 23)}${fit(String(fields.file), 18)}`;
     const question = state.question;
     return [
       `${bold("receipts")}  ${state.session === "working" ? yellow("◐ sorting") : state.session === "starting" ? dim("○ starting") : "● waiting"}`,
@@ -104,7 +109,7 @@ export const receiptsView: ExampleView<ReceiptsState> = {
             (question.id === state.answeredId ? dim : (text: string) => text)(`  ${(question.fields.choices as string[]).map((choice, index) => `${bold(String(index + 1))} ${choice}`).join("   ")}`),
           ]
         : []),
-      ...(state.tally ? ["", bold("Totals"), ...drawTally(state.tally)] : []),
+      ...(state.tally ? ["", bold("Totals"), ...drawTally(state.tally, width)] : []),
       "",
       ...(state.notice ? [yellow(fit(state.notice, width))] : []),
       dim(`${question && question.id !== state.answeredId ? "1-9 answer · " : ""}^A attach · ^C quit`),

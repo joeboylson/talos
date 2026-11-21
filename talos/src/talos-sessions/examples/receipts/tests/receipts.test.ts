@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionSummary } from "../../../index";
 import { readRecording, replay } from "../../kit/recording";
+import { fitScreen } from "../../kit/screen";
 import type { Input } from "../../kit/view";
 import { KINDS, PROSE_TURN, QUESTION, TALLY, readExpense, readQuestion, readTally } from "../kinds";
 import { START_MESSAGE, receiptsView, type ReceiptsState } from "../view";
@@ -98,4 +99,14 @@ describe("the view", () => {
     expect(screen.filter((line) => /\d\.\d\d [A-Z]{3}/.test(line))).toHaveLength(9);
     expect(screen).toContain("Totals");
   });
+});
+
+test("in a narrow window, every amount still shows", () => {
+  const totals: Input = { type: "event", event: { type: "sessions", sessions: [{ sessionName: "example", folderName: "work", state: "idle", asks: { tally: { state: "answered", atMs: 0, latest: { totals: [{ category: "travel", currency: "GBP", amount: 1234.5 }, { category: "meals", currency: "GBP", amount: 12 }] } } }, openOutputs: [] }] } };
+  const expenseRow: Input = { type: "event", event: { type: "session-entries", sessionName: "example", entries: [{ kind: "output", position: 1, entryId: "e1", outputKind: "expense", fields: expense }] } };
+  const state = [expenseRow, totals].reduce((current, input) => receiptsView.step(current, input).state, receiptsView.initial as ReceiptsState);
+  const screen = plain(fitScreen(receiptsView.render(state, 40), 40, 100)).join("\n");
+  expect(screen).toContain("1234.50");
+  expect(screen).toContain("12.00");
+  expect(screen).toContain("24.60 GBP");
 });

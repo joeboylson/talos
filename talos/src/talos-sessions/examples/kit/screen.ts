@@ -1,6 +1,8 @@
 // Drawing in the terminal with its own colours (the basic ANSI ones, which each
 // terminal's theme picks), so an example looks right in light and dark.
-const wrap = (code: number, reset: number) => (text: string): string => `\x1b[${code}m${text}\x1b[${reset}m`;
+// No colour where it's asked not to be (NO_COLOR) or the terminal can't (dumb).
+const hasColour = (): boolean => !process.env.NO_COLOR && process.env.TERM !== "dumb";
+const wrap = (code: number, reset: number) => (text: string): string => (hasColour() ? `\x1b[${code}m${text}\x1b[${reset}m` : text);
 
 export const dim = wrap(2, 22);
 export const bold = wrap(1, 22);
@@ -17,6 +19,8 @@ export const padTo = (text: string, width: number): string => text + " ".repeat(
 const COLOUR_AT_START = /^\x1b\[[0-9;]*m/;
 const RESET = "\x1b[0m";
 
+const graphemes = new Intl.Segmenter();
+
 // Cut to width cells, with … where it was cut. Colours are kept whole and take
 // no room, and a cut line ends with a reset, so a colour can't be left open.
 export const fit = (text: string, width: number): string => {
@@ -24,7 +28,7 @@ export const fit = (text: string, width: number): string => {
   const cut = (rest: string, room: number, kept: string): string => {
     const colour = COLOUR_AT_START.exec(rest)?.[0];
     if (colour) return cut(rest.slice(colour.length), room, kept + colour);
-    const [character] = rest;
+    const character = [...graphemes.segment(rest)][0]?.segment;
     if (character === undefined || visibleLength(character) > room) return kept;
     return cut(rest.slice(character.length), room - visibleLength(character), kept + character);
   };
@@ -52,8 +56,10 @@ const splitWord = (word: string, width: number): string[] =>
   }, []);
 
 // Wraps plain text to the width in cells, keeping its own line breaks.
+// A tab is drawn as spaces: its width depends on where it lands, and a
+// terminal's is more than the zero cells it measures as.
 export const wrapText = (text: string, width: number): string[] =>
-  text.split("\n").flatMap((paragraph) =>
+  text.replace(/\t/g, "  ").split("\n").flatMap((paragraph) =>
     paragraph
       .split(" ")
       .flatMap((word) => (visibleLength(word) > width ? splitWord(word, Math.max(width, 1)) : [word]))
@@ -70,3 +76,8 @@ export const lastCells = (text: string, width: number): string => {
   const start = characters.findIndex((_character, index) => visibleLength(characters.slice(index).join("")) <= width);
   return characters.slice(start === -1 ? characters.length : start).join("");
 };
+
+// A whole frame drawn over the last one in place, each line cleared to its end
+// and anything below cleared, so nothing flickers and nothing is pushed into a
+// terminal's scrollback (a full clear is, in tmux and iTerm).
+export const frame = (lines: readonly string[]): string => `\x1b[H${lines.map((line) => `${line}\x1b[K`).join("\r\n")}\x1b[J`;

@@ -5,7 +5,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DETACH_KEY, connectToSessions, type Result } from "../../index";
 import { readRecording, recordEvent, toInput, writeRecording, type RecordedLine } from "./recording";
-import { fitScreen } from "./screen";
+import { fitScreen, frame } from "./screen";
 import type { Action, ExampleView, Input } from "./view";
 import { CTRL_C, SESSION_NAME } from "./view";
 
@@ -23,7 +23,7 @@ const readMode = (): Mode => {
 const draw = <State>(view: ExampleView<State>, state: State) => {
   const columns = process.stdout.columns || 80;
   const lines = fitScreen(view.render(state, columns), columns, process.stdout.rows || 40);
-  process.stdout.write(`\x1b[2J\x1b[H${lines.join("\r\n")}`);
+  process.stdout.write(frame(lines));
 };
 
 // A fresh run/ (the last run's is cleared), with its own copy of data/ in

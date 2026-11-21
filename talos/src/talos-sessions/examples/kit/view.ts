@@ -42,9 +42,17 @@ export const exampleSession = (sessions: readonly SessionSummary[]): SessionSumm
 // What the person types into a draft, as the terminal sends it: a key, or a
 // paste in one piece. Escape sequences (arrow keys) type nothing, line breaks
 // and tabs become spaces, and each Enter sends what's typed so far.
-const ESCAPE_SEQUENCE = /\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b./g;
+// CSI keys (arrows, Home, mouse reports), SS3 keys (F1–F4, arrows in
+// application mode: Esc O and a letter), and Alt-letters.
+const ESCAPE_SEQUENCE = /\x1b\[[0-9;?<]*[ -\/]*[@-~]|\x1bO.|\x1b./g;
+// The last character as a person sees one (an emoji with its skin tone, a
+// letter with its accent), never half of one.
+const graphemes = new Intl.Segmenter();
+const withoutLastCharacter = (text: string): string =>
+  [...graphemes.segment(text)].slice(0, -1).map(({ segment }) => segment).join("");
+
 export const typeIntoDraft = (draft: string, key: string): { draft: string; sent: string[] } => {
-  if (key === BACKSPACE) return { draft: draft.slice(0, -1), sent: [] };
+  if (key === BACKSPACE) return { draft: withoutLastCharacter(draft), sent: [] };
   const parts = key
     .replace(ESCAPE_SEQUENCE, "")
     .replace(/\r\n/g, "\r")

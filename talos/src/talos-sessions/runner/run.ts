@@ -11,7 +11,8 @@ import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } fro
 import { startHookServer } from "./hook-server";
 import { log, paths, useRunnerInputs, type RunnerInputs } from "./inputs";
 import { applyLaneEvent } from "./session-state";
-import { heldSessions, trustChanges as keptTrustChanges } from "./store";
+import { heldSessions, trustChanges as keptTrustChanges, updateHeldSession } from "./store";
+import { SESSION_LIMITS } from "../limits";
 import { readAllNewEntries } from "./transcript";
 
 const isAlive = (pid: number): boolean => {
@@ -127,6 +128,9 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
   setInterval(() => {
     if (!holdsLock(runnerLock)) return void stopRunner();
+    [...heldSessions.values()]
+      .filter(({ hasDraft, draftAtMs }) => hasDraft && Date.now() - draftAtMs > SESSION_LIMITS.draftForgetMs)
+      .forEach(({ summary, hookToken }) => updateHeldSession(summary.sessionName, hookToken, { hasDraft: false }));
     [...heldSessions.keys()].forEach((sessionName) => applyLaneEvent(sessionName, { type: "tick" }));
   }, ASK_CHECK_MS);
   log.event(`runner: listening on ${runnerSocket}`);

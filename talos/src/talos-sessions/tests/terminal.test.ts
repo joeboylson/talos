@@ -45,6 +45,8 @@ describe("isTurnChangingKeys", () => {
     ["Ctrl-C in modifyOtherKeys encoding", "\x1b[27;5;99~", true],
     ["an arrow key", "\x1b[A", false],
     ["Page Up", "\x1b[5~", false],
+    ["a paste of several lines", "\x1b[200~line one\rline two\x1b[201~", false],
+    ["Option-Enter, which only adds a line", "\x1b\r", false],
     ["plain letters", "abc", false],
     ["nothing", "", false],
   ])("%s → %p", (_name, keys, expected) => {
@@ -56,7 +58,8 @@ describe("isDraftChangingKeys", () => {
   test.each([
     ["a letter", "a", true],
     ["a pasted line", "fix the build", true],
-    ["Backspace", "\x7f", true],
+    ["Backspace, which only takes text away", "\x7f", false],
+    ["an empty paste", "\x1b[200~\x1b[201~", false],
     ["Up, recalling an old message", "\x1b[A", true],
     ["Down in application mode", "\x1bOB", true],
     ["a pasted block", "\x1b[200~two\rlines\x1b[201~", true],
@@ -78,6 +81,8 @@ describe("isDraftClearingKeys", () => {
     ["a line and Enter", "fix it\r", true],
     ["Ctrl-C", "\x03", true],
     ["Ctrl-C in kitty key encoding", "\x1b[99;5u", true],
+    ["Ctrl-U, which deletes the line", "abc\x15", true],
+    ["Esc twice", "\x1b\x1b", true],
     ["Option-Enter, which only adds a line", "\x1b\r", false],
     ["a pasted block with a line break", "\x1b[200~two\rlines\x1b[201~", false],
     ["a letter", "a", false],

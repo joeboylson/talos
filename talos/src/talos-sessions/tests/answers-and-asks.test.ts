@@ -116,3 +116,39 @@ test(
   },
   30_000,
 );
+
+// A question, then a permission prompt in the same turn: the answer is held.
+const atPrompt = async (name: string) => {
+  const work = join(home, name);
+  mkdirSync(work);
+  expect(await calls.start(name, name, work)).toEqual({ ok: true });
+  await waitUntil(() => latest[name]?.state === "idle", "the session to be ready");
+  expect(await calls.send(name, "go-prompt")).toEqual({ ok: true });
+  await waitUntil(() => latest[name]?.openOutputs.length === 1 && latest[name]?.state === "needs-you", "the question and the prompt");
+  return latest[name]!.openOutputs[0]!;
+};
+
+test(
+  "Esc refusing a permission prompt ends the turn, so the answer held during it goes in",
+  async () => {
+    const question = await atPrompt("refuse");
+    expect(await calls.answer("refuse", question.id, 1)).toEqual({ ok: true });
+    expect(await calls.keys("refuse", "\x1b")).toEqual({ ok: true });
+    await waitUntil(() => prompts("refuse").includes(`Answer to ${question.id}: B`), "the answer");
+    expect(texts("refuse")).toContain("REFUSED");
+  },
+  30_000,
+);
+
+test(
+  "approving a permission prompt with 1 isn't a draft, and doesn't end an ask queued meanwhile",
+  async () => {
+    const question = await atPrompt("approve");
+    expect(await calls.answer("approve", question.id, 0)).toEqual({ ok: true });
+    expect(await calls.ask("approve", "status")).toEqual({ ok: true });
+    expect(await calls.keys("approve", "1")).toEqual({ ok: true });
+    await waitUntil(() => prompts("approve").includes(`Answer to ${question.id}: A`) && latest.approve?.asks.status?.state === "answered", "the answer and the status", 15_000);
+    expect(texts("approve")).toContain("APPROVED");
+  },
+  40_000,
+);

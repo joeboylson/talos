@@ -19,25 +19,37 @@ export const removeControlCharacters = (text: string): string => text.replace(CO
 // Keys from an attached terminal that start the next turn: Enter sends a
 // message, and Esc or Ctrl-C interrupts. Arrow keys, scrolling and other escape
 // sequences don't, so they mustn't end a running asked-for turn.
-const ENTER_BYTE = 0x0d;
 const ESC_BYTE = 0x1b;
 const CTRL_C_BYTE = 0x03;
 // Esc and Ctrl-C as a terminal sends them once Claude Code turns on kitty or
 // modifyOtherKeys key encoding.
 const ENCODED_CTRL_C_KEYS = ["\x1b[99;5u", "\x1b[27;5;99~"];
 const ENCODED_INTERRUPT_KEYS = ["\x1b[27u", ...ENCODED_CTRL_C_KEYS];
+// What's pasted is text, whatever bytes it holds: a line break in it isn't
+// Enter, and Option-Enter (Esc, Enter) only adds a line.
+const PASTED = /\x1b\[200~[\s\S]*?(\x1b\[201~|$)/g;
+const keysOutsidePastes = (keys: Uint8Array): string => new TextDecoder().decode(keys).replace(PASTED, "").replaceAll("\x1b\r", "");
+
 export const isTurnChangingKeys = (keys: Uint8Array): boolean => {
   const isOnlyEsc = keys.length > 0 && keys.every((byte) => byte === ESC_BYTE);
-  const keysText = new TextDecoder().decode(keys);
+  const keysText = keysOutsidePastes(keys);
   const hasEncodedInterrupt = ENCODED_INTERRUPT_KEYS.some((sequence) => keysText.includes(sequence));
-  return keys.includes(ENTER_BYTE) || keys.includes(CTRL_C_BYTE) || isOnlyEsc || hasEncodedInterrupt;
+  return keysText.includes("\r") || keysText.includes("\x03") || isOnlyEsc || hasEncodedInterrupt;
+};
+
+// Keys that stop Claude Code's running turn: Esc or Ctrl-C. It sends no Stop
+// for an interrupted turn, so these end it.
+export const isInterruptKeys = (keys: Uint8Array): boolean => {
+  const keysText = new TextDecoder().decode(keys);
+  const isOnlyEsc = keys.length > 0 && keys.every((byte) => byte === ESC_BYTE);
+  return isOnlyEsc || keys.includes(CTRL_C_BYTE) || ENCODED_INTERRUPT_KEYS.some((sequence) => keysText.includes(sequence));
 };
 
 // The session runner guesses whether the input box holds unsent text from the keys sent
 // to it, since it can't see the box.
-// shortcut: a few edits fool the guess (Backspace back to empty, Enter in a menu
-// or permission prompt, backslash then Enter); upgrade by reading the box from
-// the screen output.
+// shortcut: a few edits fool the guess (Backspace back to empty, Ctrl-W, undo,
+// backslash then Enter), so a draft untouched for a while stops counting (see
+// SESSION_LIMITS.draftForgetMs); upgrade by reading the box from the screen output.
 
 // Keys that put text in the input box: typing, a paste, or Up and Down, which
 // recall an old message. Other arrow keys and the reports a terminal sends on
@@ -47,21 +59,25 @@ export const isTurnChangingKeys = (keys: Uint8Array): boolean => {
 const DRAFT_ESCAPE_KEYS = [PASTE_START, "\x1b[A", "\x1b[B", "\x1bOA", "\x1bOB"];
 const ESCAPE_SEQUENCE = /\x1b(\[[0-9;:?<>=]*[ -\/]*[@-~]|O[@-~]|\][^\x07]*\x07|[ -~])?/g;
 const FIRST_TEXT_CHARACTER = 0x20;
+// Backspace (0x7f) takes text away, so it can't make a draft.
+const BACKSPACE_CHARACTER = 0x7f;
 export const isDraftChangingKeys = (keys: Uint8Array): boolean => {
-  const keysText = new TextDecoder().decode(keys);
+  const keysText = new TextDecoder().decode(keys).replace(`${PASTE_START}${PASTE_END}`, "");
   if (DRAFT_ESCAPE_KEYS.some((sequence) => keysText.includes(sequence))) return true;
   const textKeys = keysText.replace(ESCAPE_SEQUENCE, "");
-  return [...textKeys].some((character) => character.charCodeAt(0) >= FIRST_TEXT_CHARACTER);
+  return [...textKeys].some((character) => character.charCodeAt(0) >= FIRST_TEXT_CHARACTER && character.charCodeAt(0) !== BACKSPACE_CHARACTER);
 };
 
 // Keys that empty the input box: Enter sends it and Ctrl-C clears it. Judged by
 // the last key, since a paste can hold a line break and still leave a draft.
 // Esc then Enter (Option-Enter) only adds a line.
+// Ctrl-U deletes the line, and Esc twice clears the box.
+const CTRL_U = "\x15";
 export const isDraftClearingKeys = (keys: Uint8Array): boolean => {
-  const keysText = new TextDecoder().decode(keys);
-  const endsWithSend = keysText.endsWith("\r") && !keysText.endsWith("\x1b\r");
+  const keysText = keysOutsidePastes(keys);
+  const endsWithSend = new TextDecoder().decode(keys).endsWith("\r") && keysText.endsWith("\r");
   const endsWithCtrlC = keys.at(-1) === CTRL_C_BYTE || ENCODED_CTRL_C_KEYS.some((sequence) => keysText.endsWith(sequence));
-  return endsWithSend || endsWithCtrlC;
+  return endsWithSend || endsWithCtrlC || keysText.endsWith(CTRL_U) || keysText.endsWith("\x1b\x1b");
 };
 
 // The message typed into Claude Code: the text, then each image's saved path.

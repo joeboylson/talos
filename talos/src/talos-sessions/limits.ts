@@ -71,6 +71,9 @@ export const SESSION_LIMITS = {
   // Images kept per session: the newest, since Claude Code reads one when it's
   // pasted; the rest go once there are more.
   maxUploadsKept: 20,
+  // A draft no key has touched for this long stops holding talos's answers: the
+  // key checks can't see every way a box is emptied.
+  draftForgetMs: 60_000,
   // Messages sent while a session starts, typed once it's ready.
   maxQueuedMessages: 20,
   // The runner's log is moved to runner.log.1 past this, when a runner starts.

@@ -43,6 +43,9 @@ export type HeldSession = {
   // Unsent text the person left in Claude Code's input box from an attached
   // terminal. A request talos types mustn't be pasted onto it.
   hasDraft: boolean;
+  // When a key last changed the draft, so one the key checks lost track of
+  // stops counting after a while.
+  draftAtMs: number;
   // The session's last turn has ended (talos's Stop came, or it just started),
   // as opposed to "needs you" for a permission prompt mid-turn. Only then may a
   // request be typed: Enter in a permission prompt would approve it.

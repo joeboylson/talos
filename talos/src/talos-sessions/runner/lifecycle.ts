@@ -130,6 +130,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     heldAnswers: [],
     hookToken,
     hasDraft: false,
+    draftAtMs: 0,
     isTurnOver: false,
     isTalosTypedNext: false,
     output: new Uint8Array(),

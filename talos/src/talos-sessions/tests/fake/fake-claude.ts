@@ -5,6 +5,10 @@
 // - "go2": two questions.
 // - the status request: sends a status.
 // - an answer: runs Bash, as a normal turn would.
+// - "prompt": a permission prompt before a Bash call ("go-prompt": a question
+//   first): Enter or "1" approves it
+//   (APPROVED), Esc refuses it and ends the turn with no Stop (REFUSED), as
+//   Claude Code does.
 // - "clear" / "resume": a last line in the current conversation file, then a
 //   switch to a second file / back to the first, as /clear and /resume do.
 // Anything else is a prompt it just answers by ending its turn.
@@ -72,6 +76,13 @@ const runTurn = async (text: string) => {
   }
   if (text === STATUS_REQUEST) await callTool("mcp__talos__send_status", { text: "all good" });
   if (text.startsWith("Answer to")) await callTool("Bash", { command: "ls" });
+  if (text === "go-prompt") await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
+  if (text === "prompt" || text === "go-prompt") {
+    await hook({ hook_event_name: "Notification", message: "Claude needs your permission to use Bash" });
+    const key = await new Promise<string>((resolve) => (answerPrompt = resolve));
+    if (key.includes("\x1b") && !key.includes("\r")) return saveText("REFUSED");
+    saveText("APPROVED");
+  }
   if (text === "clear" || text === "resume") {
     saveText(`said before ${text}`);
     transcriptPath = text === "clear" ? secondTranscript : firstTranscript;
@@ -101,9 +112,16 @@ process.stdout.write("ready\n");
 // What the session runner types: Esc, then the message in bracketed paste, then
 // Enter. Turns run one after another.
 let turnsWaiting = 0;
+// Set while a permission prompt shows: the next keys go to it.
+let answerPrompt: ((key: string) => void) | null = null;
 let typed = "";
 let turns = Promise.resolve();
 process.stdin.on("data", (chunk: Buffer) => {
+  if (answerPrompt) {
+    const answer = answerPrompt;
+    answerPrompt = null;
+    return answer(chunk.toString());
+  }
   typed += chunk.toString();
   const lines = typed.split("\r");
   typed = lines.pop() ?? "";

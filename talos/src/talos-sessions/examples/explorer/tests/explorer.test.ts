@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readRecording, replay } from "../../kit/recording";
 import { fitScreen } from "../../kit/screen";
@@ -107,4 +109,32 @@ describe("the view", () => {
     expect(state.entries.map((entry) => (entry.kind === "output" ? entry.outputKind : entry.kind)).filter((kind) => kind !== "tool")).toEqual(["prompt", "chart", "text"]);
     expect(plain(explorerView.render(state, 90)).filter((line) => line.includes("█"))).toHaveLength(12);
   });
+});
+
+describe("the shop's data", () => {
+  const dataFolder = join(import.meta.dir, "../data");
+  test("the session may run sqlite3 only safe and read-only on shop.db, the way CLAUDE.md shows", () => {
+    const allowed: string[] = JSON.parse(readFileSync(join(dataFolder, ".claude/settings.json"), "utf8")).permissions.allow;
+    const sqliteRules = allowed.filter((rule) => rule.startsWith("Bash(sqlite3"));
+    expect(sqliteRules).toEqual(["Bash(sqlite3 -safe -readonly -header -column shop.db:*)"]);
+    expect(readFileSync(join(dataFolder, "CLAUDE.md"), "utf8")).toContain("sqlite3 -safe -readonly -header -column shop.db ");
+  });
+  test(
+    "builds at once, or one that fails, never leave a broken shop.db",
+    async () => {
+      const folder = mkdtempSync(join(tmpdir(), "talos-shop-"));
+      const file = join(folder, "shop.db");
+      const build = new URL("../data/build.ts", import.meta.url).pathname;
+      const script = `import { buildShop } from ${JSON.stringify(build)}; buildShop(${JSON.stringify(file)});`;
+      for (const _round of [1, 2, 3, 4, 5, 6]) {
+        await Promise.all([1, 2, 3, 4].map(() => Bun.spawn([process.execPath, "-e", script], { stdout: "ignore", stderr: "ignore" }).exited));
+        const shop = new Database(file, { readonly: true });
+        expect(shop.query("SELECT COUNT(*) AS count FROM orders").get()).toEqual({ count: 1288 });
+        shop.close();
+      }
+      expect(readdirSync(folder)).toEqual(["shop.db"]);
+      rmSync(folder, { recursive: true, force: true });
+    },
+    60_000,
+  );
 });

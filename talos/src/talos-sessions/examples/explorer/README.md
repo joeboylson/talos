@@ -30,5 +30,6 @@ Keys: type a question and ⏎ · `s` summary · `^A` the session's own terminal
 - Claude Code writes its own records under your `~/.claude`.
 - Your own Claude Code settings apply, and Claude Code also reads the
   `CLAUDE.md` files of the folders around `run/work/` (this repo's).
-- Nothing walls Claude in: `data/.claude/settings.json` allows `sqlite3` and
-  reading, and auto mode decides the rest.
+- Nothing walls Claude in: `data/.claude/settings.json` allows reading, and
+  `sqlite3` only in safe, read-only mode on `shop.db` (no shell, no attaching
+  other files, no changes), and auto mode decides the rest.

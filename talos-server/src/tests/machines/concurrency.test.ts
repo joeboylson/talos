@@ -102,7 +102,7 @@ test("a page that opens gets every kept history, however much there is", async (
       const data = u.pathname === "/m"
         ? { role: "machine", machineId: u.searchParams.get("id"), machineName: "x", ownerPersonId: "joe", checkedAtMs: 0 }
         : { role: "page", personId: "joe", displayName: "d", expiresAtMs: Date.now() + 1e6, checkedAtMs: 0 };
-      return srv.upgrade(req, { data }) ? undefined : new Response("x");
+      return srv.upgrade(req, { data } as never) ? undefined : new Response("x");
     },
     websocket: c.websocketHandlers as never,
   });

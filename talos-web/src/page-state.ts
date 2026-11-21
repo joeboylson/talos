@@ -17,8 +17,27 @@ export const EMPTY_PAGE_STATE: PageState = {
   notice: null,
 };
 
+// A session that's gone takes its entries with it, as on the server, so a new
+// one started under its name doesn't sort among the old one's. An offline
+// machine's sessions aren't known, so theirs are kept.
+const isStillThere = (machines: readonly MachineSummary[]) => {
+  const keys = new Set(machines.flatMap(({ machineId, sessions }) => (sessions ?? []).map(({ sessionName }) => sessionKey(machineId, sessionName))));
+  const offline = machines.filter(({ sessions }) => sessions === null).map(({ machineId }) => `${machineId}:`);
+  return (key: string) => keys.has(key) || offline.some((prefix) => key.startsWith(prefix));
+};
+const keptWhere = <Value>(byKey: Record<string, Value>, isKept: (key: string) => boolean): Record<string, Value> =>
+  Object.fromEntries(Object.entries(byKey).filter(([key]) => isKept(key)));
+
 export const applyServerMessage = (state: PageState, message: ServerToPage): PageState => {
-  if (message.type === "machines") return { ...state, machines: message.machines };
+  if (message.type === "machines") {
+    const isKept = isStillThere(message.machines);
+    return {
+      ...state,
+      machines: message.machines,
+      entriesBySession: keptWhere(state.entriesBySession, isKept),
+      waitingPromptsBySession: keptWhere(state.waitingPromptsBySession, isKept),
+    };
+  }
   if (message.type === "error") return { ...state, notice: message.message };
   if (message.type === "pong") {
     return { ...state, roundTripMsByMachineId: { ...state.roundTripMsByMachineId, [message.machineId]: message.roundTripMs } };

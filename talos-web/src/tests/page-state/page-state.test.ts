@@ -48,3 +48,13 @@ test("a waiting message is kept without its outer spaces, with its previews", ()
   const state = addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "  hi\n", ["blob:a"]);
   expect(state.waitingPromptsBySession[KEY]).toEqual([{ text: "hi", imagePreviewUrls: ["blob:a"] }]);
 });
+
+test("a session that's gone forgets its entries, so a new one under its name starts fresh; an offline machine's are kept", () => {
+  const session = (sessionName: string) => ({ sessionName, folderName: "talos", state: "idle" as const, asks: {}, openOutputs: [] });
+  const machine = (machineId: string, sessions: ReturnType<typeof session>[] | null) => ({ machineId, machineName: machineId, isConnected: sessions !== null, folders: null, sessions });
+  const withEntries = [entriesFor("web", [textEntry("t1", "old")]), entriesFor("api", [textEntry("t2", "kept")]), { ...entriesFor("web", [textEntry("t3", "offline")]), machineId: "m2" }]
+    .reduce(applyServerMessage, addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "hi", []));
+  const afterStop = applyServerMessage(withEntries, { type: "machines", machines: [machine("m1", [session("api")]), machine("m2", null)] });
+  expect(Object.keys(afterStop.entriesBySession).sort()).toEqual([OTHER_KEY, sessionKey("m2", "web")]);
+  expect(afterStop.waitingPromptsBySession[KEY]).toBeUndefined();
+});

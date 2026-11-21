@@ -72,6 +72,27 @@ const holdsLock = (lockFile: string): boolean => {
   }
 };
 
+// What the sessions of a runner that died outright started is ended now: a
+// group still alive with a recorded number is that session's.
+// shortcut: a group number can only be reused once process ids wrap around, so
+// groups recorded over an hour ago are left alone rather than risk another's.
+const LEFT_GROUP_MAX_AGE_MS = 60 * 60_000;
+const endLeftSessionGroups = async (file: string): Promise<void> => {
+  const saved = Bun.file(file);
+  const groups = (await saved.exists()) ? parseJsonOrNull(await saved.text()) : [];
+  const recent = (Array.isArray(groups) ? groups : []).filter(
+    ({ groupId, atMs }) => Number.isInteger(groupId) && groupId > 1 && typeof atMs === "number" && Date.now() - atMs < LEFT_GROUP_MAX_AGE_MS,
+  );
+  recent.forEach(({ groupId }) => {
+    try {
+      process.kill(-groupId, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  });
+  await rm(file, { force: true });
+};
+
 export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   useRunnerInputs(inputs);
   const { home, runnerSocket, hooksSocket, mcpConfig, runnerLock, trustChanges } = paths();
@@ -80,6 +101,7 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
     log.event("runner: another session runner holds this home; leaving it be");
     process.exit(0);
   }
+  await endLeftSessionGroups(paths().sessionGroups);
   // Kept to put back at the next stop if they can't be put back now, so the
   // record this runner writes still holds them.
   const left = await leftTrustChanges(trustChanges);

@@ -65,6 +65,9 @@ export const homePaths = (givenHome: string) => {
   // The trust answers to put back, kept on disk so a runner that crashed or was
   // killed puts them back when the next one starts.
   trustChanges: join(home, "trust-changes.json"),
+  // The process group of each session's Claude, so a runner that dies outright
+  // leaves the next one able to end what its sessions started.
+  sessionGroups: join(home, "session-groups.json"),
   // The live runner's process id: only one runner may hold a home.
   runnerLock: join(home, "runner.lock"),
   };

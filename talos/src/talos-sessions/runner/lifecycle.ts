@@ -1,5 +1,5 @@
 // Starting a session, holding its terminal, and ending it.
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { trustFolder, type TrustChange } from "../claude/claude-trust";
@@ -32,10 +32,17 @@ const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => 
   sendToListeners(session.outputListeners, chunk);
 };
 
+// Written on every start and end, so it lists the groups of the sessions held now.
+const saveSessionGroups = (): void => {
+  const groups = [...heldSessions.values()].map(({ child }) => ({ groupId: child.pid, atMs: Date.now() }));
+  writeFileSync(paths().sessionGroups, JSON.stringify(groups), { mode: 0o600 });
+};
+
 const forgetSession = (sessionName: string, token: string) => {
   const session = heldSessions.get(sessionName);
   if (session?.hookToken !== token) return;
   heldSessions.delete(sessionName);
+  saveSessionGroups();
   session.outputListeners.forEach((listener) => listener.close());
   void rm(join(paths().uploads, sessionName), { recursive: true, force: true }).catch((error: unknown) =>
     log.warn(`runner: couldn't delete ${sessionName}'s uploads: ${error}`),
@@ -131,6 +138,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     isBecomingReady: false,
     isWaitingToAsk: false,
   });
+  saveSessionGroups();
   void child.exited.then(() => forgetSession(sessionName, hookToken)).catch((error: unknown) => log.warn(`runner: couldn't clean up ${sessionName}: ${error}`));
   log.event(`runner: started session ${sessionName} in ${path}`);
   broadcastSessions();

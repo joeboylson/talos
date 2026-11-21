@@ -184,3 +184,22 @@ test(
   },
   30_000,
 );
+
+test(
+  "what a killed runner's sessions started is ended by the next runner",
+  async () => {
+    const { home, calls } = newHome();
+    await calls.ensureRunning();
+    const spawner = folderIn(home, "spawner");
+    expect(await calls.start("spawner", "spawner", spawner)).toEqual({ ok: true });
+    await waitUntil(() => fileExists(join(spawner, "child.pid")), "the child to start");
+    const killed = pidIn(homePaths(home).runnerLock);
+    process.kill(killed, "SIGKILL");
+    await waitUntil(() => !isAlive(killed), "the runner to be gone");
+    await Bun.sleep(500);
+    expect(isAlive(pidIn(join(spawner, "child.pid")))).toBe(true);
+    await calls.ensureRunning();
+    await waitUntil(() => !isAlive(pidIn(join(spawner, "child.pid"))), "the child to be gone", 3000);
+  },
+  30_000,
+);

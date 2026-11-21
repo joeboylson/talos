@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { realpath, rename } from "node:fs/promises";
+import { realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseJsonOrNull } from "../json";
 import { CLAUDE_CONFIG_FILE } from "../constants";
@@ -14,9 +14,17 @@ import { CLAUDE_CONFIG_FILE } from "../constants";
 type ClaudeConfig = Record<string, unknown>;
 type Projects = Record<string, Record<string, unknown>>;
 
-// What one folder's settings were before the session runner changed them, so
-// they can be put back. A setting that's missing (undefined) had no value.
-export type TrustChange = { folderPath: string; before: Record<string, unknown> };
+// What one folder's settings were before the session runner changed them, and
+// what it set them to, so they can be put back. A setting that's missing
+// (undefined) had no value.
+export type TrustChange = { folderPath: string; before: Record<string, unknown>; after: Record<string, unknown> };
+
+const isMap = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+// Settings shaped the way Claude Code writes them: a map, with a map of projects
+// that are maps. Anything else is left alone rather than reshaped.
+const isReadableConfig = (value: unknown): value is ClaudeConfig =>
+  isMap(value) && (value.projects === undefined || (isMap(value.projects) && Object.values(value.projects).every(isMap)));
 
 const projectsOf = (claudeConfig: ClaudeConfig): Projects => (claudeConfig.projects ?? {}) as Projects;
 
@@ -43,39 +51,52 @@ export const markTrusted = (claudeConfig: ClaudeConfig, folderPath: string): Cla
 };
 
 // Puts back only the settings changed, leaving everything else Claude Code
-// keeps for the folder.
-export const restoreTrusted = (claudeConfig: ClaudeConfig, { folderPath, before }: TrustChange): ClaudeConfig => {
+// keeps for the folder. A setting that's no longer what the session runner set
+// was answered since, by the person in Claude Code, and stays.
+export const restoreTrusted = (claudeConfig: ClaudeConfig, { folderPath, before, after }: TrustChange): ClaudeConfig => {
   const projects = projectsOf(claudeConfig);
   const project = projects[folderPath];
   if (!project) return claudeConfig;
-  const kept = Object.fromEntries(Object.entries(project).filter(([setting]) => !(setting in before)));
-  const restored = Object.fromEntries(Object.entries(before).filter(([, value]) => value !== undefined));
+  const isOurs = (setting: string) => setting in before && project[setting] === after[setting];
+  const kept = Object.fromEntries(Object.entries(project).filter(([setting]) => !isOurs(setting)));
+  const restored = Object.fromEntries(Object.entries(before).filter(([setting, value]) => value !== undefined && isOurs(setting)));
   return { ...claudeConfig, projects: { ...projects, [folderPath]: { ...kept, ...restored } } };
 };
 
 // One change to the file at a time, each read fresh, so two at once can't lose
-// each other. Written to a new file and swapped in, so Claude Code never reads
-// a half-written settings file.
+// each other. Written to a new file with the old one's permissions (it holds the
+// account) and swapped in, so Claude Code never reads a half-written settings
+// file. A link to the file stays a link: the file it points to is changed.
+// Claude Code writes the file too, so a change made while ours was worked out
+// starts ours over.
+// shortcut: a write landing between the last check and the swap is still lost;
+// nothing closes that without Claude Code locking the file.
 let changing: Promise<unknown> = Promise.resolve();
 let writeCount = 0;
+const CHANGE_TRIES = 3;
+
+const readText = async (file: string): Promise<string> => ((await Bun.file(file).exists()) ? Bun.file(file).text() : "{}");
 
 const changeConfig = <T>(configFile: string, change: (claudeConfig: ClaudeConfig) => { next: ClaudeConfig | null; value: T }): Promise<T> => {
-  const run = async (): Promise<T> => {
-    const file = Bun.file(configFile);
-    const claudeConfig = parseJsonOrNull((await file.exists()) ? await file.text() : "{}");
-    if (typeof claudeConfig !== "object" || claudeConfig === null) {
-      throw new Error(`${configFile} isn't readable settings; it won't be changed`);
+  const run = async (triesLeft = CHANGE_TRIES): Promise<T> => {
+    const target = await realpath(configFile).catch(() => configFile);
+    const text = await readText(target);
+    const claudeConfig = parseJsonOrNull(text);
+    if (!isReadableConfig(claudeConfig)) throw new Error(`${configFile} isn't readable settings; it won't be changed`);
+    const { next, value } = change(claudeConfig);
+    if (!next) return value;
+    const mode = await stat(target).then(({ mode }) => mode & 0o777, () => 0o600);
+    writeCount += 1;
+    const newFile = `${target}.talos-${process.pid}-${writeCount}`;
+    await writeFile(newFile, JSON.stringify(next, null, 2), { mode });
+    if (triesLeft > 1 && (await readText(target)) !== text) {
+      await rm(newFile, { force: true });
+      return run(triesLeft - 1);
     }
-    const { next, value } = change(claudeConfig as ClaudeConfig);
-    if (next) {
-      writeCount += 1;
-      const newFile = `${configFile}.talos-${process.pid}-${writeCount}`;
-      await Bun.write(newFile, JSON.stringify(next, null, 2));
-      await rename(newFile, configFile);
-    }
+    await rename(newFile, target);
     return value;
   };
-  const result = changing.then(run, run);
+  const result = changing.then(() => run(), () => run());
   changing = result.catch(() => {});
   return result;
 };
@@ -97,7 +118,7 @@ export const trustFolder = async (folderPath: string, configFile = CLAUDE_CONFIG
     const project = projectsOf(claudeConfig)[realFolderPath];
     const next = markTrusted(claudeConfig, realFolderPath);
     const before = Object.fromEntries(changedSettings(project).map((setting) => [setting, project?.[setting]]));
-    return { next, value: next ? { folderPath: realFolderPath, before } : null };
+    return { next, value: next ? { folderPath: realFolderPath, before, after: answersFor(project) } : null };
   });
 };
 

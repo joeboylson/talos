@@ -85,9 +85,11 @@ export const stopRunner = async (): Promise<Response> => {
     // Only once every session has exited: Claude Code writes its settings as it
     // closes, which would undo a change made sooner.
     await putTrustBack(trustChanges);
+    // The sockets and lock go only if they're still this runner's: a home
+    // deleted and started again belongs to the new runner now.
     const { runnerSocket, hooksSocket, runnerLock } = paths();
-    await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
-    await rm(runnerLock, { force: true });
+    const isOurs = await Bun.file(runnerLock).text().then((pid) => Number(pid) === process.pid, () => false);
+    if (isOurs) await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true }), rm(runnerLock, { force: true })]);
     setTimeout(() => process.exit(0), 50);
   })();
   await stopping;
@@ -111,6 +113,12 @@ export const putTrustBack = async (changes: readonly TrustChange[]): Promise<voi
 export const controlServeOptions = (runnerSocket: string) => ({
   unix: runnerSocket,
   idleTimeout: 0,
+  // A route that fails (a full disk) says why, and the log keeps it, instead of
+  // Bun's error page.
+  error: (error: Error) => {
+    log.warn(`runner: a request failed: ${error}`);
+    return new Response(`the session runner failed: ${error.message}`, { status: 500 });
+  },
   maxRequestBodySize: SESSION_LIMITS.maxControlBodyBytes,
   routes: {
     [RUNNER_ROUTES.health]: new Response("ok"),

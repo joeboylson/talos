@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 // The module's home: the folder it keeps its own files in, handed to it by the
 // program using it (talos's is ~/.talos; an example's is its run/ folder). Only
@@ -50,8 +50,11 @@ export const UPLOAD_FILE_MODE = 0o600;
 
 // Everything the module keeps in its home. Images sent with a message go in
 // uploads/, one folder per session, deleted when the session ends; Claude Code
-// reads them from their path.
-export const homePaths = (home: string) => ({
+// reads them from their path. A relative home is made whole first: sessions
+// run in their own folders, where it would point somewhere else.
+export const homePaths = (givenHome: string) => {
+  const home = resolve(givenHome);
+  return {
   home,
   runnerSocket: join(home, "runner.sock"),
   hooksSocket: join(home, "runner-hooks.sock"),
@@ -64,7 +67,8 @@ export const homePaths = (home: string) => ({
   trustChanges: join(home, "trust-changes.json"),
   // The live runner's process id: only one runner may hold a home.
   runnerLock: join(home, "runner.lock"),
-});
+  };
+};
 export type HomePaths = ReturnType<typeof homePaths>;
 
 // Claude Code takes a moment to load a pasted image; Enter pressed before

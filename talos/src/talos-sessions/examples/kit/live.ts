@@ -5,11 +5,11 @@
 import { join } from "node:path";
 import { connectToSessions, type Result } from "../../index";
 import { recordEvent, writeRecording, type RecordedLine } from "./recording";
-import { SESSION_NAME, prepareRun } from "./run-example";
+import { SESSION_NAME, claimRun } from "./run-example";
 import type { Action, ExampleView, Input } from "./view";
 
 export const startLiveCheck = async <State>(exampleFolder: string, view: ExampleView<State>) => {
-  const { home, work } = prepareRun(exampleFolder);
+  const { home, work } = await claimRun(exampleFolder);
   process.env.EXAMPLE_PROCESS_ID = String(process.pid);
   const calls = connectToSessions({ home, runnerScript: join(exampleFolder, "runner.ts") });
   const recorded: RecordedLine[] = [];

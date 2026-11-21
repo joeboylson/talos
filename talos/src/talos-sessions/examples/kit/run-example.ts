@@ -42,6 +42,14 @@ export const prepareRun = (exampleFolder: string) => {
   return { home, work };
 };
 
+// A run's folder, prepared fresh, unless another run of the example is using
+// it: preparing would delete its runner's sockets and trust record from under it.
+export const claimRun = async (exampleFolder: string) => {
+  const isInUse = await connectToSessions({ home: join(exampleFolder, "run"), runnerScript: "" }).isRunning();
+  if (isInUse) throw new Error("another run of this example is going; wait for it to end");
+  return prepareRun(exampleFolder);
+};
+
 // farewell runs once the session runner has stopped, with the run's folder, and
 // gives back lines to print on the way out.
 export const runExample = async <State>(exampleFolder: string, view: ExampleView<State>, farewell?: (home: string) => string[]) => {
@@ -64,12 +72,16 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
     return;
   }
 
-  const { home, work } = prepareRun(exampleFolder);
+  // Keys come in raw from a terminal; without one there's nothing to drive it.
+  if (!process.stdin.isTTY) throw new Error("run an example in a terminal");
+  const { home, work } = await claimRun(exampleFolder);
   process.env.EXAMPLE_PROCESS_ID = String(process.pid);
   const calls = connectToSessions({ home, runnerScript: join(exampleFolder, "runner.ts") });
 
   let stopping: Promise<void> | null = null;
-  const stop = (code: number) => {
+  const stop = (code: number, error?: unknown) => {
+    // Printed first: stopping ends the process.
+    if (error !== undefined) console.error(error);
     stopping ??= (async () => {
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
       await calls.stopRunner().catch(() => {});
@@ -106,11 +118,17 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
     dispatch({ type: "result", action, result });
   };
 
+  // A view that throws stops the run like any other error, so the runner is
+  // stopped and the error shown.
   function dispatch(input: Input) {
-    const stepped = view.step(state, input);
-    state = stepped.state;
-    if (!attached) draw(view, state);
-    stepped.actions.forEach((action) => void run(action).catch((error: unknown) => stop(1).then(() => console.error(error))));
+    try {
+      const stepped = view.step(state, input);
+      state = stepped.state;
+      if (!attached) draw(view, state);
+      stepped.actions.forEach((action) => void run(action).catch((error: unknown) => stop(1, error)));
+    } catch (error) {
+      void stop(1, error);
+    }
   }
 
   function onKeys(chunk: Buffer) {
@@ -130,5 +148,8 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on("data", onKeys);
+  process.stdout.on("resize", () => {
+    if (!attached) draw(view, state);
+  });
   dispatch({ type: "started" });
 };

@@ -64,6 +64,31 @@ describe("the plain calls", () => {
     await ended;
     expect(seen).toEqual([{ type: "notice", sessionName: "fix", message: "hi" }]);
   });
+  test("following ends, with no error, when the session runner goes away mid-stream", async () => {
+    const goneHome = mkdtempSync(join(tmpdir(), "talos-calls-gone-"));
+    const gone = Bun.serve({
+      unix: homePaths(goneHome).runnerSocket,
+      routes: {
+        [RUNNER_ROUTES.events]: {
+          GET: () =>
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: "notice", sessionName: "fix", message: "bye" })}\n`));
+                  setTimeout(() => controller.error(new Error("gone")), 50);
+                },
+              }),
+            ),
+        },
+      },
+    });
+    const seen: unknown[] = [];
+    const { ended } = connectToSessions({ home: goneHome, runnerScript: "/nowhere.ts" }).follow((event) => seen.push(event));
+    await expect(ended).resolves.toBeUndefined();
+    expect(seen).toEqual([{ type: "notice", sessionName: "fix", message: "bye" }]);
+    gone.stop(true);
+    rmSync(goneHome, { recursive: true, force: true });
+  });
   test("a session runner that isn't there throws, and isn't running", async () => {
     const elsewhere = connectToSessions({ home: join(home, "none"), runnerScript: "/nowhere.ts" });
     expect(await elsewhere.isRunning()).toBe(false);

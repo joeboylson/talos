@@ -45,7 +45,8 @@ export const ensureRunnerRunning = async (home: string, runnerScript: string): P
 };
 
 // Calls onEvent for each event until the session runner goes away or the signal
-// aborts; then resolves.
+// aborts; then resolves. Only failing to connect at all throws: a runner that
+// stops mid-stream drops the connection, and that's the end of the stream.
 // Bun gives up on a request after 5 quiet minutes; this stream is quiet
 // whenever nothing happens, so its limit is turned off.
 export const followRunnerEvents = async (home: string, onEvent: (runnerEvent: RunnerEvent) => void, signal?: AbortSignal): Promise<void> => {
@@ -54,7 +55,7 @@ export const followRunnerEvents = async (home: string, onEvent: (runnerEvent: Ru
   const decoder = new TextDecoder();
   type LineReader = { read: () => Promise<{ done: boolean; value?: Uint8Array }> };
   const readLines = async (reader: LineReader, unfinishedLine: string): Promise<void> => {
-    const { done, value } = await reader.read();
+    const { done, value } = await reader.read().catch(() => ({ done: true, value: undefined }));
     if (done) return;
     const lines = (unfinishedLine + decoder.decode(value, { stream: true })).split("\n");
     lines.slice(0, -1).forEach((line) => {

@@ -77,8 +77,8 @@ export const connectToSessions = ({ home, runnerScript }: { home: string; runner
     });
   };
 
-  // ended settles when the stream ends on its own (or after stop), and rejects
-  // when it breaks.
+  // ended settles when the stream ends (the session runner stopped, or after
+  // stop), and rejects only when it can't connect.
   const follow = (onEvent: (runnerEvent: RunnerEvent) => void) => {
     const controller = new AbortController();
     const ended = followRunnerEvents(home, onEvent, controller.signal).catch((error: unknown) => {

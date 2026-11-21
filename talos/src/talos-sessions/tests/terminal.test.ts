@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isCtrlKey,
   appendOutput,
   buildMessageWithImages,
   buildPastedText,
@@ -111,5 +112,21 @@ describe("key edges", () => {
   test("an encoded Ctrl-C clears only when it's the last key", () => {
     expect(isDraftClearingKeys(keysOf("fix it\x1b[27;5;99~"))).toBe(true);
     expect(isDraftClearingKeys(keysOf("\x1b[99;5ufix it"))).toBe(false);
+  });
+});
+
+describe("isCtrlKey", () => {
+  const ctrlBackslash = 0x1c;
+  test.each([
+    ["the byte itself", "\x1c", true],
+    ["kitty key encoding", "\x1b[92;5u", true],
+    ["modifyOtherKeys encoding", "\x1b[27;5;92~", true],
+    ["another key", "\x1b[99;5u", false],
+    ["plain text", "a\\b", false],
+  ])("Ctrl-\\ as %s → %p", (_name, keys, expected) => {
+    expect(isCtrlKey(new TextEncoder().encode(keys), ctrlBackslash)).toBe(expected);
+  });
+  test("a letter's encoding names its lower case", () => {
+    expect(isCtrlKey(new TextEncoder().encode("\x1b[97;5u"), 0x01)).toBe(true);
   });
 });

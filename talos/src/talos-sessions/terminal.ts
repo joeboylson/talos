@@ -92,3 +92,17 @@ export const appendOutput = (output: Uint8Array, chunk: Uint8Array, maxBytes: nu
   combined.set(chunk, output.length);
   return combined.length > maxBytes ? combined.slice(combined.length - maxBytes) : combined;
 };
+
+// A Ctrl key as a terminal sends it: its byte, or once Claude Code turns on
+// kitty or modifyOtherKeys key encoding, a sequence naming the key.
+export const isCtrlKey = (keys: Uint8Array, ctrlByte: number): boolean => {
+  const base = ctrlByte | 0x40;
+  const keyCode = base >= 0x41 && base <= 0x5a ? base | 0x20 : base;
+  const keysText = new TextDecoder().decode(keys);
+  return keys.includes(ctrlByte) || keysText.includes(`\x1b[${keyCode};5u`) || keysText.includes(`\x1b[27;5;${keyCode}~`);
+};
+
+// Turns off what Claude Code turned on in a terminal attached to it: kitty
+// keys, bracketed paste, focus reports, mouse reports, the other screen, and a
+// hidden cursor. Written when someone detaches, so their shell works as before.
+export const TERMINAL_RESET = "\x1b[<u\x1b[?2004l\x1b[?1004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1049l\x1b[?25h";

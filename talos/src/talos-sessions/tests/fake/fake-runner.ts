@@ -15,7 +15,8 @@ const textField = (field: string) => (input: unknown) => {
 const NOTE: OutputKind = {
   kind: "note",
   toolName: "send_note",
-  description: "send a note",
+  // Padded on request, for a tools listing bigger than a socket takes at once.
+  description: `send a note${"!".repeat(Number(process.env.FAKE_NOTE_DESCRIPTION_PAD ?? 0))}`,
   inputSchema: { type: "object", properties: { text: { type: "string" } } },
   readFields: (input) => {
     const text = textField("text")(input);

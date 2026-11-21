@@ -88,7 +88,8 @@ const answerHookRequest = (line: string): HookAnswer => {
   }
 };
 
-type HookConnection = { chunks: Buffer[]; byteCount: number; deadline: ReturnType<typeof setTimeout> };
+// unsent: what's left of the answer, written as the socket drains.
+type HookConnection = { chunks: Buffer[]; byteCount: number; deadline: ReturnType<typeof setTimeout>; unsent: Buffer | null };
 type HookSocket = Socket<HookConnection>;
 
 // In the order they opened, so the cap can close the oldest idle one.
@@ -100,9 +101,18 @@ const closeHookSocket = (socket: HookSocket) => {
   socket.end();
 };
 
+// A socket takes only so much at once (about 8 KB), so a long answer (a big
+// tools listing) goes in pieces, and the socket closes once it's all written.
+const writeRest = (socket: HookSocket) => {
+  const unsent = socket.data.unsent;
+  if (!unsent) return;
+  const written = socket.write(unsent);
+  socket.data.unsent = written < unsent.length ? unsent.subarray(Math.max(written, 0)) : null;
+  if (!socket.data.unsent) closeHookSocket(socket);
+};
 const answerAndClose = (socket: HookSocket, answer: HookAnswer) => {
-  socket.write(encodeHookLine(answer));
-  closeHookSocket(socket);
+  socket.data.unsent = Buffer.from(encodeHookLine(answer));
+  writeRest(socket);
 };
 
 // The only route a session can reach: its own Claude Code hooks. A request is
@@ -119,11 +129,12 @@ export const startHookServer = (hooksSocket: string) =>
         const sockets = [...openHookSockets];
         const evicted = sockets.find(({ data }) => data.byteCount === 0) ?? sockets[0];
         if (openHookSockets.size >= SESSION_LIMITS.maxHookConnections && evicted) closeHookSocket(evicted);
-        socket.data = { chunks: [], byteCount: 0, deadline: setTimeout(() => closeHookSocket(socket), SESSION_LIMITS.hookTimeoutMs) };
+        socket.data = { chunks: [], byteCount: 0, deadline: setTimeout(() => closeHookSocket(socket), SESSION_LIMITS.hookTimeoutMs), unsent: null };
         openHookSockets.add(socket);
       },
+      drain: writeRest,
       data: (socket, chunk) => {
-        if (!openHookSockets.has(socket)) return;
+        if (!openHookSockets.has(socket) || socket.data.unsent) return;
         socket.data.chunks.push(chunk);
         socket.data.byteCount += chunk.length;
         if (socket.data.byteCount > SESSION_LIMITS.maxHookBodyBytes) return answerAndClose(socket, { kind: "too-big" });

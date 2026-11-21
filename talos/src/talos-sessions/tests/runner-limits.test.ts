@@ -102,3 +102,25 @@ test(
   },
   60_000,
 );
+
+test(
+  "a tools listing bigger than a socket takes at once arrives whole",
+  async () => {
+    const bigHome = mkdtempSync(join(tmpdir(), "talos-big-listing-"));
+    process.env.FAKE_NOTE_DESCRIPTION_PAD = "20000";
+    const big = connectToSessions({ home: bigHome, runnerScript });
+    await big.ensureRunning();
+    delete process.env.FAKE_NOTE_DESCRIPTION_PAD;
+    const work = join(bigHome, "work");
+    mkdirSync(work);
+    expect(await big.start("big", "work", work)).toEqual({ ok: true });
+    await waitUntil(async () => (await big.sessions())[0]?.state === "idle", "the session to be ready");
+    const token = Bun.spawnSync(["ps", "eww", "-o", "command="]).stdout.toString();
+    const hookToken = /TALOS_HOOK_TOKEN=([0-9a-f-]{36})/.exec(token.split("\n").find((line) => line.includes(bigHome) && line.includes("TALOS_HOOK_TOKEN")) ?? "")?.[1];
+    const answer = await askRunner(homePaths(bigHome).hooksSocket, { sessionName: "big", token: hookToken ?? "", wants: "kinds" });
+    await big.stopRunner();
+    rmSync(bigHome, { recursive: true, force: true });
+    expect(answer?.kind).toBe("tools");
+  },
+  30_000,
+);

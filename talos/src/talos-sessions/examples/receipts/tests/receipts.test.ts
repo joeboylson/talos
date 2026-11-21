@@ -93,7 +93,11 @@ describe("the view", () => {
   });
   test("the recorded run replays: sorting, the question answered by id, then the tally", () => {
     const { state, actions, states } = replay(receiptsView, readRecording(readFileSync(join(import.meta.dir, "../recordings/run.jsonl"), "utf8")));
-    expect(actions.map((action) => action.do)).toEqual(["send", "answer", "ask"]);
+    // An expense read just after the session goes idle makes the tally be asked
+    // again once it's in, so a recording may end with more asks.
+    const done = actions.map((action) => action.do);
+    expect(done.slice(0, 3)).toEqual(["send", "answer", "ask"]);
+    expect(done.slice(3).every((what) => what === "ask")).toBe(true);
     expect(states.some((one) => one.question?.fields.file === "07-dinner.txt")).toBe(true);
     const screen = plain(receiptsView.render(state, 100));
     expect(screen.filter((line) => /\d\.\d\d [A-Z]{3}/.test(line))).toHaveLength(9);

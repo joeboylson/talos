@@ -29,7 +29,9 @@ export const startLiveCheck = async <State>(exampleFolder: string, view: Example
   const dispatch = (input: Input) => {
     const stepped = view.step(state, input);
     state = stepped.state;
-    stepped.actions.forEach((action) => void run(action));
+    // A call made after the check has finished (its runner stopped) fails; that's
+    // not the check failing.
+    stepped.actions.forEach((action) => void run(action).catch(() => {}));
   };
 
   await calls.ensureRunning();

@@ -12,6 +12,12 @@ import { SESSION_LIMITS } from "../limits";
 
 describe("readTranscriptLine", () => {
   const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
+  test("a message typed while Claude works, saved as a queued command, is a prompt", () => {
+    const queued = { type: "attachment", attachment: { type: "queued_command", prompt: "Also tell me 2+2.", commandMode: "prompt", humanTurn: true } };
+    expect(readTranscriptLine(line(queued))).toEqual([{ kind: "prompt", entryId: "u1", text: "Also tell me 2+2.", imageCount: 0 }]);
+    expect(readTranscriptLine(line({ ...queued, attachment: { ...queued.attachment, commandMode: "bash" } }))).toEqual([]);
+    expect(readTranscriptLine(line({ type: "attachment", attachment: { type: "file" } }))).toEqual([]);
+  });
   test("what a session wrote can't act on a terminal: control characters go, line breaks stay", () => {
     const painted = "\x1b]52;c;aGk=\x07\x1b[2Jcleared\nnext";
     const entries = [

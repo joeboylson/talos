@@ -116,6 +116,15 @@ const readAssistantLine = (lineId: string, blocks: ContentBlock[]): TranscriptIt
 
 // Skips Claude's thinking, notes Claude Code adds itself (like a skill's
 // instructions), and sub-agents' own conversations.
+// A message the person typed while Claude was working is saved as a queued
+// command inside the running turn, not as a prompt line of its own.
+const readQueuedPrompt = (entryId: string, attachment: unknown): UnnumberedEntry[] => {
+  const field = (name: string) => (typeof attachment === "object" && attachment !== null ? Reflect.get(attachment, name) : undefined);
+  const prompt = field("prompt");
+  const isTypedPrompt = field("type") === "queued_command" && field("commandMode") === "prompt" && typeof prompt === "string";
+  return isTypedPrompt ? readPromptLine(entryId, [{ type: "text", text: prompt }]) : [];
+};
+
 export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
   const line: unknown = parseJsonOrNull(lineText);
   if (typeof line !== "object" || line === null) return [];
@@ -123,6 +132,7 @@ export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
   if (typeof uuid !== "string" || isMeta === true || isSidechain === true) return [];
   const blocks = contentBlocksOf(message?.content);
   if (type === "assistant") return readAssistantLine(uuid, blocks);
+  if (type === "attachment") return readQueuedPrompt(uuid, Reflect.get(line, "attachment"));
   if (type !== "user") return [];
   const toolEnds = readToolEnds(blocks);
   return toolEnds.length > 0 ? toolEnds : readPromptLine(uuid, blocks);

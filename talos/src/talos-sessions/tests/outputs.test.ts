@@ -103,10 +103,14 @@ describe("several calls at once", () => {
     expect(afterFailure.pending).toEqual([b]);
     expect(openIds(through(afterFailure, b).outputs)).toEqual(["b"]);
   });
+  test("more calls in flight than can be left open all stay pending", () => {
+    const many = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 1 }, (_unused, index) => pendingOf(`p${index}`));
+    expect(many.reduce(sent, NO_OUTPUTS).pending).toEqual(many);
+  });
   test("pending calls are capped, newest kept", () => {
-    const many = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 3 }, (_unused, index) => pendingOf(`p${index}`));
+    const many = Array.from({ length: SESSION_LIMITS.maxOutputsInFlight + 3 }, (_unused, index) => pendingOf(`p${index}`));
     const outputs = many.reduce(sent, NO_OUTPUTS);
-    expect(outputs.pending).toEqual(many.slice(-SESSION_LIMITS.maxOpenOutputs));
+    expect(outputs.pending).toEqual(many.slice(-SESSION_LIMITS.maxOutputsInFlight));
   });
   test("a call whose input is missing opens nothing, and a hook with no body is no event", () => {
     expect(stepOutputs(sent(NO_OUTPUTS, a), { type: "went-through", toolUseId: a.toolUseId, toolInput: null }).opened).toBeNull();
@@ -125,8 +129,22 @@ describe("an output's place in the conversation", () => {
     const first = placeOutputs(NO_PLACING, [], [{ toolUseId: "tu-a", position: 7 }]);
     expect(placeOutputs(first.placing, [output], []).placed).toEqual([{ output, position: 7 }]);
   });
+  const placesOf = (count: number, prefix: string) => Array.from({ length: count }, (_unused, index) => ({ toolUseId: `${prefix}${index}`, position: index }));
+  test("more outputs than can be left open, in one message or one read, all find their place", () => {
+    const outputs = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 1 }, (_unused, index) => pendingOf(`o${index}`, `t${index}`));
+    const places = placesOf(outputs.length, "t");
+    expect(placeOutputs(placeOutputs(NO_PLACING, [], places).placing, outputs, []).placed).toHaveLength(outputs.length);
+    expect(placeOutputs(placeOutputs(NO_PLACING, outputs, []).placing, [], places).placed).toHaveLength(outputs.length);
+  });
+  test("calls that never go through (denied ones) don't push out a real call's place", () => {
+    const real = { toolUseId: "tu-a", position: 0 };
+    const waiting = placeOutputs(placeOutputs(NO_PLACING, [], [real]).placing, [], placesOf(SESSION_LIMITS.maxOpenOutputs * 2, "denied")).placing;
+    expect(placeOutputs(waiting, [output], []).placed).toEqual([{ output, position: 0 }]);
+  });
   test("what waits is capped", () => {
-    const places = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 5 }, (_unused, index) => ({ toolUseId: `t${index}`, position: index }));
-    expect(placeOutputs(NO_PLACING, [], places).placing.waitingPlaces.length).toBe(SESSION_LIMITS.maxOpenOutputs);
+    const places = placesOf(SESSION_LIMITS.maxWaitingPlaces + 5, "t");
+    const outputs = Array.from({ length: SESSION_LIMITS.maxOutputsInFlight + 5 }, (_unused, index) => pendingOf(`o${index}`, `u${index}`));
+    const { placing } = placeOutputs(NO_PLACING, outputs, places);
+    expect([placing.waitingPlaces.length, placing.waitingOutputs.length]).toEqual([SESSION_LIMITS.maxWaitingPlaces, SESSION_LIMITS.maxOutputsInFlight]);
   });
 });

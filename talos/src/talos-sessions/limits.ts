@@ -58,6 +58,13 @@ export const SESSION_LIMITS = {
   // for real work, and it can't be raised from inside, so one session can't open
   // enough connections to use up the session runner's.
   maxSessionOpenFiles: 2048,
+  // Outputs a session has in flight (allowed, not yet in the conversation). Well
+  // past maxOpenOutputs, since one message can send many at once; each carries
+  // its fields, so not unbounded.
+  maxOutputsInFlight: 100,
+  // Calls read from the conversation that wait for their output. Each is only an
+  // id and a number, and calls that never go through (denied, failed) wait too.
+  maxWaitingPlaces: 500,
   // Most a session's open outputs add to the session list it sends.
   maxSummaryOutputsBytes: 32 * 1024,
   // The file that keeps items dropped for failing their check.

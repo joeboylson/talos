@@ -75,7 +75,7 @@ export const readOutputsEvent = (hookDetails: unknown, isBlockedStop: boolean, i
 };
 
 export const stepOutputs = (outputs: Outputs, event: OutputsEvent): OutputsStep => {
-  if (event.type === "sent") return step({ ...outputs, pending: [...outputs.pending, event.output].slice(-SESSION_LIMITS.maxOpenOutputs) });
+  if (event.type === "sent") return step({ ...outputs, pending: [...outputs.pending, event.output].slice(-SESSION_LIMITS.maxOutputsInFlight) });
   if (event.type === "went-through") return stepWentThrough(outputs, event.toolUseId, event.toolInput);
   if (event.type === "failed") return step({ ...outputs, pending: outputs.pending.filter((output) => output.toolUseId !== event.toolUseId) });
   // A call with no PostToolUse by the next turn never went through: the
@@ -89,8 +89,8 @@ export const stepOutputs = (outputs: Outputs, event: OutputsEvent): OutputsStep 
 
 // An output sent in a normal turn shows in the conversation in its call's place.
 // Its two halves arrive apart: the output goes through (a hook), and the call is
-// read from the conversation. Whichever comes first waits for the other, at
-// most as many of each as a session keeps open.
+// read from the conversation. Whichever comes first waits for the other, each
+// list capped on its own (see limits.ts).
 export type CallPlace = { toolUseId: string; position: number };
 export type OutputPlacing = { waitingOutputs: PendingOutput[]; waitingPlaces: CallPlace[] };
 export const NO_PLACING: OutputPlacing = { waitingOutputs: [], waitingPlaces: [] };
@@ -109,8 +109,8 @@ export const placeOutputs = (
   const placedIds = new Set(placed.map(({ output }) => output.toolUseId));
   return {
     placing: {
-      waitingOutputs: outputs.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxOpenOutputs),
-      waitingPlaces: places.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxOpenOutputs),
+      waitingOutputs: outputs.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxOutputsInFlight),
+      waitingPlaces: places.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxWaitingPlaces),
     },
     placed,
   };

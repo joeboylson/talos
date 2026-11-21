@@ -182,7 +182,7 @@ describe("outputs", () => {
             if (outputs.open.some(({ askedInTurn }) => askedInTurn < outputs.turn)) return false;
             if (before.open.some((output) => output.askedInTurn === before.turn && !outputs.open.includes(output))) return false;
           }
-          if (outputs.open.length > SESSION_LIMITS.maxOpenOutputs || outputs.pending.length > SESSION_LIMITS.maxOpenOutputs) return false;
+          if (outputs.open.length > SESSION_LIMITS.maxOpenOutputs || outputs.pending.length > SESSION_LIMITS.maxOutputsInFlight) return false;
         }
         return true;
       }),

@@ -26,7 +26,7 @@ describe("an output opens only if the session saw its id", () => {
   });
   test("a call with no PostToolUse by the next turn is dropped", () => {
     const a = pendingOf("a");
-    const next = stepOutputs(sent(NO_OUTPUTS, a), { type: "turn-started" }).outputs;
+    const next = stepOutputs(sent(NO_OUTPUTS, a), { type: "turn-started", isTalosTurn: false }).outputs;
     expect(next.pending).toEqual([]);
     expect(through(next, a).opened).toBeNull();
   });
@@ -41,17 +41,22 @@ describe("an output opens only if the session saw its id", () => {
 describe("a question lasts one turn", () => {
   const asked = (() => {
     const a = pendingOf("a");
-    const inTurn = stepOutputs(NO_OUTPUTS, { type: "turn-started" }).outputs;
+    const inTurn = stepOutputs(NO_OUTPUTS, { type: "turn-started", isTalosTurn: false }).outputs;
     return through(sent(inTurn, a), a).outputs;
   })();
   test("the turn that asked it ending leaves it open", () => {
     expect(openIds(stepOutputs(asked, { type: "turn-ended" }).outputs)).toEqual(["a"]);
   });
   test("the next turn ending closes it, however that turn started", () => {
-    const next = stepOutputs(stepOutputs(asked, { type: "turn-ended" }).outputs, { type: "turn-started" }).outputs;
+    const next = stepOutputs(stepOutputs(asked, { type: "turn-ended" }).outputs, { type: "turn-started", isTalosTurn: false }).outputs;
     const step = stepOutputs(next, { type: "turn-ended" });
     expect(step.outputs.open).toEqual([]);
     expect(step.closedIds).toEqual(["a"]);
+  });
+  test("a turn talos typed, like an answer or a status request, doesn't count as its next turn", () => {
+    const afterAsk = [{ type: "turn-started", isTalosTurn: true }, { type: "turn-ended" }] as const;
+    const kept = afterAsk.reduce((outputs, event) => stepOutputs(outputs, event).outputs, stepOutputs(asked, { type: "turn-ended" }).outputs);
+    expect(openIds(kept)).toEqual(["a"]);
   });
   test("an answer closes just its own question", () => {
     const b = pendingOf("b");
@@ -75,12 +80,12 @@ describe("readOutputsEvent", () => {
   test.each([
     ["a call that went through", { hook_event_name: "PostToolUse", tool_use_id: "t", tool_input: { id: "a" } }, false, { type: "went-through", toolUseId: "t", toolInput: { id: "a" } }],
     ["a call that failed", { hook_event_name: "PostToolUseFailure", tool_use_id: "t" }, false, { type: "failed", toolUseId: "t" }],
-    ["a submitted prompt", { hook_event_name: "UserPromptSubmit" }, false, { type: "turn-started" }],
+    ["a submitted prompt", { hook_event_name: "UserPromptSubmit" }, false, { type: "turn-started", isTalosTurn: false }],
     ["a Stop", { hook_event_name: "Stop" }, false, { type: "turn-ended" }],
     ["a Stop the lane blocked", { hook_event_name: "Stop" }, true, null],
     ["another event", { hook_event_name: "Notification" }, false, null],
   ] as [string, unknown, boolean, unknown][])("%s", (_name, hookDetails, isBlockedStop, expected) => {
-    expect(readOutputsEvent(hookDetails, isBlockedStop)).toEqual(expected as ReturnType<typeof readOutputsEvent>);
+    expect(readOutputsEvent(hookDetails, isBlockedStop, false)).toEqual(expected as ReturnType<typeof readOutputsEvent>);
   });
 });
 
@@ -105,7 +110,7 @@ describe("several calls at once", () => {
   });
   test("a call whose input is missing opens nothing, and a hook with no body is no event", () => {
     expect(stepOutputs(sent(NO_OUTPUTS, a), { type: "went-through", toolUseId: a.toolUseId, toolInput: null }).opened).toBeNull();
-    expect(readOutputsEvent(null, false)).toBeNull();
+    expect(readOutputsEvent(null, false, false)).toBeNull();
   });
 });
 

@@ -99,6 +99,7 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
     hookToken,
     hasDraft: false,
     isTurnOver: false,
+    isTalosTypedNext: false,
     output: new Uint8Array(),
     lastOutputAtMs: 0,
     outputListeners: new Set(),

@@ -25,7 +25,8 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   const decision = laneEvent ? applyLaneEvent(sessionName, laneEvent) : "";
   // A Stop the lane blocked keeps the turn going, so the session isn't idle.
   const blockedStop = hookEvent === "Stop" && decision !== "";
-  const outputsEvent = readOutputsEvent(hookDetails, blockedStop);
+  const outputsEvent = readOutputsEvent(hookDetails, blockedStop, session.isTalosTypedNext);
+  if (outputsEvent?.type === "turn-started") updateHeldSession(sessionName, token, { isTalosTypedNext: false });
   if (outputsEvent) applyOutputsEvent(sessionName, outputsEvent);
 
   // Only one ready-loop per session instance, so a forged flood of SessionStart

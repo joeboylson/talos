@@ -44,6 +44,9 @@ export type HeldSession = {
   // as opposed to "needs you" for a permission prompt mid-turn. Only then may a
   // request be typed: Enter in a permission prompt would approve it.
   isTurnOver: boolean;
+  // talos typed the next turn (an answer, an asked-for request), until it
+  // starts or the person types over it.
+  isTalosTypedNext: boolean;
   // The most recent terminal output, so someone attaching sees the screen, and
   // when it last changed, to tell when the screen has settled.
   output: Uint8Array;

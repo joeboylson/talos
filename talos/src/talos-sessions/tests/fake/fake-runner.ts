@@ -1,5 +1,6 @@
-// The main-path test's session runner: a made-up note kind (sent on its own,
-// doesn't wait) and question kind (waits, with choices), and the fake Claude.
+// The fake-runner tests' session runner: a made-up note kind (sent on its own,
+// doesn't wait), question kind (waits, with choices) and status kind (asked
+// for), and the fake Claude.
 import { runSessionRunner, type OutputKind } from "../../index";
 
 const home = process.argv[2];
@@ -41,11 +42,27 @@ const QUESTION: OutputKind = {
   waits: true,
 };
 
+// Asked for, never sent on its own.
+const STATUS: OutputKind = {
+  kind: "status",
+  toolName: "send_status",
+  description: "send a status",
+  inputSchema: { type: "object", properties: { text: { type: "string" } } },
+  readFields: (input) => {
+    const text = textField("text")(input);
+    return text === null ? null : { text };
+  },
+  badInputReason: "send_status needs text",
+  typedFields: {},
+  waits: false,
+  requestText: "please send status",
+};
+
 await runSessionRunner({
   home,
   log: { event: () => {}, detail: () => {}, warn: console.warn },
   isAllowedFolder: async () => true,
-  kinds: [NOTE, QUESTION],
+  kinds: [NOTE, QUESTION, STATUS],
   proseTurn: { output: "prose", optional: ["note", "question"] },
   claudeCommand: [process.execPath, new URL("./fake-claude.ts", import.meta.url).pathname],
   claudeConfigFile: `${home}/claude.json`,

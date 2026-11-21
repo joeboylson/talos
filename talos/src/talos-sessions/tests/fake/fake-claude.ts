@@ -1,59 +1,91 @@
-// A stand-in for Claude Code, for the main-path test: it reports to the session
-// runner through the same hooks, and saves its conversation the same way, but
-// follows a fixed script instead of thinking. On "go" it writes a line of text,
-// sends a note (an output that doesn't wait) and a question (one that waits),
-// and ends its turn. Any other message is a prompt it just answers by ending
-// its turn.
+// A stand-in for Claude Code, for the fake-runner tests: it reports to the
+// session runner through the same hooks, and saves its conversation the same
+// way, but follows a fixed script instead of thinking.
+// - "go": a line of text, a note (an output that doesn't wait) and a question.
+// - "go2": two questions.
+// - the status request: sends a status.
+// - an answer: runs Bash, as a normal turn would.
+// Anything else is a prompt it just answers by ending its turn. Text typed while
+// a turn runs is saved as a "BUSY" line, and a tool talos denies as a "DENIED"
+// line, so a test can see both.
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { askRunner } from "../../client/hook-client";
 import { SESSION_ENV_KEYS } from "../../constants";
 
+// fake-runner.ts gives the status kind this request.
+const STATUS_REQUEST = "please send status";
+
 const sessionName = process.env[SESSION_ENV_KEYS.sessionName] ?? "";
 const runnerSocket = process.env[SESSION_ENV_KEYS.runnerSocket] ?? "";
 const token = process.env[SESSION_ENV_KEYS.hookToken] ?? "";
 const transcriptPath = join(process.cwd(), "transcript.jsonl");
-writeFileSync(transcriptPath, "");
 
 let lineNumber = 0;
 const saveLine = (line: object) => {
   lineNumber += 1;
   appendFileSync(transcriptPath, `${JSON.stringify({ uuid: `line-${lineNumber}`, ...line })}\n`);
 };
+const saveText = (text: string) => saveLine({ type: "assistant", message: { content: [{ type: "text", text }] } });
 
 const hook = async (details: object): Promise<string> => {
   const answer = await askRunner(runnerSocket, { sessionName, token, details: JSON.stringify({ transcript_path: transcriptPath, ...details }) });
   return answer?.kind === "reply" ? answer.reply : "";
 };
 
-// Calls one structured tool as Claude Code would: its PreToolUse, then (if
-// allowed) its call saved in the conversation and its PostToolUse with the
-// input the hook handed back.
-const callTool = async (toolName: string, input: object, toolUseId: string) => {
+// Calls one tool as Claude Code would: its PreToolUse, then (if allowed) its
+// call saved in the conversation and its PostToolUse with the input the hook
+// handed back. Only structured tools are saved, the rest only need the hook.
+let toolCount = 0;
+const callTool = async (toolName: string, input: object, toolUseId = `tool-${++toolCount}`) => {
   const reply = JSON.parse((await hook({ hook_event_name: "PreToolUse", tool_name: toolName, tool_input: input, tool_use_id: toolUseId })) || "{}");
-  if (reply.hookSpecificOutput?.permissionDecision !== "allow") return;
+  const decision = reply.hookSpecificOutput?.permissionDecision;
+  if (decision === "deny") return saveText(`DENIED ${toolName}`);
+  if (!toolName.startsWith("mcp__")) return;
   saveLine({ type: "assistant", message: { content: [{ type: "tool_use", id: toolUseId, name: toolName, input }] } });
   await hook({ hook_event_name: "PostToolUse", tool_name: toolName, tool_input: reply.hookSpecificOutput.updatedInput, tool_use_id: toolUseId });
 };
 
-const prompted = async (text: string) => {
+const runTurn = async (text: string) => {
   await hook({ hook_event_name: "UserPromptSubmit", prompt: text });
   saveLine({ type: "user", message: { content: text } });
-};
-
-await hook({ hook_event_name: "SessionStart" });
-process.stdout.write("ready\n");
-
-// What the session runner types: Esc, then the message in bracketed paste.
-for await (const typed of console) {
-  const text = typed.replace(/\x1b\[20[01]~/g, "").replace(/\x1b/g, "").trim();
-  if (!text) continue;
-  await prompted(text);
   if (text === "go") {
-    saveLine({ type: "assistant", message: { content: [{ type: "text", text: "Here is a note, then a question." }] } });
+    saveText("Here is a note, then a question.");
     await callTool("mcp__talos__send_note", { text: "a note" }, "tool-note");
     await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] }, "tool-question");
   }
-  await hook({ hook_event_name: "Stop" });
+  if (text === "go2") {
+    await callTool("mcp__talos__ask_question", { question: "First?", choices: ["A", "B"] });
+    await callTool("mcp__talos__ask_question", { question: "Second?", choices: ["C", "D"] });
+  }
+  if (text === STATUS_REQUEST) await callTool("mcp__talos__send_status", { text: "all good" });
+  if (text.startsWith("Answer to")) await callTool("Bash", { command: "ls" });
+  // A turn takes a moment, so text typed into it would be seen as busy.
+  await Bun.sleep(300);
+  // A Stop the lane blocks keeps the turn going, as Claude Code does.
+  if (await hook({ hook_event_name: "Stop" })) await hook({ hook_event_name: "Stop" });
   process.stdout.write("done\n");
-}
+};
+
+writeFileSync(transcriptPath, "");
+await hook({ hook_event_name: "SessionStart" });
+process.stdin.setRawMode?.(true);
+process.stdout.write("ready\n");
+
+// What the session runner types: Esc, then the message in bracketed paste, then
+// Enter. Turns run one after another.
+let turnsWaiting = 0;
+let typed = "";
+let turns = Promise.resolve();
+process.stdin.on("data", (chunk: Buffer) => {
+  typed += chunk.toString();
+  const lines = typed.split("\r");
+  typed = lines.pop() ?? "";
+  for (const line of lines) {
+    const text = line.replace(/\x1b\[20[01]~/g, "").replace(/\x1b/g, "").trim();
+    if (!text) continue;
+    if (turnsWaiting > 0) saveText(`BUSY ${text}`);
+    turnsWaiting += 1;
+    turns = turns.then(() => runTurn(text)).finally(() => (turnsWaiting -= 1));
+  }
+});

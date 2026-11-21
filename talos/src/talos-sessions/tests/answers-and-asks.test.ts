@@ -1,0 +1,88 @@
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { connectToSessions, mergeSessionEntries, type RunnerEvent, type SessionEntry, type SessionSummary } from "../index";
+
+// Answers and asks meeting in one session, on the real session runner with the
+// fake Claude (tests/fake/). Each thing talos types must start a turn of its
+// own: the fake Claude saves a "BUSY" line for text typed into a running turn,
+// and a "DENIED" line for a tool talos turned down.
+const home = mkdtempSync(join(tmpdir(), "talos-answers-asks-"));
+const calls = connectToSessions({ home, runnerScript: new URL("./fake/fake-runner.ts", import.meta.url).pathname });
+
+const entries: Record<string, SessionEntry[]> = {};
+const latest: Record<string, SessionSummary> = {};
+const onEvent = (event: RunnerEvent) => {
+  if (event.type === "sessions") event.sessions.forEach((session) => (latest[session.sessionName] = session));
+  if (event.type === "session-entries") entries[event.sessionName] = mergeSessionEntries(entries[event.sessionName] ?? [], event.entries, 500);
+};
+
+const waitUntil = async (isDone: () => boolean, what: string, ms = 10_000): Promise<void> => {
+  const giveUpAt = Date.now() + ms;
+  while (!isDone()) {
+    if (Date.now() > giveUpAt) throw new Error(`timed out waiting for ${what}`);
+    await Bun.sleep(50);
+  }
+};
+
+const texts = (name: string) => (entries[name] ?? []).flatMap((entry) => (entry.kind === "prompt" || entry.kind === "text" ? [entry.text] : []));
+const prompts = (name: string) => (entries[name] ?? []).flatMap((entry) => (entry.kind === "prompt" ? [entry.text] : []));
+const isSettled = (name: string) => latest[name]?.state !== "working";
+
+const startWithQuestions = async (name: string, message: string, count: number) => {
+  const work = join(home, name);
+  mkdirSync(work);
+  expect(await calls.start(name, name, work)).toEqual({ ok: true });
+  await waitUntil(() => latest[name]?.state === "idle", "the session to be ready");
+  expect(await calls.send(name, message)).toEqual({ ok: true });
+  await waitUntil(() => latest[name]?.openOutputs.length === count && latest[name]?.state === "needs-you", "the questions");
+  return latest[name]!.openOutputs;
+};
+
+beforeAll(async () => {
+  await calls.ensureRunning();
+  calls.follow(onEvent);
+});
+afterAll(async () => {
+  await calls.stopRunner().catch(() => {});
+  rmSync(home, { recursive: true, force: true });
+});
+
+test(
+  "two answers clicked together go in one turn after the other",
+  async () => {
+    const [first, second] = await startWithQuestions("two", "go2", 2);
+    expect(await Promise.all([calls.answer("two", first!.id, 0), calls.answer("two", second!.id, 1)])).toEqual([{ ok: true }, { ok: true }]);
+    await waitUntil(() => prompts("two").length === 3 && latest.two?.openOutputs.length === 0 && isSettled("two"), "both answers");
+    expect(prompts("two")).toEqual(["go2", `Answer to ${first!.id}: A`, `Answer to ${second!.id}: D`]);
+    expect(texts("two").filter((text) => /^(BUSY|DENIED)/.test(text))).toEqual([]);
+  },
+  30_000,
+);
+
+test(
+  "an answer clicked just after a status ask waits for the asked-for turn to end",
+  async () => {
+    const [question] = await startWithQuestions("ask-then-answer", "go", 1);
+    expect(await calls.ask("ask-then-answer", "status")).toEqual({ ok: true });
+    expect(await calls.answer("ask-then-answer", question!.id, 1)).toEqual({ ok: true });
+    await waitUntil(() => prompts("ask-then-answer").length === 3 && isSettled("ask-then-answer"), "the request and the answer");
+    expect(prompts("ask-then-answer")).toEqual(["go", "please send status", `Answer to ${question!.id}: B`]);
+    expect(latest["ask-then-answer"]?.asks.status).toMatchObject({ state: "answered", latest: { text: "all good" } });
+    expect(texts("ask-then-answer").filter((text) => /^(BUSY|DENIED)/.test(text))).toEqual([]);
+  },
+  30_000,
+);
+
+test(
+  "a status ask doesn't close a question that's waiting for an answer",
+  async () => {
+    const [question] = await startWithQuestions("ask-only", "go", 1);
+    expect(await calls.ask("ask-only", "status")).toEqual({ ok: true });
+    await waitUntil(() => latest["ask-only"]?.asks.status?.state === "answered" && isSettled("ask-only"), "the status");
+    expect(latest["ask-only"]?.openOutputs.map(({ id }) => id)).toEqual([question!.id]);
+    expect(await calls.answer("ask-only", question!.id, 0)).toEqual({ ok: true });
+  },
+  30_000,
+);

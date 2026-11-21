@@ -34,6 +34,9 @@ export const SESSION_LIMITS = {
   // transcript is drained over several polls instead of blocking the session runner in one go.
   // It must hold one whole line, and a prompt's line carries its images.
   maxTranscriptReadBytes: LIMITS.maxImagesPerMessage * LIMITS.maxImageBase64Length + 4 * 1024 * 1024,
+  // Conversation files a session's reads keep up with: the current one, and the
+  // ones it moved away from (each is checked on every read).
+  maxTranscriptsRead: 8,
   // An attached terminal or talos that stops reading gets cut off once this many
   // chunks wait for it, instead of the session runner holding everything it hasn't read.
   maxStreamBacklogChunks: 1024,

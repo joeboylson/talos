@@ -27,7 +27,10 @@ export type HeldSession = {
   terminal: Terminal;
   // Messages sent before Claude Code finished starting; typed once it's ready.
   queuedMessages: TypedMessage[];
-  transcript: Transcript | null;
+  // The conversation files read so far, the one Claude Code writes now last.
+  // Older ones are still read to their end, and one it comes back to carries on
+  // where it stopped.
+  transcripts: Transcript[];
   entries: SessionEntry[];
   lane: Lane;
   outputs: Outputs;

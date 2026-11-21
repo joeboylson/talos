@@ -5,6 +5,8 @@
 // - "go2": two questions.
 // - the status request: sends a status.
 // - an answer: runs Bash, as a normal turn would.
+// - "clear" / "resume": a last line in the current conversation file, then a
+//   switch to a second file / back to the first, as /clear and /resume do.
 // Anything else is a prompt it just answers by ending its turn. Text typed while
 // a turn runs is saved as a "BUSY" line, and a tool talos denies as a "DENIED"
 // line, so a test can see both.
@@ -19,7 +21,9 @@ const STATUS_REQUEST = "please send status";
 const sessionName = process.env[SESSION_ENV_KEYS.sessionName] ?? "";
 const runnerSocket = process.env[SESSION_ENV_KEYS.runnerSocket] ?? "";
 const token = process.env[SESSION_ENV_KEYS.hookToken] ?? "";
-const transcriptPath = join(process.cwd(), "transcript.jsonl");
+const firstTranscript = join(process.cwd(), "transcript.jsonl");
+const secondTranscript = join(process.cwd(), "transcript-2.jsonl");
+let transcriptPath = firstTranscript;
 
 let lineNumber = 0;
 const saveLine = (line: object) => {
@@ -60,6 +64,11 @@ const runTurn = async (text: string) => {
   }
   if (text === STATUS_REQUEST) await callTool("mcp__talos__send_status", { text: "all good" });
   if (text.startsWith("Answer to")) await callTool("Bash", { command: "ls" });
+  if (text === "clear" || text === "resume") {
+    saveText(`said before ${text}`);
+    transcriptPath = text === "clear" ? secondTranscript : firstTranscript;
+    await hook({ hook_event_name: "SessionStart", source: text });
+  }
   // A turn takes a moment, so text typed into it would be seen as busy.
   await Bun.sleep(300);
   // A Stop the lane blocks keeps the turn going, as Claude Code does.
@@ -67,7 +76,8 @@ const runTurn = async (text: string) => {
   process.stdout.write("done\n");
 };
 
-writeFileSync(transcriptPath, "");
+writeFileSync(firstTranscript, "");
+writeFileSync(secondTranscript, "");
 await hook({ hook_event_name: "SessionStart" });
 process.stdin.setRawMode?.(true);
 process.stdout.write("ready\n");

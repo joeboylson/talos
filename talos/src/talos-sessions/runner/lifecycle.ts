@@ -89,7 +89,7 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
     child,
     terminal,
     queuedMessages: [],
-    transcript: null,
+    transcripts: [],
     entries: [],
     lane: NO_LANE,
     outputs: NO_OUTPUTS,

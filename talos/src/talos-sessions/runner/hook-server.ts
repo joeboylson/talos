@@ -7,6 +7,7 @@ import { readLaneEvent } from "../lanes/lane";
 import { readOutputsEvent } from "../lanes/outputs";
 import { allowTranscriptSwitch } from "../transcript/transcript-lines";
 import { becomeReadyWhenQuiet } from "./lifecycle";
+import { switchTranscript } from "./transcript";
 import { catalog, log } from "./inputs";
 import { applyLaneEvent, applyOutputsEvent, setSessionState } from "./session-state";
 import { heldSessions, updateHeldSession } from "./store";
@@ -38,18 +39,12 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
       .finally(() => updateHeldSession(sessionName, session.hookToken, { isBecomingReady: false }));
   }
 
-  // Claude Code can start a new conversation file (like after /clear), so
-  // a new path starts over from its beginning.
+  // Claude Code can move to another conversation file (like after /clear or /resume).
   const transcriptPath = Reflect.get(hookDetails as object, "transcript_path");
   const current = heldSessions.get(sessionName);
-  const isNewTranscript =
-    typeof transcriptPath === "string" &&
-    current !== undefined &&
-    transcriptPath !== current.transcript?.path &&
-    allowTranscriptSwitch(transcriptPath, current.transcript?.path ?? null);
-  if (isNewTranscript && current) {
-    heldSessions.set(sessionName, { ...current, transcript: { path: transcriptPath, readByteCount: 0, runningTools: new Map() } });
-  }
+  const currentPath = current?.transcripts.at(-1)?.path ?? null;
+  const isSwitch = typeof transcriptPath === "string" && transcriptPath !== currentPath && allowTranscriptSwitch(transcriptPath, currentPath);
+  if (isSwitch && current) heldSessions.set(sessionName, { ...current, transcripts: switchTranscript(current.transcripts, transcriptPath) });
   // A turn that ends on an open output is waiting for the person, not idle.
   const nextState = nextSessionState(hookEvent, hookDetails);
   const hasOpenOutput = (heldSessions.get(sessionName)?.summary.openOutputs.length ?? 0) > 0;

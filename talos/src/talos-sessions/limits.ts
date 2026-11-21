@@ -68,6 +68,15 @@ export const SESSION_LIMITS = {
   // Calls read from the conversation that wait for their output. Each is only an
   // id and a number, and calls that never go through (denied, failed) wait too.
   maxWaitingPlaces: 500,
+  // Images kept per session: the newest, since Claude Code reads one when it's
+  // pasted; the rest go once there are more.
+  maxUploadsKept: 20,
+  // Messages sent while a session starts, typed once it's ready.
+  maxQueuedMessages: 20,
+  // The runner's log is moved to runner.log.1 past this, when a runner starts.
+  maxRunnerLogBytes: 10 * 1024 * 1024,
+  // A hook with a bad token is logged at most this often, so a flood can't fill the log.
+  badTokenLogEveryMs: 1000,
   // Most a session's open outputs add to the session list it sends.
   maxSummaryOutputsBytes: 32 * 1024,
   // The file that keeps items dropped for failing their check.

@@ -87,7 +87,9 @@ if (basename(process.cwd()).startsWith("spawner")) {
 }
 writeFileSync(firstTranscript, "");
 writeFileSync(secondTranscript, "");
-await hook({ hook_event_name: "SessionStart" });
+// In a folder named mute… it never reports its start, like a Claude Code stuck
+// on a screen before its hooks run.
+if (!basename(process.cwd()).startsWith("mute")) await hook({ hook_event_name: "SessionStart" });
 process.stdin.setRawMode?.(true);
 process.stdout.write("ready\n");
 

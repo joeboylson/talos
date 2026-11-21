@@ -59,6 +59,16 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
 const listedTools = (): ListedTool[] =>
   catalog().kinds.map((kind) => ({ name: kind.toolName, description: kind.description, inputSchema: listedSchema(kind), reply: replyWording(kind) }));
 
+// Anything can reach the hooks socket and name any session, so the name is
+// cut and quoted (it can't forge log lines), and a flood is logged once a second.
+let lastBadTokenLogMs = 0;
+const warnBadToken = (sessionName: unknown): void => {
+  const nowMs = Date.now();
+  if (nowMs - lastBadTokenLogMs < SESSION_LIMITS.badTokenLogEveryMs) return;
+  lastBadTokenLogMs = nowMs;
+  log.warn(`runner: ignored a hook for ${JSON.stringify(String(sessionName).slice(0, SESSION_LIMITS.maxIdentifierLength))} with a bad token`);
+};
+
 // The answer to one hook request. The token check and the hook's handling run
 // in one step, so a session replaced under the same name can't be acted on.
 const answerHookRequest = (line: string): HookAnswer => {
@@ -66,7 +76,7 @@ const answerHookRequest = (line: string): HookAnswer => {
   if (!request) return { kind: "reply", reply: "" };
   const { sessionName, token } = request;
   const isAuthorized = hookTokenAuthorized(token, heldSessions.get(sessionName)?.hookToken);
-  if (!isAuthorized) log.warn(`runner: ignored a hook for "${sessionName}" with a bad token`);
+  if (!isAuthorized) warnBadToken(sessionName);
   if ("wants" in request) return isAuthorized ? { kind: "tools", tools: listedTools() } : { kind: "refused" };
   if (!isAuthorized) return { kind: "reply", reply: "" };
   try {

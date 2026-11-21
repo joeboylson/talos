@@ -66,6 +66,26 @@ describe("the view", () => {
     expect(play([expenseEntry, session({ state: "working" })]).actions).toEqual([]);
     expect(play([expenseEntry, session({ state: "idle" }), session({ state: "idle" })]).actions).toEqual([{ do: "ask", kind: "tally" }]);
   });
+  const expenseOf = (entryId: string, amount: number): Input => ({
+    type: "event",
+    event: { type: "session-entries", sessionName: "example", entries: [{ kind: "output", position: Number(entryId.slice(1)), entryId, outputKind: "expense", fields: { ...expense, amount } }] },
+  });
+  const tallyAsk = (state: "asking" | "answered" | "no-response") => session({ state: "idle", asks: { tally: { state, atMs: 0 } } });
+  const asks = (inputs: Input[]) => play(inputs).actions.filter((action) => (action as { do: string }).do === "ask").length;
+  test("a tally ask that's refused or gets no response is asked again at the next idle", () => {
+    const refused: Input = { type: "result", action: { do: "ask", kind: "tally" }, result: { ok: false, code: "already-asking", reason: "busy" } };
+    expect(asks([expenseEntry, session({ state: "idle" }), refused, session({ state: "idle" })])).toBe(2);
+    expect(asks([expenseEntry, session({ state: "idle" }), tallyAsk("no-response"), session({ state: "idle" })])).toBe(2);
+    expect(asks([expenseEntry, session({ state: "idle" }), tallyAsk("asking"), tallyAsk("asking")])).toBe(1);
+  });
+  test("expenses sent after the tally was asked for are counted in a new one", () => {
+    expect(asks([expenseOf("e1", 10), session({ state: "idle" }), tallyAsk("answered"), expenseOf("e2", 32.5), session({ state: "working" }), session({ state: "idle" })])).toBe(2);
+    expect(asks([expenseOf("e1", 10), session({ state: "idle" }), tallyAsk("answered"), session({ state: "idle" })])).toBe(1);
+  });
+  test("a question's answer goes once, however often its key is pressed", () => {
+    const open = session({ state: "needs-you", openOutputs: [question] });
+    expect(play([open, { type: "key", key: "1" }, { type: "key", key: "2" }]).actions).toEqual([{ do: "answer", outputId: "q1", choice: 0 }]);
+  });
   test("a refusal shows its reason", () => {
     const { state } = play([{ type: "result", action: { do: "answer", outputId: "q1", choice: 0 }, result: { ok: false, code: "closed", reason: "That question has closed" } }]);
     expect(plain(receiptsView.render(state, 100)).join("\n")).toContain("That question has closed");

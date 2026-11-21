@@ -18,21 +18,30 @@ export type ReceiptsState = {
   entries: SessionEntry[];
   question: OpenOutput | null;
   tally: Total[] | null;
-  tallyAsked: boolean;
+  // How many expenses the tally last asked for covers (null: none asked, or
+  // the ask failed), and that ask's state.
+  tallyCovers: number | null;
+  tallyAsk: string | null;
+  // The question last answered, so its key goes only once.
+  answeredId: string | null;
   notice: string;
 };
 
 const outputsOf = (entries: SessionEntry[], kind: string) =>
   entries.flatMap((entry) => (entry.kind === "output" && entry.outputKind === kind ? [entry.fields] : []));
 
-// The tally is asked for once, when the session is idle with no question open:
-// any answer has gone in, and the sorting is finished.
-const tallyAction = (state: ReceiptsState): Action[] =>
-  !state.tallyAsked && state.session === "idle" && !state.question && outputsOf(state.entries, "expense").length > 0 ? [{ do: "ask", kind: TALLY.kind }] : [];
+// The tally is asked for when the session is idle with no question open (any
+// answer has gone in, and the sorting is finished), and again if expenses came
+// since, or the last ask failed. Never while one is still being asked.
+const tallyAction = (state: ReceiptsState): Action[] => {
+  const count = outputsOf(state.entries, "expense").length;
+  const isDue = state.session === "idle" && !state.question && state.tallyAsk !== "asking" && count > 0 && count !== state.tallyCovers;
+  return isDue ? [{ do: "ask", kind: TALLY.kind }] : [];
+};
 
 const withTallyAsk = (state: ReceiptsState): { state: ReceiptsState; actions: Action[] } => {
   const actions = tallyAction(state);
-  return { state: actions.length > 0 ? { ...state, tallyAsked: true } : state, actions };
+  return { state: actions.length > 0 ? { ...state, tallyCovers: outputsOf(state.entries, "expense").length, tallyAsk: "asking" } : state, actions };
 };
 
 const money = (amount: number, currency: string) => `${amount.toFixed(2)} ${currency}`;
@@ -47,10 +56,13 @@ const drawTally = (totals: Total[]): string[] => {
 };
 
 export const receiptsView: ExampleView<ReceiptsState> = {
-  initial: { session: "starting", entries: [], question: null, tally: null, tallyAsked: false, notice: "" },
+  initial: { session: "starting", entries: [], question: null, tally: null, tallyCovers: null, tallyAsk: null, answeredId: null, notice: "" },
   step: (state, input) => {
     if (input.type === "started") return { state, actions: [{ do: "send", text: START_MESSAGE }] };
-    if (input.type === "result") return noActions({ ...state, notice: input.result.ok ? "" : input.result.reason });
+    if (input.type === "result") {
+      const isFailedAsk = input.action.do === "ask" && !input.result.ok;
+      return noActions({ ...state, notice: input.result.ok ? "" : input.result.reason, ...(isFailedAsk && { tallyCovers: null, tallyAsk: null }) });
+    }
     if (input.type === "event") {
       const { event } = input;
       if (event.type === "notice") return noActions({ ...state, notice: event.message });
@@ -59,14 +71,17 @@ export const receiptsView: ExampleView<ReceiptsState> = {
       if (!session) return noActions(state);
       const tally = session.asks.tally?.state === "answered" ? ((session.asks.tally.latest?.totals as Total[] | undefined) ?? null) : state.tally;
       const question = session.openOutputs.find(({ kind }) => kind === "question") ?? null;
-      return withTallyAsk({ ...state, session: session.state, question, tally });
+      const tallyAsk = session.asks.tally?.state ?? state.tallyAsk;
+      const tallyCovers = tallyAsk === "no-response" ? null : state.tallyCovers;
+      return withTallyAsk({ ...state, session: session.state, question, tally, tallyAsk, tallyCovers });
     }
     const { key } = input;
     if (key === CTRL_A) return { state, actions: [{ do: "attach" }] };
     const choice = Number(key) - 1;
     const choices = (state.question?.fields.choices as string[] | undefined) ?? [];
-    if (state.question && Number.isInteger(choice) && choice >= 0 && choice < choices.length) {
-      return { state, actions: [{ do: "answer", outputId: state.question.id, choice }] };
+    const isOpen = state.question && state.question.id !== state.answeredId;
+    if (state.question && isOpen && Number.isInteger(choice) && choice >= 0 && choice < choices.length) {
+      return { state: { ...state, answeredId: state.question.id }, actions: [{ do: "answer", outputId: state.question.id, choice }] };
     }
     return noActions(state);
   },
@@ -83,12 +98,16 @@ export const receiptsView: ExampleView<ReceiptsState> = {
       ...expenses.map(row),
       ...skipped.map((fields) => dim(fit(`${fields.file}  ✕ ${fields.reason}`, width))),
       ...(question
-        ? ["", yellow(`? ${question.fields.file}: ${question.fields.question}`), `  ${(question.fields.choices as string[]).map((choice, index) => `${bold(String(index + 1))} ${choice}`).join("   ")}`]
+        ? [
+            "",
+            yellow(`? ${question.fields.file}: ${question.fields.question}`),
+            (question.id === state.answeredId ? dim : (text: string) => text)(`  ${(question.fields.choices as string[]).map((choice, index) => `${bold(String(index + 1))} ${choice}`).join("   ")}`),
+          ]
         : []),
       ...(state.tally ? ["", bold("Totals"), ...drawTally(state.tally)] : []),
       "",
       ...(state.notice ? [yellow(fit(state.notice, width))] : []),
-      dim(`${question ? "1-9 answer · " : ""}^A attach · ^C quit`),
+      dim(`${question && question.id !== state.answeredId ? "1-9 answer · " : ""}^A attach · ^C quit`),
     ];
   },
 };

@@ -1,6 +1,7 @@
-import { chmod, mkdir, rm } from "node:fs/promises";
+import { chmod, rm } from "node:fs/promises";
 import { parseJsonOrNull } from "talos-shared";
-import { CREDENTIALS_FILE, CREDENTIALS_FILE_MODE, CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE } from "./constants";
+import { CREDENTIALS_FILE, CREDENTIALS_FILE_MODE } from "./constants";
+import { claimTalosFolder, writePrivately } from "./talos-folder";
 
 // machineName is the name the server gave this machine. Files saved before
 // names existed have none until talos next connects.
@@ -23,14 +24,13 @@ export const pickCredentials = (savedValue: unknown, serverUrl: string): Credent
 export const readCredentials = async (serverUrl: string): Promise<Credentials | null> => {
   const credentialsFile = Bun.file(CREDENTIALS_FILE);
   if (!(await credentialsFile.exists())) return null;
+  // A key saved before talos kept it private is closed now.
+  await claimTalosFolder();
+  await chmod(CREDENTIALS_FILE, CREDENTIALS_FILE_MODE);
   return pickCredentials(parseJsonOrNull(await credentialsFile.text()), serverUrl);
 };
 
-export const saveCredentials = async (credentials: Credentials): Promise<void> => {
-  await mkdir(CREDENTIALS_FOLDER, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
-  await Bun.write(CREDENTIALS_FILE, JSON.stringify(credentials, null, 2));
-  await chmod(CREDENTIALS_FILE, CREDENTIALS_FILE_MODE);
-};
+export const saveCredentials = (credentials: Credentials): Promise<void> => writePrivately(CREDENTIALS_FILE, JSON.stringify(credentials, null, 2));
 
 export const forgetCredentials = async (): Promise<void> => {
   await rm(CREDENTIALS_FILE, { force: true });

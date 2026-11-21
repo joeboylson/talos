@@ -8,22 +8,14 @@ import { noSuchSession, refuse } from "./refuse";
 import { SESSION_LIMITS } from "../limits";
 import { ENTER_KEY, buildMessageWithImages, buildPastedText } from "../terminal";
 import { applyLaneEvent } from "./session-state";
-import { heldSessions, updateHeldSession, type HeldSession, type TypedMessage } from "./store";
+import { heldSessions, typeInTurn, updateHeldSession, type HeldSession, type TypedMessage } from "./store";
 
 // The message counts as a draft until its Enter (an image paste waits a second
 // first), and Enter sends any draft along with it, so the box is empty after.
-// One message at a time per session: one pasted during another's wait would
-// join it, and glue its text onto the other's last image path. Old images go
-// only once a message is in, so none waiting to be typed is lost.
-const typing = new Map<string, Promise<void>>();
-export const typeIntoSession = (session: HeldSession, message: TypedMessage): Promise<void> => {
-  const { sessionName } = session.summary;
-  const typed = (typing.get(sessionName) ?? Promise.resolve()).then(() => typeOne(session, message));
-  const settled = typed.catch(() => {});
-  typing.set(sessionName, settled);
-  void settled.then(() => typing.get(sessionName) === settled && typing.delete(sessionName));
-  return typed;
-};
+// One at a time (see typeInTurn). Old images go only once a message is in, so
+// none waiting to be typed is lost.
+export const typeIntoSession = (session: HeldSession, message: TypedMessage): Promise<void> =>
+  typeInTurn(session.summary.sessionName, () => typeOne(session, message));
 
 const typeOne = async (session: HeldSession, { text, hasImages, imagePaths = [] }: TypedMessage): Promise<void> => {
   const { sessionName } = session.summary;

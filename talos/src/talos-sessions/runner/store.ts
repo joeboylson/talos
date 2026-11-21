@@ -103,3 +103,15 @@ export const broadcastSessions = createCoalescer(
   () => broadcast({ type: "sessions", sessions: listSessions() }),
   SESSION_LIMITS.sessionsBroadcastCoalesceMs,
 );
+
+// One thing types into a session at a time (a message, talos's answer or
+// request, the person's keys): one typed during another's pauses would join
+// it, and glue its text onto the other's.
+const typing = new Map<string, Promise<unknown>>();
+export const typeInTurn = <T>(sessionName: string, type: () => Promise<T>): Promise<T> => {
+  const typed = (typing.get(sessionName) ?? Promise.resolve()).then(type);
+  const settled = typed.catch(() => {});
+  typing.set(sessionName, settled);
+  void settled.then(() => typing.get(sessionName) === settled && typing.delete(sessionName));
+  return typed;
+};

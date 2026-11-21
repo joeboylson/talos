@@ -13,7 +13,7 @@ import { restoreTrust, type TrustChange } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
 import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
-import { eventListeners, heldSessions, listSessions, runnerState, startingSessions, trustChanges } from "./store";
+import { eventListeners, heldSessions, listSessions, runnerState, startingSessions, trustChanges, typeInTurn } from "./store";
 
 const streamOf = <T>(
   onStart: (controller: ReadableStreamDefaultController<T>) => void,
@@ -185,7 +185,8 @@ export const controlServeOptions = (runnerSocket: string) => ({
         const hasDraft = isDraftClearingKeys(keys) ? false : isDraftChanging || session.hasDraft;
         heldSessions.set(session.summary.sessionName, { ...session, hasDraft });
         if (isTurnChanging || isDraftChanging) applyLaneEvent(session.summary.sessionName, { type: "person-typed", isTurnChanging });
-        session.terminal.write(keys);
+        // Written in its turn, so it can't land inside a paste talos is typing.
+        await typeInTurn(session.summary.sessionName, async () => session.terminal.write(keys));
         return new Response(null, { status: 204 });
       },
     },

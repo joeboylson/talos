@@ -86,3 +86,33 @@ test(
   },
   30_000,
 );
+
+// talos sets the session working just before its Esc, so waiting for that lands
+// in its pause before the paste.
+const inTalosPause = async (name: string) => waitUntil(() => latest[name]?.state === "working", "talos to start typing", 10_000);
+
+test(
+  "keys typed while talos types an answer aren't glued into it",
+  async () => {
+    const [question] = await startWithQuestions("keys-glue", "go", 1);
+    expect(await calls.answer("keys-glue", question!.id, 0)).toEqual({ ok: true });
+    await inTalosPause("keys-glue");
+    expect(await calls.keys("keys-glue", "hel")).toEqual({ ok: true });
+    await waitUntil(() => prompts("keys-glue").some((text) => text.includes("Answer to")), "the answer");
+    expect(prompts("keys-glue").filter((text) => text.includes("Answer to"))).toEqual([`Answer to ${question!.id}: A`]);
+  },
+  30_000,
+);
+
+test(
+  "a message sent while talos types an answer waits for it, so the answer has its own turn",
+  async () => {
+    const [question] = await startWithQuestions("send-during", "go", 1);
+    expect(await calls.answer("send-during", question!.id, 0)).toEqual({ ok: true });
+    await inTalosPause("send-during");
+    expect(await calls.send("send-during", "from the page")).toEqual({ ok: true });
+    await waitUntil(() => prompts("send-during").includes("from the page"), "the message");
+    expect(texts("send-during").filter((text) => text.startsWith("BUSY Answer to"))).toEqual([]);
+  },
+  30_000,
+);

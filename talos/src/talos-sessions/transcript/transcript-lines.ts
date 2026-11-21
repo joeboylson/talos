@@ -4,6 +4,7 @@ import { SESSION_LIMITS } from "../limits";
 import { STRUCTURED_TOOL_PREFIX } from "../kinds";
 import { capDroppedMarkers, readSessionEntry, toDroppedMarker, type SessionEntry, type UnnumberedEntry } from "../shapes";
 import { TOOL_SUMMARY_SHOWN_LENGTH, NEWLINE_BYTE } from "../constants";
+import { removeControlCharacters } from "../terminal";
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
 // only the fields talos reads.
@@ -30,7 +31,13 @@ const COMMAND_OUTPUT = /^<local-command-stdout>([\s\S]*)<\/local-command-stdout>
 // Claude Code's own notes, saved as messages, that nobody typed.
 const NOTE_PREFIXES = ["<local-command-caveat>", "<system-reminder>", "<bash-stdout>", "<bash-stderr>"];
 
-const truncate = (text: string, maxLength: number): string => (text.length > maxLength ? text.slice(0, maxLength) : text);
+// Everything shown from the conversation goes through here. A session writes
+// this text, so its control characters go: an escape sequence drawn in a
+// terminal could clear it, retitle it or set the clipboard.
+const truncate = (text: string, maxLength: number): string => {
+  const shown = removeControlCharacters(text);
+  return shown.length > maxLength ? shown.slice(0, maxLength) : shown;
+};
 
 const contentBlocksOf = (content: unknown): ContentBlock[] => {
   if (typeof content === "string") return [{ type: "text", text: content }];

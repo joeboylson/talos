@@ -72,11 +72,14 @@ export const isIdentifierName = (value: unknown): value is string =>
   typeof value === "string" && value.length <= LIMITS.maxIdentifierLength && IDENTIFIER_NAME.test(value);
 
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
 // A bad ask or open output is left out rather than turning down the whole list.
+// The size cap is on its fields, as the lane checks them, never its wrapper.
 const readAsks = (value: unknown): Record<string, Ask> => {
-  if (!isFields(value)) return {};
+  if (!isPlainObject(value)) return {};
   const readAsk = (ask: unknown): Ask | null => {
-    if (!isFields(ask)) return null;
+    if (!isPlainObject(ask)) return null;
     const { state, atMs, latest } = ask;
     if (!isOneOf(ASK_STATES, state) || typeof atMs !== "number") return null;
     return isFields(latest) ? { state, atMs, latest } : { state, atMs };
@@ -91,7 +94,7 @@ const readAsks = (value: unknown): Record<string, Ask> => {
 
 const readOpenOutputs = (value: unknown): OpenOutput[] =>
   (Array.isArray(value) ? value.slice(0, LIMITS.maxOpenOutputs) : []).flatMap((output: unknown) => {
-    if (!isFields(output)) return [];
+    if (!isPlainObject(output)) return [];
     const { id, kind, fields, atMs } = output;
     const isOutput = isTextUpTo(id, LIMITS.maxIdTextLength) && isTextUpTo(kind, LIMITS.maxNameTextLength) && isFields(fields) && typeof atMs === "number";
     return isOutput ? [{ id, kind, fields, atMs }] : [];

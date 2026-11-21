@@ -133,3 +133,11 @@ test("dropped markers the cap leaves out don't take real entries' places", () =>
   expect(merged.filter(({ kind }) => kind === "dropped")).toHaveLength(20);
   expect(merged.filter(({ kind }) => kind === "text")).toHaveLength(480);
 });
+
+test("an output or answer as big as the lane allows is read, not dropped for its wrapper", () => {
+  const fields = { text: "x".repeat(SESSION_LIMITS.maxOutputFieldsBytes - 20) };
+  const summary = { sessionName: "s", folderName: "f", state: "needs-you", asks: { status: { state: "answered", atMs: 1, latest: fields }, other: { state: "answered", atMs: 1, latest: fields } }, openOutputs: [{ id: "o1", kind: "decision", fields, atMs: 1 }] };
+  const [read] = readSessionList([summary]) ?? [];
+  expect(read?.openOutputs.map(({ id }) => id)).toEqual(["o1"]);
+  expect(Object.keys(read?.asks ?? {})).toEqual(["status", "other"]);
+});

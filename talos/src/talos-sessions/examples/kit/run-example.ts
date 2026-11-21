@@ -7,9 +7,10 @@ import { DETACH_KEY, connectToSessions, type Result } from "../../index";
 import { readRecording, recordEvent, saveRecording, toInput, type RecordedLine } from "./recording";
 import { fitScreen } from "./screen";
 import type { Action, ExampleView, Input } from "./view";
-import { CTRL_C } from "./view";
+import { CTRL_C, SESSION_NAME } from "./view";
 
-export const SESSION_NAME = "example";
+export { SESSION_NAME };
+
 const REPLAY_STEP_MS = 120;
 
 type Mode = "live" | "record" | "replay";
@@ -32,7 +33,9 @@ export const prepareRun = (exampleFolder: string) => {
   rmSync(home, { recursive: true, force: true });
   const work = join(home, "work");
   mkdirSync(home, { recursive: true, mode: 0o700 });
-  cpSync(join(exampleFolder, "data"), work, { recursive: true });
+  // Links are copied as the files they point to: a link left as one would let
+  // the session change data/ itself.
+  cpSync(join(exampleFolder, "data"), work, { recursive: true, dereference: true });
   // Its own git repository, so Claude Code keeps the session runner's answers
   // (trust, CLAUDE.md imports) for this folder, not for the repo around it.
   Bun.spawnSync(["git", "init", "--quiet", work]);

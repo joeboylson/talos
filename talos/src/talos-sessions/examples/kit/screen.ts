@@ -43,3 +43,30 @@ export const bar = (value: number, most: number, width: number): string => {
   const halves = Math.round((value / most) * width * 2);
   return "█".repeat(Math.floor(halves / 2)) + (halves % 2 ? "▌" : "");
 };
+
+// A word wider than the line is split, by cells, so nothing is cut off.
+const splitWord = (word: string, width: number): string[] =>
+  [...word].reduce<string[]>((parts, character) => {
+    const last = parts.at(-1);
+    return last !== undefined && visibleLength(last + character) <= width ? [...parts.slice(0, -1), last + character] : [...parts, character];
+  }, []);
+
+// Wraps plain text to the width in cells, keeping its own line breaks.
+export const wrapText = (text: string, width: number): string[] =>
+  text.split("\n").flatMap((paragraph) =>
+    paragraph
+      .split(" ")
+      .flatMap((word) => (visibleLength(word) > width ? splitWord(word, Math.max(width, 1)) : [word]))
+      .reduce<string[]>((lines, word) => {
+        const last = lines.at(-1);
+        if (last !== undefined && visibleLength(last ? `${last} ${word}` : word) <= width) return [...lines.slice(0, -1), last ? `${last} ${word}` : word];
+        return [...lines, word];
+      }, []),
+  );
+
+// The end of a line that's too long, so what's being typed, and the cursor, show.
+export const lastCells = (text: string, width: number): string => {
+  const characters = [...text];
+  const start = characters.findIndex((_character, index) => visibleLength(characters.slice(index).join("")) <= width);
+  return characters.slice(start === -1 ? characters.length : start).join("");
+};

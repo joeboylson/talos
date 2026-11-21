@@ -1,8 +1,8 @@
 // explorer: ask about a shop's sales, and see the session's answer as text with
 // its charts, tables and numbers drawn in between, in the order it sent them.
 import { mergeSessionEntries, type SessionEntry, type SessionSummary } from "../../index";
-import { bar, bold, cyan, dim, fit, padTo, visibleLength, yellow } from "../kit/screen";
-import { BACKSPACE, CTRL_A, ENTER, noActions, type ExampleView } from "../kit/view";
+import { bar, bold, cyan, dim, fit, padTo, visibleLength, lastCells, wrapText, yellow } from "../kit/screen";
+import { CTRL_A, exampleSession, noActions, typeIntoDraft, type ExampleView } from "../kit/view";
 
 export const SUMMARY_REQUEST = "Summarize this data with send_summary.";
 const KEPT_ENTRIES = 500;
@@ -11,7 +11,7 @@ const labelWidthFor = (width: number) => Math.min(14, Math.max(Math.floor(width 
 const SPARKS = "▁▂▃▄▅▆▇█";
 
 export type ExplorerState = {
-  session: SessionSummary["state"] | "starting";
+  session: SessionSummary["state"] | "starting" | "gone";
   entries: SessionEntry[];
   draft: string;
   notice: string;
@@ -25,17 +25,6 @@ const numberText = (value: number): string => {
   const digits = Math.abs(value) < 1 ? { maximumSignificantDigits: 3 } : { maximumFractionDigits: 2 };
   return value.toLocaleString("en-GB", digits);
 };
-
-// Wraps plain text to the width, keeping its own line breaks.
-const wrapText = (text: string, width: number): string[] =>
-  text.split("\n").flatMap((paragraph) => {
-    const words = paragraph.split(" ");
-    return words.reduce<string[]>((lines, word) => {
-      const last = lines.at(-1) ?? "";
-      if (lines.length > 0 && visibleLength(`${last} ${word}`) <= width) return [...lines.slice(0, -1), last ? `${last} ${word}` : word];
-      return [...lines, word];
-    }, []);
-  });
 
 export const drawBars = ({ title, labels, series }: Fields, width: number): string[] => {
   const names = labels as string[];
@@ -113,6 +102,7 @@ const drawEntry = (entry: SessionEntry, width: number): string[] => {
 
 const STATE_MARKS: Record<ExplorerState["session"], string> = {
   starting: dim("○ starting"),
+  gone: dim("○ ended"),
   idle: "● ready",
   working: yellow("◐ working"),
   "needs-you": yellow("⚠ needs you · ^A"),
@@ -123,22 +113,26 @@ export const explorerView: ExampleView<ExplorerState> = {
   step: (state, input) => {
     if (input.type === "event") {
       const { event } = input;
-      if (event.type === "sessions") return noActions({ ...state, session: event.sessions[0]?.state ?? state.session });
+      if (event.type === "sessions") {
+        // Not listed once it has ended; before it starts, it isn't listed yet either.
+        const session = exampleSession(event.sessions)?.state ?? (state.session === "starting" ? "starting" : "gone");
+        return noActions({ ...state, session });
+      }
       if (event.type === "session-entries") return noActions({ ...state, entries: mergeSessionEntries(state.entries, event.entries, KEPT_ENTRIES) });
       return noActions({ ...state, notice: event.message });
     }
-    if (input.type === "result") return noActions({ ...state, notice: input.result.ok ? "" : input.result.reason });
+    if (input.type === "result") {
+      // A message that couldn't be sent goes back into the draft, so it isn't lost.
+      const { action, result } = input;
+      const draft = !result.ok && action.do === "send" && state.draft === "" ? action.text : state.draft;
+      return noActions({ ...state, draft, notice: result.ok ? "" : result.reason });
+    }
     if (input.type !== "key") return noActions(state);
     const { key } = input;
     if (key === CTRL_A) return { state, actions: [{ do: "attach" }] };
-    if (key === ENTER) {
-      const text = state.draft.trim();
-      return text ? { state: { ...state, draft: "" }, actions: [{ do: "send", text }] } : noActions(state);
-    }
-    if (key === BACKSPACE) return noActions({ ...state, draft: state.draft.slice(0, -1) });
     if (key === "s" && state.draft === "") return { state, actions: [{ do: "send", text: SUMMARY_REQUEST }] };
-    const typed = key.replace(/[\x00-\x1f\x7f]/g, "");
-    return noActions(typed ? { ...state, draft: state.draft + typed } : state);
+    const { draft, sent } = typeIntoDraft(state.draft, key);
+    return { state: { ...state, draft }, actions: sent.map((text) => ({ do: "send" as const, text })) };
   },
   render: (state, columns) => {
     const width = Math.max(columns, 1);
@@ -147,7 +141,7 @@ export const explorerView: ExampleView<ExplorerState> = {
       ...state.entries.flatMap((entry) => drawEntry(entry, width)),
       "",
       ...(state.notice ? [yellow(fit(state.notice, width))] : []),
-      `› ${state.draft}▏`,
+      `› ${lastCells(state.draft, width - 3)}▏`,
       dim("⏎ ask · s summary · ^A attach · ^C quit"),
     ];
   },

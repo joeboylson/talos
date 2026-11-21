@@ -80,6 +80,14 @@ Each block below is listed as what goes in → what comes out.
   - Holds: the session runner, the hook script, the MCP server, the lane and
     output rules, held answers, the transcript reader, and its own copies of
     the shapes and limits it shares with `talos-shared`.
+  - Known limit: it trusts everything that runs as the same user. A session's
+    hook token is in its environment, so anything with Bash in that session (a
+    sub-agent, a prompt-injected command) can send hooks as the session: put
+    up questions with buttons, answer an asked-for turn, or flood the shared
+    hooks socket so other sessions' hooks go unanswered (then denied, so
+    talos's tools stop working). It can't reach another session's token or
+    the control socket's calls. The fix is running sessions as a separate OS
+    user, left until talos runs for more than its one owner.
   - Shown by: `examples/receipts`, `examples/recipes`, `examples/explorer`.
   - Lives in: `talos/src/talos-sessions/`, tests in its own `tests/` and each
     example's `tests/`, all run by its `check.sh`.

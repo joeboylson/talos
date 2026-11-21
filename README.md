@@ -156,3 +156,7 @@ It has no access to AWS. The security checks (`dev/security/check.sh`, also
 
 Live on AWS (ECS Express Mode in us-east-2). Machines and sessions driven
 from the page.
+
+Known limit: a session (or anything running as you) can pose as a session to
+talos on that machine, since sessions run as your own user. See
+`talos-sessions` in docs/MODULES.md.

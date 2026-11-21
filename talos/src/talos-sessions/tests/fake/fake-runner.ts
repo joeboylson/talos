@@ -1,6 +1,7 @@
 // The fake-runner tests' session runner: a made-up note kind (sent on its own,
 // doesn't wait), question kind (waits, with choices) and status kind (asked
 // for), and the fake Claude.
+import { basename } from "node:path";
 import { runSessionRunner, type OutputKind } from "../../index";
 
 const home = process.argv[2];
@@ -61,7 +62,12 @@ const STATUS: OutputKind = {
 await runSessionRunner({
   home,
   log: { event: () => {}, detail: () => {}, warn: console.warn },
-  isAllowedFolder: async () => true,
+  // A folder named slow… takes a moment to check, so a start can be caught mid-way.
+  isAllowedFolder: async (_folderName, path) => {
+    if (basename(path).startsWith("slow")) await Bun.sleep(500);
+    return true;
+  },
+  restoreTrustOnStop: true,
   kinds: [NOTE, QUESTION, STATUS],
   proseTurn: { output: "prose", optional: ["note", "question"] },
   claudeCommand: [process.execPath, new URL("./fake-claude.ts", import.meta.url).pathname],

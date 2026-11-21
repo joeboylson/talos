@@ -7,11 +7,14 @@
 // - an answer: runs Bash, as a normal turn would.
 // - "clear" / "resume": a last line in the current conversation file, then a
 //   switch to a second file / back to the first, as /clear and /resume do.
-// Anything else is a prompt it just answers by ending its turn. Text typed while
+// Anything else is a prompt it just answers by ending its turn.
+// It saves its process id in claude.pid. In a folder named stubborn… it ignores
+// being told to stop; in one named spawner… it starts a process that ignores
+// the terminal closing, and saves that one's id in child.pid. Text typed while
 // a turn runs is saved as a "BUSY" line, and a tool talos denies as a "DENIED"
 // line, so a test can see both.
 import { appendFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { askRunner } from "../../client/hook-client";
 import { SESSION_ENV_KEYS } from "../../constants";
 
@@ -76,6 +79,12 @@ const runTurn = async (text: string) => {
   process.stdout.write("done\n");
 };
 
+writeFileSync(join(process.cwd(), "claude.pid"), String(process.pid));
+if (basename(process.cwd()).startsWith("stubborn")) for (const signal of ["SIGTERM", "SIGHUP"] as const) process.on(signal, () => {});
+if (basename(process.cwd()).startsWith("spawner")) {
+  const child = Bun.spawn(["sh", "-c", "trap '' HUP TERM; sleep 60"], { stdio: ["ignore", "ignore", "ignore"] });
+  writeFileSync(join(process.cwd(), "child.pid"), String(child.pid));
+}
 writeFileSync(firstTranscript, "");
 writeFileSync(secondTranscript, "");
 await hook({ hook_event_name: "SessionStart" });

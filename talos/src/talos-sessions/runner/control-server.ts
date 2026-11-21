@@ -6,14 +6,14 @@ import type { BunRequest } from "bun";
 import { isIdentifierName, readSentImages } from "../shapes";
 import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runner-protocol";
 import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
-import { endSession, startSession } from "./lifecycle";
+import { endSession, startSession, waitForStart } from "./lifecycle";
 import { noSuchSession, refuse } from "./refuse";
-import { claudeConfigFile, isAllowedFolder, log, paths, restoresTrust } from "./inputs";
-import { restoreTrust } from "../claude/claude-trust";
+import { claudeConfigFile, log, paths, restoresTrust } from "./inputs";
+import { restoreTrust, type TrustChange } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
 import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
-import { eventListeners, heldSessions, listSessions, trustChanges } from "./store";
+import { eventListeners, heldSessions, listSessions, runnerState, startingSessions, trustChanges } from "./store";
 
 const streamOf = <T>(
   onStart: (controller: ReadableStreamDefaultController<T>) => void,
@@ -73,17 +73,36 @@ const heldSessionOf = (request: BunRequest) => {
 };
 
 // Answers once every session has exited, then leaves: the answer has to go out
-// before the process does.
-const stopRunner = async () => {
-  log.event("runner: stopping, with every session it holds");
-  await Promise.all([...heldSessions.values()].map(endSession));
-  // Only once every session has exited: Claude Code writes its settings as it
-  // closes, which would undo a change made sooner.
-  if (restoresTrust()) await restoreTrust(trustChanges, claudeConfigFile()).catch((error: unknown) => log.warn(`runner: couldn't put trust back: ${error}`));
-  const { runnerSocket, hooksSocket } = paths();
-  await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
-  setTimeout(() => process.exit(0), 50);
+// before the process does. No new session starts meanwhile, and one already
+// starting is waited for, so it's ended too.
+let stopping: Promise<void> | null = null;
+export const stopRunner = async (): Promise<Response> => {
+  runnerState.isStopping = true;
+  stopping ??= (async () => {
+    log.event("runner: stopping, with every session it holds");
+    await Promise.all([...startingSessions.keys()].map(waitForStart));
+    await Promise.all([...heldSessions.values()].map(endSession));
+    // Only once every session has exited: Claude Code writes its settings as it
+    // closes, which would undo a change made sooner.
+    await putTrustBack(trustChanges);
+    const { runnerSocket, hooksSocket, runnerLock } = paths();
+    await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
+    await rm(runnerLock, { force: true });
+    setTimeout(() => process.exit(0), 50);
+  })();
+  await stopping;
   return new Response(null, { status: 204 });
+};
+
+// Puts back the trust answers given, then forgets them, on disk too.
+export const putTrustBack = async (changes: readonly TrustChange[]): Promise<void> => {
+  if (!restoresTrust() || changes.length === 0) return;
+  try {
+    await restoreTrust(changes, claudeConfigFile());
+    await rm(paths().trustChanges, { force: true });
+  } catch (error) {
+    log.warn(`runner: couldn't put trust back: ${error}`);
+  }
 };
 
 // Event and output streams stay open for as long as someone listens, so the
@@ -103,9 +122,6 @@ export const controlServeOptions = (runnerSocket: string) => ({
         const { sessionName, folderName, path } = await readJson(request);
         const isRequest = isIdentifierName(sessionName) && isIdentifierName(folderName) && typeof path === "string";
         if (!isRequest) return new Response("expected plain sessionName and folderName, and a path", { status: 400 });
-        // The session runner checks the folder list itself, so nothing that reaches its
-        // socket can start Claude (and mark it trusted) in any other folder.
-        if (!(await isAllowedFolder(folderName, path))) return refuse("folder-not-allowed", `${path} isn't one of the allowed folders`, 403);
         return startSession({ sessionName, folderName, path });
       },
     },
@@ -122,6 +138,8 @@ export const controlServeOptions = (runnerSocket: string) => ({
     },
     [`${RUNNER_ROUTES.sessions}/:sessionName/stop`]: {
       POST: async (request: BunRequest) => {
+        // A session still starting is stopped once it has.
+        if (isIdentifierName(sessionNameOf(request))) await waitForStart(sessionNameOf(request));
         const session = heldSessionOf(request);
         if (!session) return noSuchSession(sessionNameOf(request));
         await endSession(session);

@@ -14,9 +14,9 @@ import { CLAUDE_CONFIG_FILE } from "../constants";
 type ClaudeConfig = Record<string, unknown>;
 type Projects = Record<string, Record<string, unknown>>;
 
-// What one folder's settings were before the session runner changed them, and
-// what it set them to, so they can be put back. A setting that's missing
-// (undefined) had no value.
+// What the session runner set in one folder's settings (after), and what they
+// were before, so they can be put back. A setting missing from before had no
+// value (it's kept as JSON, which leaves out undefined).
 export type TrustChange = { folderPath: string; before: Record<string, unknown>; after: Record<string, unknown> };
 
 const isMap = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,7 +57,7 @@ export const restoreTrusted = (claudeConfig: ClaudeConfig, { folderPath, before,
   const projects = projectsOf(claudeConfig);
   const project = projects[folderPath];
   if (!project) return claudeConfig;
-  const isOurs = (setting: string) => setting in before && project[setting] === after[setting];
+  const isOurs = (setting: string) => setting in after && project[setting] === after[setting];
   const kept = Object.fromEntries(Object.entries(project).filter(([setting]) => !isOurs(setting)));
   const restored = Object.fromEntries(Object.entries(before).filter(([setting, value]) => value !== undefined && isOurs(setting)));
   return { ...claudeConfig, projects: { ...projects, [folderPath]: { ...kept, ...restored } } };
@@ -117,8 +117,10 @@ export const trustFolder = async (folderPath: string, configFile = CLAUDE_CONFIG
   return changeConfig(configFile, (claudeConfig) => {
     const project = projectsOf(claudeConfig)[realFolderPath];
     const next = markTrusted(claudeConfig, realFolderPath);
-    const before = Object.fromEntries(changedSettings(project).map((setting) => [setting, project?.[setting]]));
-    return { next, value: next ? { folderPath: realFolderPath, before, after: answersFor(project) } : null };
+    const changed = changedSettings(project);
+    const before = Object.fromEntries(changed.map((setting) => [setting, project?.[setting]]));
+    const after = Object.fromEntries(changed.map((setting) => [setting, answersFor(project)[setting]]));
+    return { next, value: next ? { folderPath: realFolderPath, before, after } : null };
   });
 };
 

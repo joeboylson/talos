@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { openSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { HOME_MODE, RUNNER_START_CHECK_MS, RUNNER_START_TIMEOUT_MS, homePaths } from "../constants";
 import { RUNNER_ROUTES, parseRunnerEvent, type RunnerEvent } from "./runner-protocol";
 
@@ -22,9 +22,8 @@ export const isRunnerRunning = (home: string): Promise<boolean> =>
 // (or closing its terminal) leaves the session runner and its sessions running.
 // The script gets the home as its argument, to hand to runSessionRunner.
 const startRunner = async (home: string, runnerScript: string): Promise<void> => {
-  const { runnerSocket, log } = homePaths(home);
+  const { log } = homePaths(home);
   await mkdir(home, { recursive: true, mode: HOME_MODE });
-  await rm(runnerSocket, { force: true });
   const logFile = openSync(log, "a");
   const runner = spawn(process.execPath, [runnerScript, home], { detached: true, stdio: ["ignore", logFile, logFile], env: process.env });
   runner.unref();

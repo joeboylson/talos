@@ -69,6 +69,10 @@ export const heldSessions = new Map<string, HeldSession>();
 export const eventListeners = new Set<ReadableStreamDefaultController<string>>();
 // The trust settings this session runner changed, to put back when it stops.
 export const trustChanges: TrustChange[] = [];
+// Sessions whose start is under way, by name, so a stop can wait for one; and
+// whether the runner is stopping, when it takes no new sessions.
+export const startingSessions = new Map<string, Promise<Response>>();
+export const runnerState = { isStopping: false };
 
 // Changes a held session only while it's the same instance (same hook token),
 // so a loop or read left over from a session that ended never touches a new

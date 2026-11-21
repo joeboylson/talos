@@ -59,6 +59,11 @@ export const homePaths = (home: string) => ({
   mcpConfig: join(home, "mcp-config.json"),
   uploads: join(home, "uploads"),
   quarantine: join(home, "quarantine.log"),
+  // The trust answers to put back, kept on disk so a runner that crashed or was
+  // killed puts them back when the next one starts.
+  trustChanges: join(home, "trust-changes.json"),
+  // The live runner's process id: only one runner may hold a home.
+  runnerLock: join(home, "runner.lock"),
 });
 export type HomePaths = ReturnType<typeof homePaths>;
 

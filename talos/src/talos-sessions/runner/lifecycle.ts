@@ -1,7 +1,7 @@
 // Starting a session, holding its terminal, and ending it.
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { trustFolder } from "../claude/claude-trust";
+import { trustFolder, type TrustChange } from "../claude/claude-trust";
 import {
   HOOK_SCRIPT,
   READY_CHECK_MS,
@@ -15,13 +15,13 @@ import { buildHookSettings } from "../claude/session-hooks";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
-import { claudeCommand, claudeConfigFile, log, paths, restoresTrust } from "./inputs";
+import { claudeCommand, claudeConfigFile, isAllowedFolder, log, paths, restoresTrust } from "./inputs";
 import { refuse } from "./refuse";
 
 const SESSION_EXIT_WAIT_MS = 5000;
 import { typeIntoSession } from "./messages";
 import { applyLaneEvent, setSessionState } from "./session-state";
-import { broadcastSessions, heldSessions, sendToListeners, trustChanges, updateHeldSession, type HeldSession, type Terminal } from "./store";
+import { broadcastSessions, heldSessions, runnerState, sendToListeners, startingSessions, trustChanges, updateHeldSession, type HeldSession, type Terminal } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
@@ -43,22 +43,43 @@ const forgetSession = (sessionName: string, token: string) => {
   broadcastSessions();
 };
 
+// Not a refusal: a runner that's going away is like one that isn't there.
+const STOPPING = () => new Response("the session runner is stopping", { status: 503 });
+
 const refuseNewSession = (sessionName: string): Response | null => {
-  if (heldSessions.has(sessionName)) return refuse("already-running", `${sessionName} is already running`);
-  if (heldSessions.size >= SESSION_LIMITS.maxSessions) return refuse("too-many-sessions", "too many sessions", 429);
+  if (runnerState.isStopping) return STOPPING();
+  if (heldSessions.has(sessionName) || startingSessions.has(sessionName)) return refuse("already-running", `${sessionName} is already running`);
+  if (heldSessions.size + startingSessions.size >= SESSION_LIMITS.maxSessions) return refuse("too-many-sessions", "too many sessions", 429);
   return null;
 };
 
-export const startSession = async ({ sessionName, folderName, path }: StartSessionRequest): Promise<Response> => {
-  const refusal = refuseNewSession(sessionName);
-  if (refusal) return refusal;
+// Saved before Claude starts, so a runner that dies still leaves them to put back.
+const keepTrustChange = async (trustChange: TrustChange): Promise<void> => {
+  trustChanges.push(trustChange);
+  await Bun.write(paths().trustChanges, JSON.stringify(trustChanges));
+};
+
+// The name is held from the first check until the session is recorded, so a
+// second start can't take it and a stop can wait for it (see waitForStart).
+export const startSession = (request: StartSessionRequest): Promise<Response> => {
+  const refusal = refuseNewSession(request.sessionName);
+  if (refusal) return Promise.resolve(refusal);
+  const starting = startHeldSession(request).finally(() => startingSessions.delete(request.sessionName));
+  startingSessions.set(request.sessionName, starting);
+  return starting;
+};
+
+export const waitForStart = async (sessionName: string): Promise<void> => {
+  await startingSessions.get(sessionName)?.catch(() => {});
+};
+
+const startHeldSession = async ({ sessionName, folderName, path }: StartSessionRequest): Promise<Response> => {
+  // The session runner checks the folder list itself, so nothing that reaches its
+  // socket can start Claude (and mark it trusted) in any other folder.
+  if (!(await isAllowedFolder(folderName, path))) return refuse("folder-not-allowed", `${path} isn't one of the allowed folders`, 403);
   const trustChange = await trustFolder(path, claudeConfigFile());
-  if (trustChange && restoresTrust()) trustChanges.push(trustChange);
-  // Checked again after the wait: two starts of the same name can both pass the
-  // first check, and the second would leave the first one's process running
-  // with no record. Spawning and saving the record below happen in one step.
-  const refusalAfterWait = refuseNewSession(sessionName);
-  if (refusalAfterWait) return refusalAfterWait;
+  if (trustChange && restoresTrust()) await keepTrustChange(trustChange);
+  if (runnerState.isStopping) return STOPPING();
 
   const hookCommand = `"${process.execPath}" "${HOOK_SCRIPT}"`;
   const hookToken = crypto.randomUUID();
@@ -137,14 +158,25 @@ export const becomeReadyWhenQuiet = async (sessionName: string, token: string, g
   for (const message of session.queuedMessages) await typeIntoSession(session, message);
 };
 
+// Claude leads its own process group (its terminal's), so signalling the group
+// reaches what it started too, like a `nohup cmd &` from a Bash call. One that
+// left the group (setsid) is out of reach.
+const signalSession = (session: HeldSession, signal: NodeJS.Signals): void => {
+  try {
+    process.kill(-session.child.pid, signal);
+  } catch {
+    session.child.kill(signal);
+  }
+};
+
 // Ends a session and waits until its Claude process is gone, so whatever comes
 // after (like putting trust back) can't be undone by a session still closing.
 // One that won't go within the wait is killed outright.
 export const endSession = async (session: HeldSession): Promise<void> => {
-  session.child.kill();
+  signalSession(session, "SIGTERM");
   const hasExited = await Promise.race([session.child.exited.then(() => true), Bun.sleep(SESSION_EXIT_WAIT_MS).then(() => false)]);
-  if (!hasExited) {
-    session.child.kill("SIGKILL");
-    await session.child.exited;
-  }
+  if (!hasExited) signalSession(session, "SIGKILL");
+  await session.child.exited;
+  // What it started may outlive Claude by a moment, or ignore SIGTERM.
+  signalSession(session, "SIGKILL");
 };

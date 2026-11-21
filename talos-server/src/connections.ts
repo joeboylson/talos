@@ -24,6 +24,7 @@ import {
   PING_ANSWER_WAIT_MS,
 } from "./constants";
 import { allowBytes, type ByteWindow } from "./utils/rate-limit";
+import { steadyNow } from "./utils/steady-clock";
 import type { MachineRecord, MachinesTable } from "./machines-table";
 import { SERVER_LIMITS } from "./limits";
 
@@ -207,7 +208,7 @@ export const createConnections = (
   // and so does one whose sign-in check was already under way.
   const signedOutAtMsByPerson = new Map<string, number>();
   const disconnectPersonPages = (personId: string): void => {
-    signedOutAtMsByPerson.set(personId, Date.now());
+    signedOutAtMsByPerson.set(personId, steadyNow());
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) =>
       pageSocket.close(CLOSE_CODES.signedOut, "signed out"),
     );
@@ -228,7 +229,7 @@ export const createConnections = (
       return;
     }
     log.detail(`${displayName} pinged ${targetMachineIds.length} machine(s)`);
-    const nowMs = Date.now();
+    const nowMs = steadyNow();
     targetMachineIds.forEach((machineId) => {
       const pending = pendingPingByMachineId.get(machineId);
       const isStillWaiting = pending !== undefined && nowMs - pending.sentAtMs < PING_ANSWER_WAIT_MS;
@@ -334,7 +335,7 @@ export const createConnections = (
     const pending = pendingPingByMachineId.get(machine.machineId);
     if (pending?.pingId !== pingId) return;
     pendingPingByMachineId.delete(machine.machineId);
-    const roundTripMs = Date.now() - pending.sentAtMs;
+    const roundTripMs = steadyNow() - pending.sentAtMs;
     log.detail(`pong from "${machine.machineName}" in ${roundTripMs} ms`);
     const { machineId, machineName } = machine;
     sendToOwnerPages(machine.ownerPersonId, { type: "pong", machineId, machineName, roundTripMs });
@@ -409,7 +410,7 @@ export const createConnections = (
       // Drop before parsing if this socket is over its byte or message budget, so
       // a flood of large frames or of tiny ones can't block the single server
       // thread for every other owner. Bytes, not characters, are what's parsed.
-      const nowMs = Date.now();
+      const nowMs = steadyNow();
       const messageCheck = allowBytes(socketMessageWindows.get(socket), nowMs, 1, {
         windowMs: LIMITS.socketIngressWindowMs,
         maxBytes: SERVER_LIMITS.maxSocketMessagesPerWindow,

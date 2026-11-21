@@ -1,11 +1,12 @@
 // Whether one more attempt fits in the window, and the attempt times to keep.
-// Older times fall out of the window and are dropped.
+// Older times fall out of the window and are dropped, and so do times from
+// after now, left by a clock that jumped back.
 export const allowAttempt = (
   previousTimesMs: number[],
   nowMs: number,
   { windowMs, maxAttempts }: { windowMs: number; maxAttempts: number },
 ): { isAllowed: boolean; timesMs: number[] } => {
-  const recentTimesMs = previousTimesMs.filter((timeMs) => timeMs > nowMs - windowMs);
+  const recentTimesMs = previousTimesMs.filter((timeMs) => timeMs > nowMs - windowMs && timeMs <= nowMs);
   const isAllowed = recentTimesMs.length < maxAttempts;
   return { isAllowed, timesMs: isAllowed ? [...recentTimesMs, nowMs] : recentTimesMs };
 };
@@ -23,9 +24,11 @@ export const allowBytes = (
   size: number,
   { windowMs, maxBytes }: { windowMs: number; maxBytes: number },
 ): { isAllowed: boolean; window: ByteWindow } => {
-  const stillInWindow = previous !== undefined && nowMs - previous.startMs < windowMs;
-  const startMs = stillInWindow ? previous.startMs : nowMs;
-  const usedBytes = stillInWindow ? previous.bytes : 0;
+  // A window that starts after now (the clock jumped back) is over too.
+  const elapsedMs = previous === undefined ? -1 : nowMs - previous.startMs;
+  const window = previous && elapsedMs >= 0 && elapsedMs < windowMs ? previous : null;
+  const startMs = window ? window.startMs : nowMs;
+  const usedBytes = window ? window.bytes : 0;
   const isAllowed = usedBytes + size <= maxBytes;
   return { isAllowed, window: { startMs, bytes: isAllowed ? usedBytes + size : usedBytes } };
 };

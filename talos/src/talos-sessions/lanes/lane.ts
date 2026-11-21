@@ -152,6 +152,10 @@ const hasForbiddenCommand = (kind: OutputKind, fields: Record<string, unknown>):
   });
 const isTooBig = (fields: Record<string, unknown>): boolean => jsonByteLength(fields) > SESSION_LIMITS.maxOutputFieldsBytes;
 
+// Only a plain object of fields can be kept and shown; anything else a
+// program's check gives back is turned down, not lost after it's allowed.
+const isPlainFields = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
 // A turn may send what its shape allows. It's allowed with a fresh id and stays
 // pending; an asked-for turn is answered only once it goes through.
 const stepStructuredCall = (lane: Lane, kind: OutputKind, event: Extract<LaneEvent, { type: "pre-tool-use" }>, nowMs: number, catalog: Catalog): LaneStep => {
@@ -159,8 +163,8 @@ const stepStructuredCall = (lane: Lane, kind: OutputKind, event: Extract<LaneEve
   if (shape.output !== kind.kind && !shape.optional.includes(kind.kind)) {
     return stay(lane, denyToolDecision(isAskedTurnRunning(lane) ? onlyThisReason(askedToolName(lane, catalog)) : notNowReason(kind)));
   }
-  const fields = kind.readFields(event.toolInput);
-  if (!fields || hasForbiddenCommand(kind, fields) || isTooBig(fields)) return stay(lane, denyToolDecision(kind.badInputReason));
+  const fields: unknown = kind.readFields(event.toolInput);
+  if (!isPlainFields(fields) || hasForbiddenCommand(kind, fields) || isTooBig(fields)) return stay(lane, denyToolDecision(kind.badInputReason));
   const sent = { id: event.outputId, toolUseId: event.toolUseId, kind: kind.kind, fields, atMs: nowMs, waits: kind.waits };
   return { ...stay(lane, allowWithIdDecision(fields, event.outputId)), sent };
 };

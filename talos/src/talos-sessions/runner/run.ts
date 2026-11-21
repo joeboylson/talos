@@ -5,6 +5,7 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { chmod, lstat, mkdir, rm } from "node:fs/promises";
 import type { TrustChange } from "../claude/claude-trust";
+import { checkCatalog } from "../kinds";
 import { parseJsonOrNull } from "../json";
 import { ASK_CHECK_MS, HOME_MODE, RUNNER_SOCKET_MODE, steadyNow, TALOS_MCP_SERVER_KEY, TOOLS_SERVER_SCRIPT, TRANSCRIPT_CHECK_MS } from "../constants";
 import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } from "./control-server";
@@ -95,6 +96,7 @@ const endLeftSessionGroups = async (file: string): Promise<void> => {
 };
 
 export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
+  checkCatalog({ kinds: inputs.kinds, proseTurn: inputs.proseTurn });
   useRunnerInputs(inputs);
   const { home, runnerSocket, hooksSocket, mcpConfig, runnerLock, trustChanges } = paths();
   await claimHome(home);

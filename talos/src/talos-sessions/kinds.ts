@@ -1,6 +1,7 @@
 // The kinds of structured output a session can hand back. The module knows none
 // of them: talos passes its list in (see talos/src/session-outputs.ts), and the
 // module runs the same machinery for each.
+import { cleanLine, hasCommandMarker } from "./clean";
 import { TALOS_MCP_SERVER_KEY } from "./constants";
 
 export type OutputKind = {
@@ -53,3 +54,33 @@ export const listedSchema = (kind: OutputKind): object => {
 
 export const findKind = (catalog: Catalog, kindName: string): OutputKind | undefined =>
   catalog.kinds.find((kind) => kind.kind === kindName);
+
+// The kinds a program gives the session runner, checked when it starts: a bad
+// one is turned down there with its reason, rather than misbehaving quietly in
+// a session later (an output nobody can see, a question nobody can answer).
+const KIND_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
+const TOOL_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+const MAX_REQUEST_LENGTH = 2000;
+export const catalogProblems = ({ kinds, proseTurn }: Catalog): string[] => {
+  const repeated = (values: readonly string[]) => values.filter((value, index) => values.indexOf(value) !== index);
+  const kindOf = (name: string) => kinds.find(({ kind }) => kind === name);
+  return [
+    ...kinds.filter(({ kind }) => !KIND_NAME.test(kind) || kind === PROSE).map(({ kind }) => `the kind name ${JSON.stringify(kind)} isn't a short lower-case name`),
+    ...kinds.filter(({ toolName }) => !TOOL_NAME.test(toolName)).map(({ toolName }) => `the tool name ${JSON.stringify(toolName)} isn't a short lower-case name`),
+    ...repeated(kinds.map(({ kind }) => kind)).map((kind) => `two kinds are called ${kind}`),
+    ...repeated(kinds.map(({ toolName }) => toolName)).map((toolName) => `two kinds use the tool ${toolName}`),
+    ...kinds
+      .filter(({ choicesField, typedFields }) => choicesField !== undefined && !(choicesField in typedFields))
+      .map(({ kind }) => `${kind}'s choices aren't one of its typed fields, so they'd be typed unchecked`),
+    ...kinds
+      .filter(({ requestText }) => requestText !== undefined)
+      .filter(({ requestText = "" }) => !cleanLine(requestText) || requestText.length > MAX_REQUEST_LENGTH || hasCommandMarker(cleanLine(requestText)))
+      .map(({ kind }) => `${kind}'s request must be plain text of at most ${MAX_REQUEST_LENGTH} characters, with no commands`),
+    ...proseTurn.optional.filter((name) => !kindOf(name)).map((name) => `the prose turn names ${name}, which isn't a kind`),
+    ...proseTurn.optional.filter((name) => kindOf(name)?.requestText).map((name) => `${name} is asked for, so a prose turn can't send it`),
+  ];
+};
+export const checkCatalog = (catalog: Catalog): void => {
+  const problems = catalogProblems(catalog);
+  if (problems.length > 0) throw new Error(`the session runner's kinds can't be used: ${problems.join("; ")}`);
+};

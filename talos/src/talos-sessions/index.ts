@@ -7,4 +7,4 @@ export { COPIED_LIMITS } from "./limits";
 export { isIdentifierName, mergeSessionEntries, readSessionEntries, type SentImage, type SessionEntry, type SessionSummary } from "./shapes";
 export type { RunnerInputs } from "./runner/inputs";
 export { cleanLine, saysSomething } from "./clean";
-export { PROSE, type OutputKind, type TurnShape } from "./kinds";
+export { PROSE, catalogProblems, type OutputKind, type TurnShape } from "./kinds";

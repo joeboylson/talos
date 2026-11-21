@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { HELP_TEXT, isFolderCommand, isSessionCommand, parseCommand } from "../../commands";
-import { resolveFolderPath } from "../../folder-commands";
+import { realFolderPath, resolveFolderPath } from "../../folder-commands";
 
 test("no command connects", () => {
   expect(parseCommand([])).toEqual({ name: "connect" });
@@ -71,4 +71,18 @@ test.each([
 ])("%p: a folder command %p, a session command %p", (args, isFolder, isSession) => {
   const command = parseCommand(args);
   expect([isFolderCommand(command), isSessionCommand(command)]).toEqual([isFolder, isSession]);
+});
+
+test("one folder typed two ways (case, or two spellings of an accent) is one real path; a file isn't a folder", async () => {
+  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const folder = mkdtempSync(join(tmpdir(), "talos-folders-"));
+  mkdirSync(join(folder, "Proj"));
+  mkdirSync(join(folder, "caf\u00e9"));
+  writeFileSync(join(folder, "file"), "");
+  expect(await realFolderPath(join(folder, "proj"))).toBe(await realFolderPath(join(folder, "Proj")));
+  expect(await realFolderPath(join(folder, "cafe\u0301"))).toBe(await realFolderPath(join(folder, "caf\u00e9")));
+  expect(await realFolderPath(join(folder, "file"))).toBeNull();
+  rmSync(folder, { recursive: true, force: true });
 });

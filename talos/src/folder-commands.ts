@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { ENV_KEYS, buildIdentifier, requireEnv } from "talos-shared";
@@ -11,11 +11,13 @@ import { addFolder, readFolders, removeFolder, renameFolder, saveFolders } from 
 export const resolveFolderPath = (typedPath: string, currentFolder: string, homeFolder: string): string =>
   resolve(currentFolder, typedPath.replace(/^~(?=$|\/)/, homeFolder));
 
-const isFolder = (path: string): Promise<boolean> =>
-  stat(path).then(
-    (pathInfo) => pathInfo.isDirectory(),
-    () => false,
-  );
+// The folder as the disk names it, or null if it isn't one. macOS folds case
+// and accent forms, so "Proj" and "proj" (or two spellings of "café") are one
+// folder, and only its real path tells them apart from two.
+export const realFolderPath = async (path: string): Promise<string | null> => {
+  const isDirectory = await stat(path).then((pathInfo) => pathInfo.isDirectory(), () => false);
+  return isDirectory ? realpath(path) : null;
+};
 
 const fail = (problem: string): never => {
   console.error(`talos: ${problem}`);
@@ -42,8 +44,9 @@ export const runFolderCommand = async (command: FolderCommand): Promise<void> =>
   }
 
   if (command.name === "folders-add") {
-    const absolutePath = resolveFolderPath(command.path, process.cwd(), homedir());
-    if (!(await isFolder(absolutePath))) return fail(`${absolutePath} isn't a folder`);
+    const typedPath = resolveFolderPath(command.path, process.cwd(), homedir());
+    const absolutePath = await realFolderPath(typedPath);
+    if (!absolutePath) return fail(`${typedPath} isn't a folder`);
     const change = addFolder(folders, absolutePath);
     if ("problem" in change) return fail(change.problem);
     await saveFolders(change.folders);

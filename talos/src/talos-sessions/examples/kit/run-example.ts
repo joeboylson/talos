@@ -1,10 +1,10 @@
 // Runs an example: live (real Claude), record (live, saved to its recordings/),
 // or replay (a saved run played back, no Claude), chosen with MODE. This is the
 // thin, impure part; everything the example decides is in its view.
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DETACH_KEY, connectToSessions, type Result } from "../../index";
-import { readRecording, recordEvent, saveRecording, toInput, type RecordedLine } from "./recording";
+import { readRecording, recordEvent, toInput, writeRecording, type RecordedLine } from "./recording";
 import { fitScreen } from "./screen";
 import type { Action, ExampleView, Input } from "./view";
 import { CTRL_C, SESSION_NAME } from "./view";
@@ -73,10 +73,8 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
     stopping ??= (async () => {
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
       await calls.stopRunner().catch(() => {});
-      if (mode === "record") {
-        mkdirSync(join(exampleFolder, "recordings"), { recursive: true });
-        writeFileSync(recordingFile, saveRecording(recorded, home));
-      }
+      // Only a run that ended well replaces the recording.
+      if (mode === "record" && code === 0) writeRecording(recordingFile, recorded, home);
       const lines = [...(farewell?.(home) ?? []), `${home} has what this run made.`];
       process.stdout.write(`\r\n${lines.join("\r\n")}\r\n`);
       process.exit(code);

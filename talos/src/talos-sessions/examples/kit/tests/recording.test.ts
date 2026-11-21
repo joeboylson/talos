@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readRecording, recordEvent, replay, saveRecording, toInput, type RecordedLine } from "../recording";
+import { placeholdersFor, readRecording, recordEvent, replay, saveRecording, toInput, type RecordedLine } from "../recording";
 import type { ExampleView } from "../view";
 
 const ID = "0f4c6a52-1b2d-4e8f-9a3b-5c6d7e8f9a0b";
@@ -25,6 +25,26 @@ describe("recordings", () => {
   test("an event the module can't read fails the replay, asking for a re-recording", () => {
     expect(() => toInput({ type: "event", line: '{"type":"sessions","sessions":"nope"}' }, 4)).toThrow("re-record");
     expect(() => readRecording('{"type":"mystery"}')).toThrow("re-record");
+  });
+  test("an event in an older shape fails the replay instead of being read as less", () => {
+    const stale = sessions.type === "event" ? sessions.line.replace('"state":"idle"', '"state":"waiting"') : "";
+    expect(() => toInput({ type: "event", line: stale }, 0)).toThrow("re-record");
+    const renamed = sessions.type === "event" ? sessions.line.replace('"atMs"', '"at"') : "";
+    expect(() => toInput({ type: "event", line: renamed }, 0)).toThrow("re-record");
+  });
+  test("a line cut short asks for a re-recording", () => {
+    expect(() => readRecording('{"type":"key","ke')).toThrow("re-record");
+  });
+  test("the run folder is replaced only as a whole path, and tool ids get placeholders too", () => {
+    const placeholders = placeholdersFor("/x/explorer/run");
+    expect(placeholders("/x/explorer/run/work /x/explorer/runner.ts /x/explorer/run")).toBe("<run>/work /x/explorer/runner.ts <run>");
+    expect(placeholders("toolu_017PZcNX5E9YZFCMuNxGPNkW then toolu_017PZcNX5E9YZFCMuNxGPNkW")).toBe("id-1 then id-1");
+  });
+  test("a recorded result for something the view no longer does fails the replay", () => {
+    const sender: ExampleView<null> = { initial: null, step: (state, input) => ({ state, actions: input.type === "started" ? [{ do: "send", text: "now" }] : [] }), render: () => [] };
+    const result = (text: string): RecordedLine => ({ type: "result", action: { do: "send", text }, result: { ok: true } });
+    expect(replay(sender, [result("now")]).actions).toEqual([{ do: "send", text: "now" }]);
+    expect(() => replay(sender, [result("then")])).toThrow("re-record");
   });
   test("a replay feeds a view every input in order, starting with started", () => {
     const counter: ExampleView<string[]> = {

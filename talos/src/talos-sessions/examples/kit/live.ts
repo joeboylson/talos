@@ -2,10 +2,9 @@
 // screen, driven by scripted keys through the example's own view, so the check
 // sees what a person would. With MODE=record it saves the run as the example's
 // recording, the same way a recorded live run does.
-import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { connectToSessions, type Result } from "../../index";
-import { recordEvent, saveRecording, type RecordedLine } from "./recording";
+import { recordEvent, writeRecording, type RecordedLine } from "./recording";
 import { SESSION_NAME, prepareRun } from "./run-example";
 import type { Action, ExampleView, Input } from "./view";
 
@@ -58,10 +57,7 @@ export const startLiveCheck = async <State>(exampleFolder: string, view: Example
     },
     finish: async () => {
       await calls.stopRunner().catch(() => {});
-      if (process.env.MODE === "record") {
-        mkdirSync(join(exampleFolder, "recordings"), { recursive: true });
-        writeFileSync(join(exampleFolder, "recordings", "run.jsonl"), saveRecording(recorded, home));
-      }
+      if (process.env.MODE === "record") writeRecording(join(exampleFolder, "recordings", "run.jsonl"), recorded, home);
     },
   };
 };

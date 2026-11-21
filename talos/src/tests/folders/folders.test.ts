@@ -64,3 +64,22 @@ describe("the folder cap", () => {
     expect(addFolder(foldersOf(LIMITS.maxFolders), "/more")).toEqual({ problem: `this machine already has ${LIMITS.maxFolders} folders` });
   });
 });
+
+test(
+  "folders added by several talos commands at once are all kept",
+  async () => {
+    const { mkdtempSync, mkdirSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const home = mkdtempSync(join(tmpdir(), "talos-folders-race-"));
+    const index = new URL("../../index.ts", import.meta.url).pathname;
+    const folders = Array.from({ length: 8 }, (_, index) => join(home, `p${index}`));
+    folders.forEach((folder) => mkdirSync(folder));
+    const env = { ...process.env, TALOS_HOME: join(home, "talos"), TALOS_SERVER_URL: "ws://localhost:1" };
+    await Promise.all(folders.map((folder) => Bun.spawn([process.execPath, index, "folders", "add", folder], { env, stdout: "ignore", stderr: "ignore" }).exited));
+    const listed = Bun.spawnSync([process.execPath, index, "folders"], { env }).stdout.toString().trim().split("\n");
+    expect(listed).toHaveLength(8);
+    rmSync(home, { recursive: true, force: true });
+  },
+  30_000,
+);

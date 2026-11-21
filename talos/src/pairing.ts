@@ -31,7 +31,10 @@ export const fetchMachineName = async (serverOrigin: string, machineKey: string,
     return null;
   }
   if (!response.ok) throw new Error(`machine check failed: ${response.status}`);
-  const { machineName } = (await response.json()) as MachineCheckResponse;
+  // Anything but a name (a proxy's page, another server) is a failed check to
+  // try again, never a sign to throw the key away.
+  const { machineName } = ((await response.json().catch(() => ({}))) ?? {}) as Partial<MachineCheckResponse>;
+  if (typeof machineName !== "string" || !machineName) throw new Error("machine check: the reply had no machine name");
   log.detail(`talos: the server knows this machine as ${machineName}`);
   return machineName;
 };

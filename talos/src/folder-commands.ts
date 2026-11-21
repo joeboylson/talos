@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { ENV_KEYS, buildIdentifier, requireEnv } from "talos-shared";
 import type { FolderCommand } from "./commands";
 import { readCredentials } from "./credentials";
-import { addFolder, readFolders, removeFolder, renameFolder, saveFolders } from "./folders";
+import { addFolder, changeFolders, readFolders, removeFolder, renameFolder } from "./folders";
 
 // "~/code/x" and "./x" both become full paths, so a folder means the same
 // thing however it was typed.
@@ -35,9 +35,8 @@ const describeFolder = async (folderName: string): Promise<string> => {
 // Folders belong to the machine these commands run on. They're kept on the
 // machine itself, so nothing else can change them.
 export const runFolderCommand = async (command: FolderCommand): Promise<void> => {
-  const folders = await readFolders();
-
   if (command.name === "folders-list") {
+    const folders = await readFolders();
     if (folders.length === 0) return console.log("no folders");
     folders.forEach(({ folderName, path }) => console.log(`${folderName}\t${path}`));
     return;
@@ -47,21 +46,18 @@ export const runFolderCommand = async (command: FolderCommand): Promise<void> =>
     const typedPath = resolveFolderPath(command.path, process.cwd(), homedir());
     const absolutePath = await realFolderPath(typedPath);
     if (!absolutePath) return fail(`${typedPath} isn't a folder`);
-    const change = addFolder(folders, absolutePath);
+    const change = await changeFolders((folders) => addFolder(folders, absolutePath));
     if ("problem" in change) return fail(change.problem);
-    await saveFolders(change.folders);
     return console.log(await describeFolder(change.folder.folderName));
   }
 
   if (command.name === "folders-rename") {
-    const change = renameFolder(folders, command.folderName, command.newName);
+    const change = await changeFolders((folders) => renameFolder(folders, command.folderName, command.newName));
     if ("problem" in change) return fail(change.problem);
-    await saveFolders(change.folders);
     return console.log(await describeFolder(change.folder.folderName));
   }
 
-  const change = removeFolder(folders, command.folderName);
+  const change = await changeFolders((folders) => removeFolder(folders, command.folderName));
   if ("problem" in change) return fail(change.problem);
-  await saveFolders(change.folders);
   console.log(`removed ${await describeFolder(change.folder.folderName)}`);
 };

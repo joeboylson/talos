@@ -82,6 +82,13 @@ test(
       while (!fromTalos.slice(before).some(({ type }) => type === "error") && Date.now() < giveUpAt) await Bun.sleep(25);
       told.push(fromTalos.slice(before).find(({ type }) => type === "error")?.message ?? "NOTHING");
     }
+    // A folder list talos can't read says so, rather than blaming the runner.
+    writeFileSync(join(home, "folders.json"), '[{"folderName":"proj"');
+    const before = fromTalos.length;
+    machineSocket?.send(JSON.stringify({ type: "start-session", folderName: "proj", sessionName: "web4" }));
+    const giveUpAt = Date.now() + 3000;
+    while (!fromTalos.slice(before).some(({ type }) => type === "error") && Date.now() < giveUpAt) await Bun.sleep(25);
+    expect(fromTalos.slice(before).find(({ type }) => type === "error")?.message).toContain("isn't a folder list");
     expect(told).toEqual([
       "That folder isn't allowed",
       "There's no folder called nowhere",

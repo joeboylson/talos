@@ -1,7 +1,12 @@
 // The server's web address is its socket address over http(s):
 // ws://host:7070 → http://host:7070.
-export const httpOriginFromServerUrl = (serverUrl: string): string =>
-  new URL(serverUrl.replace(/^ws/, "http")).origin;
+// From the parsed address, so any spelling the check allowed (WSS://, a space
+// first) gives the same origin.
+export const httpOriginFromServerUrl = (serverUrl: string): string => {
+  const url = new URL(serverUrl.trim());
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  return url.origin;
+};
 
 const LOCAL_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
 

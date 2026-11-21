@@ -21,7 +21,7 @@ import {
 } from "talos-shared";
 import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
-import { readFolders, renameFolder, saveFolders } from "./folders";
+import { changeFolders, readFolders, renameFolder } from "./folders";
 import { connectToSessions, type Result } from "./talos-sessions";
 import { toSharedEvent, type SharedRunnerEvent } from "./session-bridge";
 import { startLocalStatusServer } from "./local-status-server";
@@ -31,6 +31,12 @@ import { TALOS_LIMITS } from "./limits";
 
 // `talos` with no command: pair this machine if it isn't yet, connect to the
 // server, and stay connected.
+// A call to the session runner that failed: it says so, or its socket did.
+// Anything else (like a folder list talos can't read) is shown as it is,
+// since retrying won't help.
+const isRunnerProblem = (error: unknown): boolean =>
+  error instanceof Error && (error.message.includes("session runner") || typeof (error as NodeJS.ErrnoException).code === "string");
+
 export const runConnect = async (): Promise<void> => {
   const serverUrl = requireEnv(ENV_KEYS.serverUrl);
   if (!isSafeServerUrl(serverUrl)) {
@@ -183,9 +189,8 @@ export const runConnect = async (): Promise<void> => {
       if (savedCredentials) await saveCredentials({ ...savedCredentials, machineName });
       return log.event(`talos: this machine is now called ${machineName}`);
     }
-    const change = renameFolder(await readFolders(), message.folderName, message.newFolderName);
+    const change = await changeFolders((folders) => renameFolder(folders, message.folderName, message.newFolderName));
     if ("problem" in change) return log.warn(`talos: couldn't rename a folder: ${change.problem}`);
-    await saveFolders(change.folders);
     log.event(`talos: folder ${message.folderName} is now called ${change.folder.folderName}`);
   };
 
@@ -224,7 +229,7 @@ export const runConnect = async (): Promise<void> => {
       onServerMessage: (message) =>
         void handleServerMessage(message).catch((error: unknown) => {
           log.warn(`talos: couldn't handle ${message.type} from the server (${error})`);
-          tellPage("That didn't reach the session runner; try again");
+          tellPage(isRunnerProblem(error) ? "That didn't reach the session runner; try again" : `That couldn't be done: ${error instanceof Error ? error.message : error}`);
         }),
       onOpen: (send) => {
         sendToServer = send;

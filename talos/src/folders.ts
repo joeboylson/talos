@@ -1,9 +1,9 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { LIMITS, parseJsonOrNull, pickUniqueName, readFolderList, toIdentifierName, type Folder } from "talos-shared";
 import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE } from "./constants";
 
-type FolderChange = { folders: Folder[]; folder: Folder } | { problem: string };
+export type FolderChange = { folders: Folder[]; folder: Folder } | { problem: string };
 
 // Adding the same path twice keeps the first entry. A new folder's name
 // comes from the folder itself ("/home/joe/My Project" → "my-project"),
@@ -45,7 +45,43 @@ export const readFolders = async (): Promise<Folder[]> => {
   return folders;
 };
 
-export const saveFolders = async (folders: Folder[]): Promise<void> => {
+// Swapped in whole, so a reader never sees half a list.
+const saveFolders = async (folders: Folder[]): Promise<void> => {
   await mkdir(CREDENTIALS_FOLDER, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
-  await Bun.write(FOLDERS_FILE, JSON.stringify(folders, null, 2));
+  const saving = `${FOLDERS_FILE}.${process.pid}.saving`;
+  await Bun.write(saving, JSON.stringify(folders, null, 2));
+  await rename(saving, FOLDERS_FILE);
+};
+
+// One change to the list at a time across every talos process on the machine
+// (two `talos folders add` at once, or one beside a page's rename), so none
+// is lost. A lock left by a process that died is taken over after a while.
+const FOLDERS_LOCK = `${FOLDERS_FILE}.lock`;
+const LOCK_STALE_MS = 10_000;
+const LOCK_TRY_EVERY_MS = 20;
+const takeFoldersLock = async (): Promise<void> => {
+  await mkdir(CREDENTIALS_FOLDER, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
+  while (true) {
+    try {
+      return await writeFile(FOLDERS_LOCK, String(process.pid), { flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const age = await stat(FOLDERS_LOCK).then(({ mtimeMs }) => Date.now() - mtimeMs, () => 0);
+      // A file's time can be a little ahead of the clock, so only far off counts.
+      if (Math.abs(age) > LOCK_STALE_MS) await rm(FOLDERS_LOCK, { force: true });
+      else await Bun.sleep(LOCK_TRY_EVERY_MS);
+    }
+  }
+};
+
+// Reads the list, makes one change, and saves it if the change worked.
+export const changeFolders = async (change: (folders: Folder[]) => FolderChange): Promise<FolderChange> => {
+  await takeFoldersLock();
+  try {
+    const changed = change(await readFolders());
+    if (!("problem" in changed)) await saveFolders(changed.folders);
+    return changed;
+  } finally {
+    await rm(FOLDERS_LOCK, { force: true });
+  }
 };

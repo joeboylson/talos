@@ -14,11 +14,13 @@ type SessionViewProps = {
   waitingPrompts: WaitingPrompt[];
   onSend: (text: string, images: PreparedImage[]) => void;
   onAnswer: (outputId: string, choice: number) => void;
+  // What the person tried here and couldn't do (a closed question, a refused send).
+  notice: string | null;
 };
 
 // One session's conversation as it happens: messages, Claude's text, and each
 // tool Claude runs, then a box to send it a message.
-export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend, onAnswer }: SessionViewProps) => {
+export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend, onAnswer, notice }: SessionViewProps) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastEntry = entries.at(-1);
   const scrollTrigger = `${entries.length}:${lastEntry?.entryId}:${lastEntry?.kind === "tool" ? lastEntry.outcome : ""}:${waitingPrompts.length}:${sessionRow?.decision !== undefined}`;
@@ -54,6 +56,7 @@ export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend, onAns
         {openDecision && <DecisionCard key={openDecision.id} decision={openDecision} onChoose={(choice) => onAnswer(openDecision.id, choice)} />}
         <div ref={bottomRef} />
       </div>
+      {notice && <p className="text-sm text-destructive">{notice}</p>}
       <MessageComposer onSend={onSend} />
     </div>
   );

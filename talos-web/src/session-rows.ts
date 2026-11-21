@@ -1,4 +1,4 @@
-import { openDecisionOf, statusOf, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
+import { LIMITS, openDecisionOf, statusOf, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
 
 export type SessionRow = {
   machineId: string;
@@ -41,9 +41,10 @@ export const removeAnsweredPrompt = (
   waitingPrompts: WaitingPrompt[],
   answeredPrompt: Extract<SessionEntry, { kind: "prompt" }>,
 ): WaitingPrompt[] => {
+  // A saved prompt is cut to the kept length, so a long message matches by its start.
   const answeredIndex = waitingPrompts.findIndex(
     ({ text, imagePreviewUrls }) =>
-      text === answeredPrompt.text.trim() && imagePreviewUrls.length === answeredPrompt.imageCount,
+      text.slice(0, LIMITS.maxEntryTextLength) === answeredPrompt.text.trim() && imagePreviewUrls.length === answeredPrompt.imageCount,
   );
   return answeredIndex === -1 ? waitingPrompts : waitingPrompts.filter((_, index) => index !== answeredIndex);
 };

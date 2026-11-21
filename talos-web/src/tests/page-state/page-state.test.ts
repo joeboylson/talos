@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { SessionEntry } from "talos-shared";
+import { LIMITS, type SessionEntry } from "talos-shared";
 import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, forgetEntries } from "../../page-state";
 import { sessionKey } from "../../session-rows";
 
@@ -57,4 +57,11 @@ test("a session that's gone forgets its entries, so a new one under its name sta
   const afterStop = applyServerMessage(withEntries, { type: "machines", machines: [machine("m1", [session("api")]), machine("m2", null)] });
   expect(Object.keys(afterStop.entriesBySession).sort()).toEqual([OTHER_KEY, sessionKey("m2", "web")]);
   expect(afterStop.waitingPromptsBySession[KEY]).toBeUndefined();
+});
+
+test("a message longer than a saved prompt keeps still clears its waiting copy once it's saved", () => {
+  const long = "x".repeat(LIMITS.maxEntryTextLength + 500);
+  const waiting = addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", long, []);
+  const saved = applyServerMessage(waiting, entriesFor("web", [prompt("p1", long.slice(0, LIMITS.maxEntryTextLength))]));
+  expect(saved.waitingPromptsBySession[KEY]).toEqual([]);
 });

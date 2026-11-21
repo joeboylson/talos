@@ -350,3 +350,11 @@ describe("mergeSessionEntries edge cases", () => {
     expect(merged.map((entry) => entry.entryId)).toEqual(["t1", "x"]);
   });
 });
+
+test("dropped markers the cap leaves out don't take real entries' places", () => {
+  const real = Array.from({ length: 500 }, (_, index) => ({ kind: "text" as const, entryId: `t${index}`, position: index, text: "x" }));
+  const markers = (batch: number) => Array.from({ length: 10 }, (_, index) => ({ kind: "dropped" as const, entryId: `dropped:${batch}-${index}`, droppedKind: "text", reason: "bad", position: 500 + batch * 10 + index }));
+  const merged = [0, 1, 2, 3, 4].reduce((kept, batch) => mergeSessionEntries(kept, markers(batch), 500), real as Parameters<typeof mergeSessionEntries>[0]);
+  expect(merged.filter(({ kind }) => kind === "dropped")).toHaveLength(20);
+  expect(merged.filter(({ kind }) => kind === "text")).toHaveLength(480);
+});

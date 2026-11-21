@@ -246,6 +246,7 @@ export const mergeSessionEntries = (keptEntries: SessionEntry[], newEntries: Ses
   const entryById = new Map(keptEntries.map((entry) => [entry.entryId, entry]));
   newEntries.filter(hasEntryId).forEach((entry) => entryById.set(entry.entryId, entry));
   const inConversationOrder = [...entryById.values()].sort((first, second) => first.position - second.position);
-  return capDroppedMarkers(keepNewestWithinTextBudget(inConversationOrder.slice(-maxKept)), LIMITS.maxDroppedKept);
+  // Markers are capped first, so ones the cap drops don't take real entries' places.
+  return keepNewestWithinTextBudget(capDroppedMarkers(inConversationOrder, LIMITS.maxDroppedKept).slice(-maxKept));
 };
 

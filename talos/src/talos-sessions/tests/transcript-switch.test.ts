@@ -15,8 +15,15 @@ const calls = connectToSessions({ home, runnerScript: new URL("./fake/fake-runne
 
 let entries: SessionEntry[] = [];
 let latest: SessionSummary | undefined;
+// Each turn's end, seen as working turning to idle, so a message is sent only
+// once the last turn is over (one sent mid-turn would join it).
+let turnsEnded = 0;
 const onEvent = (event: RunnerEvent) => {
-  if (event.type === "sessions") latest = event.sessions.find(({ sessionName }) => sessionName === "switch");
+  if (event.type === "sessions") {
+    const next = event.sessions.find(({ sessionName }) => sessionName === "switch");
+    if (latest?.state === "working" && next?.state === "idle") turnsEnded += 1;
+    latest = next;
+  }
   if (event.type === "session-entries" && event.sessionName === "switch") entries = mergeSessionEntries(entries, event.entries, 500);
 };
 const waitUntil = async (isDone: () => boolean, what: string, ms = 10_000): Promise<void> => {
@@ -26,8 +33,8 @@ const waitUntil = async (isDone: () => boolean, what: string, ms = 10_000): Prom
     await Bun.sleep(50);
   }
 };
-// The fake's switch reports a new start mid-turn, which reads as idle, so a
-// message can be typed into the turn early; that's not what this checks.
+// The fake's switch reports a new start mid-turn, which can read as a turn's
+// end; a message typed into the turn early isn't what this checks.
 const texts = () => entries.flatMap((entry) => (entry.kind === "prompt" || entry.kind === "text" ? [entry.text] : [])).filter((text) => !text.startsWith("BUSY"));
 
 beforeAll(async () => {
@@ -45,8 +52,9 @@ test(
     expect(await calls.start("switch", "work", work)).toEqual({ ok: true });
     await waitUntil(() => latest?.state === "idle", "the session to be ready");
     for (const message of ["one", "clear", "two", "resume", "three"]) {
+      const endedBefore = turnsEnded;
       expect(await calls.send("switch", message)).toEqual({ ok: true });
-      await waitUntil(() => texts().includes(message) && latest?.state === "idle", `"${message}"`);
+      await waitUntil(() => texts().includes(message) && turnsEnded > endedBefore, `"${message}"`);
     }
     await waitUntil(() => texts().length === 7, "every line", 3000).catch(() => {});
     expect(texts()).toEqual(["one", "clear", "said before clear", "two", "resume", "said before resume", "three"]);

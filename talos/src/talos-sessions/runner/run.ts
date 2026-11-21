@@ -6,7 +6,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { chmod, lstat, mkdir, rm } from "node:fs/promises";
 import type { TrustChange } from "../claude/claude-trust";
 import { parseJsonOrNull } from "../json";
-import { ASK_CHECK_MS, HOME_MODE, RUNNER_SOCKET_MODE, TALOS_MCP_SERVER_KEY, TOOLS_SERVER_SCRIPT, TRANSCRIPT_CHECK_MS } from "../constants";
+import { ASK_CHECK_MS, HOME_MODE, RUNNER_SOCKET_MODE, steadyNow, TALOS_MCP_SERVER_KEY, TOOLS_SERVER_SCRIPT, TRANSCRIPT_CHECK_MS } from "../constants";
 import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } from "./control-server";
 import { startHookServer } from "./hook-server";
 import { log, paths, useRunnerInputs, type RunnerInputs } from "./inputs";
@@ -82,7 +82,7 @@ const endLeftSessionGroups = async (file: string): Promise<void> => {
   const saved = Bun.file(file);
   const groups = (await saved.exists()) ? parseJsonOrNull(await saved.text()) : [];
   const recent = (Array.isArray(groups) ? groups : []).filter(
-    ({ groupId, atMs }) => Number.isInteger(groupId) && groupId > 1 && typeof atMs === "number" && Date.now() - atMs < LEFT_GROUP_MAX_AGE_MS,
+    ({ groupId, atMs }) => Number.isInteger(groupId) && groupId > 1 && typeof atMs === "number" && Date.now() - atMs >= 0 && Date.now() - atMs < LEFT_GROUP_MAX_AGE_MS,
   );
   recent.forEach(({ groupId }) => {
     try {
@@ -129,7 +129,7 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   setInterval(() => {
     if (!holdsLock(runnerLock)) return void stopRunner();
     [...heldSessions.values()]
-      .filter(({ hasDraft, draftAtMs }) => hasDraft && Date.now() - draftAtMs > SESSION_LIMITS.draftForgetMs)
+      .filter(({ hasDraft, draftAtMs }) => hasDraft && steadyNow() - draftAtMs > SESSION_LIMITS.draftForgetMs)
       .forEach(({ summary, hookToken }) => updateHeldSession(summary.sessionName, hookToken, { hasDraft: false }));
     [...heldSessions.keys()].forEach((sessionName) => applyLaneEvent(sessionName, { type: "tick" }));
   }, ASK_CHECK_MS);

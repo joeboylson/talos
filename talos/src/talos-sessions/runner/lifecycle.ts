@@ -3,13 +3,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { trustFolder, type TrustChange } from "../claude/claude-trust";
-import {
-  HOOK_SCRIPT,
-  READY_CHECK_MS,
-  READY_QUIET_MS,
-  SESSION_ENV_KEYS,
-  TERMINAL_SIZE,
-} from "../constants";
+import { HOOK_SCRIPT, READY_CHECK_MS, READY_QUIET_MS, SESSION_ENV_KEYS, steadyNow, TERMINAL_SIZE } from "../constants";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
 import { buildHookSettings } from "../claude/session-hooks";
@@ -28,7 +22,7 @@ import { SESSION_LIMITS } from "../limits";
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
   const session = heldSessions.get(sessionName);
   if (session?.hookToken !== token) return;
-  updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, SESSION_LIMITS.maxOutputBytes), lastOutputAtMs: Date.now() });
+  updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, SESSION_LIMITS.maxOutputBytes), lastOutputAtMs: steadyNow() });
   sendToListeners(session.outputListeners, chunk);
 };
 
@@ -154,8 +148,8 @@ export const becomeReadyWhenQuiet = async (sessionName: string, token: string, g
   // name, so a stale loop never drives the replacement.
   const startingSession = heldSessions.get(sessionName);
   if (startingSession?.hookToken !== token) return;
-  const quietForMs = Date.now() - startingSession.lastOutputAtMs;
-  if (quietForMs < READY_QUIET_MS && Date.now() < giveUpAtMs) {
+  const quietForMs = steadyNow() - startingSession.lastOutputAtMs;
+  if (quietForMs < READY_QUIET_MS && steadyNow() < giveUpAtMs) {
     await Bun.sleep(READY_CHECK_MS);
     return becomeReadyWhenQuiet(sessionName, token, giveUpAtMs);
   }

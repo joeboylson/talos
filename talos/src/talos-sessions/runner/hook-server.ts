@@ -1,6 +1,6 @@
 // The hooks socket: the only routes a session can reach, its own Claude Code hooks.
 import type { Socket } from "bun";
-import { NEWLINE_BYTE } from "../constants";
+import { NEWLINE_BYTE, steadyNow } from "../constants";
 import { encodeHookLine, readHookRequest, type HookAnswer, type ListedTool } from "../client/runner-protocol";
 import { hookTokenAuthorized, nextSessionState } from "../claude/session-hooks";
 import { readLaneEvent } from "../lanes/lane";
@@ -34,7 +34,7 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   // events can't pile up uncancelled loops and exhaust the session runner's memory.
   if (hookEvent === "SessionStart" && !session.isBecomingReady) {
     updateHeldSession(sessionName, session.hookToken, { isBecomingReady: true });
-    void becomeReadyWhenQuiet(sessionName, session.hookToken, Date.now() + SESSION_LIMITS.readyLongestWaitMs)
+    void becomeReadyWhenQuiet(sessionName, session.hookToken, steadyNow() + SESSION_LIMITS.readyLongestWaitMs)
       .catch((error: unknown) => log.warn(`runner: couldn't finish starting ${sessionName}: ${error}`))
       .finally(() => updateHeldSession(sessionName, session.hookToken, { isBecomingReady: false }));
   }
@@ -63,7 +63,7 @@ const listedTools = (): ListedTool[] =>
 // cut and quoted (it can't forge log lines), and a flood is logged once a second.
 let lastBadTokenLogMs = 0;
 const warnBadToken = (sessionName: unknown): void => {
-  const nowMs = Date.now();
+  const nowMs = steadyNow();
   if (nowMs - lastBadTokenLogMs < SESSION_LIMITS.badTokenLogEveryMs) return;
   lastBadTokenLogMs = nowMs;
   log.warn(`runner: ignored a hook for ${JSON.stringify(String(sessionName).slice(0, SESSION_LIMITS.maxIdentifierLength))} with a bad token`);

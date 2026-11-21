@@ -1,6 +1,6 @@
 // A session's state and its lane: every change to either goes through here.
 import { mergeSessionEntries, type SessionEntry, type SessionState, type SessionSummary } from "../shapes";
-import { READY_CHECK_MS, READY_QUIET_MS } from "../constants";
+import { READY_CHECK_MS, READY_QUIET_MS, steadyNow } from "../constants";
 import { findKind } from "../kinds";
 import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
 import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
@@ -83,7 +83,7 @@ const notify = (sessionName: string, dropped: readonly HeldAnswer[]): void => {
 export const applyLaneEvent = (sessionName: string, event: LaneEvent): string => {
   const session = heldSessions.get(sessionName);
   if (!session) return "";
-  const nowMs = Date.now();
+  const nowMs = steadyNow();
   const step = stepLane(session.lane, event, nowMs, catalog());
   const outputs = step.sent ? stepOutputs(session.outputs, { type: "sent", output: step.sent }).outputs : session.outputs;
   const heldAnswers = event.type === "tick" ? keptHeld(session.heldAnswers, [], nowMs) : session.heldAnswers;
@@ -111,7 +111,7 @@ export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): voi
   const step = stepOutputs(session.outputs, event);
   if (step.outputs === session.outputs) return;
   const summary = step.outputs.open === session.outputs.open ? session.summary : withOpenOutputs(session.summary, step.outputs);
-  const heldAnswers = keptHeld(session.heldAnswers, step.closedIds, Date.now());
+  const heldAnswers = keptHeld(session.heldAnswers, step.closedIds, steadyNow());
   saveSession(sessionName, session, { outputs: step.outputs, summary, heldAnswers });
   // An output sent in a normal turn shows in the conversation too. An asked-for
   // kind's answer shows in the summary only.
@@ -174,7 +174,7 @@ const stepLaneWhenSettled = async (sessionName: string, token: string): Promise<
       const session = heldSessions.get(sessionName);
       const isStillWaiting = session?.hookToken === token && isWaitingToSettle(session) && session.isTurnOver;
       if (!isStillWaiting) return;
-      const quietForMs = Date.now() - session.lastOutputAtMs;
+      const quietForMs = steadyNow() - session.lastOutputAtMs;
       // Awaited, so no second settle loop starts while this one types.
       if (quietForMs >= READY_QUIET_MS) return await typeNextWhenSettled(sessionName);
       await Bun.sleep(READY_CHECK_MS);
@@ -203,7 +203,7 @@ export const answerOutput = (sessionName: string, outputId: unknown, choice: unk
   if (typeof outputId !== "string" || !Number.isInteger(choice)) return new Response("expected an output id and a choice", { status: 400 });
   const session = heldSessions.get(sessionName);
   if (!session) return noSuchSession(sessionName);
-  const answer = readAnswer(session.outputs, session.heldAnswers, catalog(), outputId, Number(choice), Date.now());
+  const answer = readAnswer(session.outputs, session.heldAnswers, catalog(), outputId, Number(choice), steadyNow());
   if ("code" in answer) return refuse(answer.code, answer.reason);
   saveSession(sessionName, session, { heldAnswers: [...session.heldAnswers, answer] });
   if (session.isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);

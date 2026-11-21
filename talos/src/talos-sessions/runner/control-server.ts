@@ -1,6 +1,7 @@
 // The control socket: the routes talos (and only talos) uses to start, drive,
 // watch and stop sessions. A session is told the hooks socket instead, so a
 // prompt-injected session can't reach these.
+import { steadyNow } from "../constants";
 import { rm } from "node:fs/promises";
 import type { BunRequest } from "bun";
 import { isIdentifierName, readSentImages } from "../shapes";
@@ -187,7 +188,7 @@ export const controlServeOptions = (runnerSocket: string) => ({
         const isTurnChanging = !isPromptShowing && isTurnChangingKeys(keys);
         const isDraftChanging = !isPromptShowing && isDraftChangingKeys(keys);
         const hasDraft = isDraftClearingKeys(keys) ? false : isDraftChanging || session.hasDraft;
-        heldSessions.set(sessionName, { ...session, hasDraft, draftAtMs: isDraftChanging ? Date.now() : session.draftAtMs });
+        heldSessions.set(sessionName, { ...session, hasDraft, draftAtMs: isDraftChanging ? steadyNow() : session.draftAtMs });
         if (isTurnChanging || isDraftChanging) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging });
         // An interrupted turn gets no Stop, so the interrupt is its end.
         if (isInterruptKeys(keys) && !session.isTurnOver) setSessionState(sessionName, session.summary.openOutputs.length > 0 ? "needs-you" : "idle", true);

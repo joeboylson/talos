@@ -45,8 +45,22 @@ describe("drawing", () => {
     const lines = plain(drawBars({ title: "T", labels: ["", "x".repeat(50), "neg"], series: [{ name: "s", values: [10, 5, -3] }] }, 60));
     const bars = lines.slice(1).map((line) => (line.match(/█/g) ?? []).length);
     expect(bars[0]).toBeGreaterThan(bars[1]!);
-    expect(bars[2]).toBe(0);
+    expect(bars[2]).toBeGreaterThan(0);
     expect(lines.every((line) => line.length <= 60)).toBe(true);
+  });
+  test("negative bars run left of a line, positive ones right, both in proportion", () => {
+    const lines = plain(drawBars({ title: "T", labels: ["loss", "small", "zero", "gain"], series: [{ name: "s", values: [-500, -5, 0, 1000] }] }, 60)).slice(1);
+    const axis = lines.map((line) => line.indexOf("│"));
+    expect(new Set(axis).size).toBe(1);
+    const leftOf = (line: string) => (line.slice(0, axis[0]).match(/█/g) ?? []).length;
+    const rightOf = (line: string) => (line.slice(axis[0]! + 1).match(/█/g) ?? []).length;
+    expect(leftOf(lines[0]!)).toBeGreaterThan(leftOf(lines[1]!));
+    expect([leftOf(lines[2]!), rightOf(lines[2]!)]).toEqual([0, 0]);
+    expect(rightOf(lines[3]!)).toBeGreaterThan(leftOf(lines[0]!));
+    expect(rightOf(lines[0]!)).toBe(0);
+  });
+  test("a chart with no negatives has no line", () => {
+    expect(plain(drawBars({ title: "T", labels: ["a"], series: [{ name: "s", values: [3] }] }, 60)).join("")).not.toContain("│");
   });
   test("a table lines up its columns", () => {
     const [, header, row] = plain(drawTable({ title: "T", columns: ["name", "sold"], rows: [["Burr grinder", 12]] }, 80));

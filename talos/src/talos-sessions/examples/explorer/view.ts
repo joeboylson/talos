@@ -1,7 +1,7 @@
 // explorer: ask about a shop's sales, and see the session's answer as text with
 // its charts, tables and numbers drawn in between, in the order it sent them.
 import { mergeSessionEntries, type SessionEntry, type SessionSummary } from "../../index";
-import { bar, bold, cyan, dim, fit, padTo, visibleLength, lastCells, wrapText, yellow } from "../kit/screen";
+import { bar, bold, cyan, dim, fit, lastCells, padTo, red, visibleLength, wrapText, yellow } from "../kit/screen";
 import { CTRL_A, exampleSession, noActions, typeIntoDraft, type ExampleView } from "../kit/view";
 
 export const SUMMARY_REQUEST = "Summarize this data with send_summary.";
@@ -26,19 +26,31 @@ const numberText = (value: number): string => {
   return value.toLocaleString("en-GB", digits);
 };
 
+// With negative values, the bars meet at a line: negatives run left of it in
+// red, positives right of it in cyan, each side sized to its share of the range.
 export const drawBars = ({ title, labels, series }: Fields, width: number): string[] => {
   const names = labels as string[];
   const all = series as { name: string; values: number[] }[];
-  const most = Math.max(...all.flatMap(({ values }) => values), 0);
-  const valueWidth = Math.max(...all.flatMap(({ values }) => values.map((value) => numberText(value).length)));
+  const values = all.flatMap(({ values: seriesValues }) => seriesValues);
+  const most = Math.max(...values, 0);
+  const least = Math.min(...values, 0);
+  const valueWidth = Math.max(...values.map((value) => numberText(value).length));
   const labelWidth = labelWidthFor(width);
-  const barWidth = Math.max(width - labelWidth - valueWidth - 2, 1);
+  const hasNegatives = least < 0;
+  const barWidth = Math.max(width - labelWidth - valueWidth - 2 - (hasNegatives ? 1 : 0), 1);
+  const leftWidth = hasNegatives ? Math.max(Math.round((barWidth * -least) / (most - least)), 1) : 0;
+  const rightWidth = Math.max(barWidth - leftWidth, hasNegatives ? 0 : 1);
+  const barOf = (value: number) => {
+    if (!hasNegatives) return cyan(bar(value, most, rightWidth));
+    const left = value < 0 ? bar(-value, -least, leftWidth) : "";
+    return `${" ".repeat(leftWidth - visibleLength(left))}${red(left)}${dim("│")}${cyan(value > 0 ? bar(value, most, rightWidth) : "")}`;
+  };
   // The value before its bar, so a narrow screen shortens bars, never values.
   return [
     bold(String(title)),
-    ...all.flatMap(({ name, values }) => [
+    ...all.flatMap(({ name, values: seriesValues }) => [
       ...(all.length > 1 ? [dim(name)] : []),
-      ...names.map((label, index) => `${padTo(fit(label, labelWidth - 1), labelWidth)}${numberText(values[index]!).padStart(valueWidth)} ${cyan(bar(values[index]!, most, barWidth))}`),
+      ...names.map((label, index) => `${padTo(fit(label, labelWidth - 1), labelWidth)}${numberText(seriesValues[index]!).padStart(valueWidth)} ${barOf(seriesValues[index]!)}`),
     ]),
   ];
 };

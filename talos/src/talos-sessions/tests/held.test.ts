@@ -29,17 +29,17 @@ describe("an answer by id", () => {
     ["an unknown id", "nope", 0],
     ["a choice past the list", "q1", 2],
   ])("is refused for %s", (_name, outputId, choice) => {
-    expect("refusal" in readAnswer(OPEN, [], CATALOG, outputId, choice, 5)).toBe(true);
+    expect("code" in readAnswer(OPEN, [], CATALOG, outputId, choice, 5)).toBe(true);
   });
   test("is refused while another answer to it is held: two clicks at once answer once", () => {
     const held = readAnswer(OPEN, [], CATALOG, "q1", 0, 5) as HeldAnswer;
-    expect(readAnswer(OPEN, [held], CATALOG, "q1", 1, 6)).toEqual({ refusal: "That question has closed" });
+    expect(readAnswer(OPEN, [held], CATALOG, "q1", 1, 6)).toEqual({ code: "closed", reason: "That question has closed" });
   });
   test("is refused for a kind with no choices", () => {
-    expect("refusal" in readAnswer(outputsWith({ options: ["a", "b"] }, "shown"), [], CATALOG, "q1", 0, 5)).toBe(true);
+    expect("code" in readAnswer(outputsWith({ options: ["a", "b"] }, "shown"), [], CATALOG, "q1", 0, 5)).toBe(true);
   });
   test("checks the choice for a command again right before it's held", () => {
-    expect(readAnswer(outputsWith({ options: ["fine", "​/clear"] }), [], CATALOG, "q1", 1, 5)).toEqual({ refusal: "That choice can't be sent" });
+    expect(readAnswer(outputsWith({ options: ["fine", "​/clear"] }), [], CATALOG, "q1", 1, 5)).toEqual({ code: "not-sendable", reason: "That choice can't be sent" });
   });
 });
 

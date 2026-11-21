@@ -8,6 +8,7 @@ import { SESSION_LIMITS } from "../limits";
 import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
 import { ENTER_KEY, ESC_KEY, ESC_PAUSE_MS, buildPastedText } from "../terminal";
 import { catalog, log } from "./inputs";
+import { noSuchSession, refuse } from "./refuse";
 import { broadcast, broadcastSessions, heldSessions, updateHeldSession, type HeldSession } from "./store";
 
 // The summary shows each ask's state and latest answer, and the open outputs.
@@ -166,18 +167,20 @@ const stepLaneWhenSettled = async (sessionName: string, token: string): Promise<
 };
 
 export const askForOutput = (sessionName: string, kind: unknown): Response => {
-  if (!heldSessions.has(sessionName)) return new Response(`no session ${sessionName}`, { status: 404 });
-  if (typeof kind !== "string" || !findKind(catalog(), kind)?.requestText) return new Response("expected a kind talos can ask for", { status: 400 });
+  const session = heldSessions.get(sessionName);
+  if (!session) return noSuchSession(sessionName);
+  if (typeof kind !== "string" || !findKind(catalog(), kind)?.requestText) return new Response("expected a kind that can be asked for", { status: 400 });
+  if (session.lane.stage !== "none") return refuse("already-asking", "It's already being asked for something");
   applyLaneEvent(sessionName, { type: "ask", kind });
   return new Response(null, { status: 204 });
 };
 
 export const answerOutput = (sessionName: string, outputId: unknown, choice: unknown): Response => {
   const session = heldSessions.get(sessionName);
-  if (!session) return new Response("That session isn't running", { status: 404 });
+  if (!session) return noSuchSession(sessionName);
   if (typeof outputId !== "string" || !Number.isInteger(choice)) return new Response("expected an output id and a choice", { status: 400 });
   const answer = readAnswer(session.outputs, session.heldAnswers, catalog(), outputId, Number(choice), Date.now());
-  if ("refusal" in answer) return new Response(answer.refusal, { status: 409 });
+  if ("code" in answer) return refuse(answer.code, answer.reason);
   saveSession(sessionName, session, { heldAnswers: [...session.heldAnswers, answer] });
   if (session.isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);
   return new Response(null, { status: 204 });

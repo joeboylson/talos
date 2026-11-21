@@ -42,7 +42,8 @@ phases:
     commands:
       - bun run typecheck
       # The desktop app's tests need Rust and don't go into the server image.
-      - for folder in talos talos-server talos-shared talos-web; do (cd "$folder" && bun test) || exit 1; done
+      - for folder in talos talos-server talos-shared talos-web; do (cd "$folder" && bun run test) || exit 1; done
+      - sh talos/src/talos-sessions/check.sh
       - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
       - REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
       - IMAGE="${REGISTRY}/${REPOSITORY}:${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"

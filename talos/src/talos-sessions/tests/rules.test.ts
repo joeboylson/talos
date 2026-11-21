@@ -74,7 +74,7 @@ describe("a choice typed into the session never holds a command", () => {
         if (!step.sent) return true;
         const outputs: Outputs = { turn: 1, pending: [], open: [{ id: "out-1", kind: "pick", fields: step.sent.fields, atMs: 0, askedInTurn: 1 }] };
         const answer = readAnswer(outputs, [], CATALOG, "out-1", index, 0);
-        if ("refusal" in answer) return true;
+        if ("code" in answer) return true;
         const typedChoice = answer.text.slice("Answer to out-1: ".length);
         return !hasCommandMarker(typedChoice) && !hasCommandMarker(cleanLine(typedChoice));
       }),

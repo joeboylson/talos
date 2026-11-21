@@ -3,15 +3,11 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { trustFolder } from "../claude/claude-trust";
 import {
-  CLAUDE_COMMAND,
   HOOK_SCRIPT,
-  RUNNER_HOOKS_SOCKET,
-  MCP_CONFIG_FILE,
   READY_CHECK_MS,
   READY_QUIET_MS,
   SESSION_ENV_KEYS,
   TERMINAL_SIZE,
-  UPLOADS_FOLDER,
 } from "../constants";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
@@ -19,10 +15,13 @@ import { buildHookSettings } from "../claude/session-hooks";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
-import { log } from "./inputs";
+import { claudeCommand, claudeConfigFile, log, paths, restoresTrust } from "./inputs";
+import { refuse } from "./refuse";
+
+const SESSION_EXIT_WAIT_MS = 5000;
 import { typeIntoSession } from "./messages";
 import { applyLaneEvent, setSessionState } from "./session-state";
-import { broadcastSessions, heldSessions, sendToListeners, updateHeldSession, type Terminal } from "./store";
+import { broadcastSessions, heldSessions, sendToListeners, trustChanges, updateHeldSession, type HeldSession, type Terminal } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
@@ -37,7 +36,7 @@ const forgetSession = (sessionName: string, token: string) => {
   if (session?.hookToken !== token) return;
   heldSessions.delete(sessionName);
   session.outputListeners.forEach((listener) => listener.close());
-  void rm(join(UPLOADS_FOLDER, sessionName), { recursive: true, force: true }).catch((error: unknown) =>
+  void rm(join(paths().uploads, sessionName), { recursive: true, force: true }).catch((error: unknown) =>
     log.warn(`runner: couldn't delete ${sessionName}'s uploads: ${error}`),
   );
   log.event(`runner: session ${sessionName} ended`);
@@ -45,15 +44,16 @@ const forgetSession = (sessionName: string, token: string) => {
 };
 
 const refuseNewSession = (sessionName: string): Response | null => {
-  if (heldSessions.has(sessionName)) return new Response(`${sessionName} is already running`, { status: 409 });
-  if (heldSessions.size >= SESSION_LIMITS.maxSessions) return new Response("too many sessions", { status: 429 });
+  if (heldSessions.has(sessionName)) return refuse("already-running", `${sessionName} is already running`);
+  if (heldSessions.size >= SESSION_LIMITS.maxSessions) return refuse("too-many-sessions", "too many sessions", 429);
   return null;
 };
 
 export const startSession = async ({ sessionName, folderName, path }: StartSessionRequest): Promise<Response> => {
   const refusal = refuseNewSession(sessionName);
   if (refusal) return refusal;
-  await trustFolder(path);
+  const trustChange = await trustFolder(path, claudeConfigFile());
+  if (trustChange && restoresTrust()) trustChanges.push(trustChange);
   // Checked again after the wait: two starts of the same name can both pass the
   // first check, and the second would leave the first one's process running
   // with no record. Spawning and saving the record below happen in one step.
@@ -66,12 +66,12 @@ export const startSession = async ({ sessionName, folderName, path }: StartSessi
   // (below) as well as the spawn env so a project's own settings can't poison them.
   const hookEnv = {
     [SESSION_ENV_KEYS.sessionName]: sessionName,
-    [SESSION_ENV_KEYS.runnerSocket]: RUNNER_HOOKS_SOCKET,
+    [SESSION_ENV_KEYS.runnerSocket]: paths().hooksSocket,
     [SESSION_ENV_KEYS.hookToken]: hookToken,
   };
   // --mcp-config gives every session talos's structured tools (tools-server.ts);
   // the PreToolUse hook decides when each may be called.
-  const claudeArgs = [CLAUDE_COMMAND, "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", MCP_CONFIG_FILE];
+  const claudeArgs = [...claudeCommand(), "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", paths().mcpConfig];
   const child = Bun.spawn(
     [...withOpenFileLimit(SESSION_LIMITS.maxSessionOpenFiles), ...claudeArgs],
     {
@@ -134,4 +134,16 @@ export const becomeReadyWhenQuiet = async (sessionName: string, token: string, g
   if (hasQueuedMessages) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   setSessionState(sessionName, hasQueuedMessages ? "working" : "idle");
   for (const message of session.queuedMessages) await typeIntoSession(session, message);
+};
+
+// Ends a session and waits until its Claude process is gone, so whatever comes
+// after (like putting trust back) can't be undone by a session still closing.
+// One that won't go within the wait is killed outright.
+export const endSession = async (session: HeldSession): Promise<void> => {
+  session.child.kill();
+  const hasExited = await Promise.race([session.child.exited.then(() => true), Bun.sleep(SESSION_EXIT_WAIT_MS).then(() => false)]);
+  if (!hasExited) {
+    session.child.kill("SIGKILL");
+    await session.child.exited;
+  }
 };

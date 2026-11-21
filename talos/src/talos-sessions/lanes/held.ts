@@ -2,6 +2,7 @@
 // has settled, so an answer is never typed into a permission prompt. Pure: the
 // session runner types what these pick.
 import { cleanLine, hasCommandMarker } from "../clean";
+import type { Refusal } from "../client/runner-protocol";
 import { findKind, type Catalog } from "../kinds";
 import { SESSION_LIMITS } from "../limits";
 import type { Lane } from "./lane";
@@ -21,16 +22,16 @@ export const readAnswer = (
   outputId: string,
   choice: number,
   nowMs: number,
-): HeldAnswer | { refusal: string } => {
+): HeldAnswer | Refusal => {
   const output = outputs.open.find(({ id }) => id === outputId);
-  if (!output || held.some((answer) => answer.outputId === outputId)) return { refusal: "That question has closed" };
+  if (!output || held.some((answer) => answer.outputId === outputId)) return { code: "closed", reason: "That question has closed" };
   const kind = findKind(catalog, output.kind);
   const choicesField = kind?.choicesField;
   const choices = choicesField ? output.fields[choicesField] : undefined;
   const picked = Array.isArray(choices) ? choices[choice] : undefined;
-  if (!kind || !choicesField || typeof picked !== "string") return { refusal: "That isn't one of its choices" };
+  if (!kind || !choicesField || typeof picked !== "string") return { code: "not-a-choice", reason: "That isn't one of its choices" };
   const allowsCommands = kind.typedFields[choicesField]?.allowCommands === true;
-  if (!allowsCommands && hasCommandMarker(cleanLine(picked))) return { refusal: "That choice can't be sent" };
+  if (!allowsCommands && hasCommandMarker(cleanLine(picked))) return { code: "not-sendable", reason: "That choice can't be sent" };
   return { outputId, text: answerText(outputId, cleanLine(picked)), heldAtMs: nowMs };
 };
 

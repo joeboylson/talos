@@ -4,15 +4,16 @@
 import { rm } from "node:fs/promises";
 import type { BunRequest } from "bun";
 import { isIdentifierName, readSentImages } from "../shapes";
-import { RUNNER_HOOKS_SOCKET, RUNNER_SOCKET } from "../constants";
 import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runner-protocol";
 import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
-import { startSession } from "./lifecycle";
-import { isAllowedFolder, log } from "./inputs";
+import { endSession, startSession } from "./lifecycle";
+import { noSuchSession, refuse } from "./refuse";
+import { claudeConfigFile, isAllowedFolder, log, paths, restoresTrust } from "./inputs";
+import { restoreTrust } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
 import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
-import { eventListeners, heldSessions, listSessions } from "./store";
+import { eventListeners, heldSessions, listSessions, trustChanges } from "./store";
 
 const streamOf = <T>(
   onStart: (controller: ReadableStreamDefaultController<T>) => void,
@@ -33,7 +34,7 @@ const streamOf = <T>(
 // Starts with the recent output, so the attached terminal redraws the screen.
 const streamOutput = (sessionName: string): Response => {
   const session = heldSessions.get(sessionName);
-  if (!session) return new Response(`no session ${sessionName}`, { status: 404 });
+  if (!session) return noSuchSession(sessionName);
   const stream = streamOf<Uint8Array>(
     (controller) => {
       controller.enqueue(session.output);
@@ -71,21 +72,25 @@ const heldSessionOf = (request: BunRequest) => {
   return isIdentifierName(sessionName) ? heldSessions.get(sessionName) : undefined;
 };
 
-const stopRunner = () => {
+// Answers once every session has exited, then leaves: the answer has to go out
+// before the process does.
+const stopRunner = async () => {
   log.event("runner: stopping, with every session it holds");
-  heldSessions.forEach((session) => session.child.kill());
-  setTimeout(async () => {
-    await Promise.all([rm(RUNNER_SOCKET, { force: true }), rm(RUNNER_HOOKS_SOCKET, { force: true })]);
-    process.exit(0);
-  }, 200);
+  await Promise.all([...heldSessions.values()].map(endSession));
+  // Only once every session has exited: Claude Code writes its settings as it
+  // closes, which would undo a change made sooner.
+  if (restoresTrust()) await restoreTrust(trustChanges, claudeConfigFile()).catch((error: unknown) => log.warn(`runner: couldn't put trust back: ${error}`));
+  const { runnerSocket, hooksSocket } = paths();
+  await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
+  setTimeout(() => process.exit(0), 50);
   return new Response(null, { status: 204 });
 };
 
 // Event and output streams stay open for as long as someone listens, so the
 // session runner turns off Bun's limit on quiet requests (0 = none). Bun's types don't
 // allow that option alongside a file socket, though Bun itself does.
-export const controlServeOptions = {
-  unix: RUNNER_SOCKET,
+export const controlServeOptions = (runnerSocket: string) => ({
+  unix: runnerSocket,
   idleTimeout: 0,
   maxRequestBodySize: SESSION_LIMITS.maxControlBodyBytes,
   routes: {
@@ -100,7 +105,7 @@ export const controlServeOptions = {
         if (!isRequest) return new Response("expected plain sessionName and folderName, and a path", { status: 400 });
         // The session runner checks the folder list itself, so nothing that reaches its
         // socket can start Claude (and mark it trusted) in any other folder.
-        if (!(await isAllowedFolder(folderName, path))) return new Response(`${path} isn't one of this machine's folders`, { status: 403 });
+        if (!(await isAllowedFolder(folderName, path))) return refuse("folder-not-allowed", `${path} isn't one of the allowed folders`, 403);
         return startSession({ sessionName, folderName, path });
       },
     },
@@ -116,8 +121,10 @@ export const controlServeOptions = {
       },
     },
     [`${RUNNER_ROUTES.sessions}/:sessionName/stop`]: {
-      POST: (request: BunRequest) => {
-        heldSessionOf(request)?.child.kill();
+      POST: async (request: BunRequest) => {
+        const session = heldSessionOf(request);
+        if (!session) return noSuchSession(sessionNameOf(request));
+        await endSession(session);
         return new Response(null, { status: 204 });
       },
     },
@@ -138,7 +145,7 @@ export const controlServeOptions = {
         // Read the body first: a session read before the wait could be stale.
         const keys = new Uint8Array(await request.arrayBuffer());
         const session = heldSessionOf(request);
-        if (!session) return new Response(null, { status: 204 });
+        if (!session) return noSuchSession(sessionNameOf(request));
         // A terminal sends reports (like focus in or out) as input on its own, so
         // only keys that change the turn or the draft count as the person typing.
         const isTurnChanging = isTurnChangingKeys(keys);
@@ -155,10 +162,12 @@ export const controlServeOptions = {
         const { cols, rows } = await readJson(request);
         const isSize = (value: unknown) => Number.isInteger(value) && Number(value) >= 1 && Number(value) <= SESSION_LIMITS.maxTerminalCells;
         if (!isSize(cols) || !isSize(rows)) return new Response("expected a terminal size", { status: 400 });
-        heldSessionOf(request)?.terminal.resize(Number(cols), Number(rows));
+        const session = heldSessionOf(request);
+        if (!session) return noSuchSession(sessionNameOf(request));
+        session.terminal.resize(Number(cols), Number(rows));
         return new Response(null, { status: 204 });
       },
     },
   },
   fetch: () => new Response("Not found", { status: 404 }),
-};
+});

@@ -2,19 +2,17 @@
 // see what went wrong. Only this user can read the file, it's capped (one older
 // copy is kept), and it's written off the session runner's main path.
 import { appendFile, chmod, rename, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { TALOS_FOLDER } from "../constants";
 import { SESSION_LIMITS } from "../limits";
-import { log } from "./inputs";
+import { log, paths } from "./inputs";
 
-const QUARANTINE_FILE = join(TALOS_FOLDER, "quarantine.log");
-const QUARANTINE_FILE_MODE = 0o600;
+const quarantineFile_MODE = 0o600;
 
 const writeLines = async (lines: string): Promise<void> => {
-  const size = await stat(QUARANTINE_FILE).then((info) => info.size, () => 0);
-  if (size + lines.length > SESSION_LIMITS.maxQuarantineBytes) await rename(QUARANTINE_FILE, `${QUARANTINE_FILE}.1`).catch(() => {});
-  await appendFile(QUARANTINE_FILE, lines, { mode: QUARANTINE_FILE_MODE });
-  await chmod(QUARANTINE_FILE, QUARANTINE_FILE_MODE);
+  const quarantineFile = paths().quarantine;
+  const size = await stat(quarantineFile).then((info) => info.size, () => 0);
+  if (size + lines.length > SESSION_LIMITS.maxQuarantineBytes) await rename(quarantineFile, `${quarantineFile}.1`).catch(() => {});
+  await appendFile(quarantineFile, lines, { mode: quarantineFile_MODE });
+  await chmod(quarantineFile, quarantineFile_MODE);
 };
 
 // One write at a time, so a rotation can't race another write.

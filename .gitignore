@@ -6,3 +6,6 @@ talos-desktop/src-tauri/gen/
 
 # Local scripts and notes, not part of the repo.
 ref/
+
+# Each talos-sessions example keeps its last run here, to look at.
+talos/src/talos-sessions/examples/*/run/

@@ -1,6 +1,6 @@
 // The hooks socket: the only routes a session can reach, its own Claude Code hooks.
 import type { Socket } from "bun";
-import { RUNNER_HOOKS_SOCKET, NEWLINE_BYTE } from "../constants";
+import { NEWLINE_BYTE } from "../constants";
 import { encodeHookLine, readHookRequest, type HookAnswer, type ListedTool } from "../client/runner-protocol";
 import { hookTokenAuthorized, nextSessionState } from "../claude/session-hooks";
 import { readLaneEvent } from "../lanes/lane";
@@ -104,9 +104,9 @@ const answerAndClose = (socket: HookSocket, answer: HookAnswer) => {
 // one line; it's bounded so a session can't send a huge body that blocks the
 // session runner's one thread in JSON.parse long enough for other sessions' hooks to time
 // out and fail open.
-export const startHookServer = () =>
+export const startHookServer = (hooksSocket: string) =>
   Bun.listen<HookConnection>({
-    unix: RUNNER_HOOKS_SOCKET,
+    unix: hooksSocket,
     socket: {
       open: (socket) => {
         const oldestSocket = openHookSockets.values().next().value;

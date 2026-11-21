@@ -35,6 +35,7 @@ the layer that wires them together. See [docs/MODULES.md](docs/MODULES.md).
 - `talos-relay`: the server's live hub between machines and pages. Not created.
 - `talos-pairing`: give a new machine its key. Not created.
 - `talos-sign-in`: sign people in. Not created.
+- `talos-accounts`: keep several Claude logins, watch each one's usage, and say which a session should use (replaces janus). Not created.
 - `talos-utils`: general helpers more than one module needs, knowing nothing about talos. Not created (only once a second module needs a helper).
 
 Each module stands on its own: it depends on nothing else in talos, except

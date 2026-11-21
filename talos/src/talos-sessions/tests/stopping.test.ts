@@ -203,3 +203,15 @@ test(
   },
   30_000,
 );
+
+test(
+  "right after stopRunner, the runner reads as gone",
+  async () => {
+    const { calls } = newHome();
+    await calls.ensureRunning();
+    expect(await calls.sessions()).toEqual([]);
+    await calls.stopRunner();
+    expect(await calls.isRunning()).toBe(false);
+  },
+  20_000,
+);

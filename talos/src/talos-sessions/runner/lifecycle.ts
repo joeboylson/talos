@@ -162,7 +162,8 @@ export const becomeReadyWhenQuiet = async (sessionName: string, token: string, g
   const hasQueuedMessages = session.queuedMessages.length > 0;
   if (hasQueuedMessages) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   setSessionState(sessionName, hasQueuedMessages ? "working" : "idle");
-  for (const message of session.queuedMessages) await typeIntoSession(session, message);
+  // All queued for typing at once, so a message sent meanwhile goes after them.
+  await Promise.all(session.queuedMessages.map((message) => typeIntoSession(session, message)));
 };
 
 // Claude leads its own process group (its terminal's), so signalling the group

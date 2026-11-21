@@ -124,3 +124,34 @@ test(
   },
   30_000,
 );
+
+test(
+  "a compaction mid-turn (a SessionStart) leaves an open question showing",
+  async () => {
+    const dir = folder("compact");
+    expect(await calls.start("compact", "compact", dir)).toEqual({ ok: true });
+    await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "compact")?.state === "idle", "the session to be ready");
+    expect(await calls.send("compact", "go-compact")).toEqual({ ok: true });
+    await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "compact")?.state === "needs-you", "the question");
+    await Bun.sleep(2000);
+    const session = (await calls.sessions()).find(({ sessionName }) => sessionName === "compact");
+    expect([session?.state, session?.openOutputs.length]).toEqual(["needs-you", 1]);
+  },
+  30_000,
+);
+
+test(
+  "a send made as a session becomes ready goes after the messages queued while it started",
+  async () => {
+    const dir = folder("order");
+    expect(await calls.start("order", "order", dir)).toEqual({ ok: true });
+    expect(await calls.send("order", "first", [png])).toEqual({ ok: true });
+    expect(await calls.send("order", "second")).toEqual({ ok: true });
+    await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "order")?.state !== "starting", "the session to be ready");
+    expect(await calls.send("order", "third")).toEqual({ ok: true });
+    await waitUntil(() => readFileSync(join(dir, "transcript.jsonl"), "utf8").includes("BUSY third"), "every message", 10_000);
+    const busy = readFileSync(join(dir, "transcript.jsonl"), "utf8").match(/BUSY (second|third)/g);
+    expect(busy).toEqual(["BUSY second", "BUSY third"]);
+  },
+  30_000,
+);

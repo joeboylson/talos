@@ -2,7 +2,7 @@
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { SentImage } from "../shapes";
-import { HOME_MODE, IMAGE_PASTE_SETTLE_MS, UPLOAD_FILE_MODE } from "../constants";
+import { HOME_MODE, IMAGE_PASTE_SETTLE_MS, UPLOAD_FILE_MODE, steadyNow } from "../constants";
 import { paths } from "./inputs";
 import { noSuchSession, refuse } from "./refuse";
 import { SESSION_LIMITS } from "../limits";
@@ -19,7 +19,7 @@ export const typeIntoSession = (session: HeldSession, message: TypedMessage): Pr
 
 const typeOne = async (session: HeldSession, { text, hasImages, imagePaths = [] }: TypedMessage): Promise<void> => {
   const { sessionName } = session.summary;
-  updateHeldSession(sessionName, session.hookToken, { hasDraft: true });
+  updateHeldSession(sessionName, session.hookToken, { hasDraft: true, draftAtMs: steadyNow() });
   session.terminal.write(buildPastedText(text));
   if (hasImages) await Bun.sleep(IMAGE_PASTE_SETTLE_MS);
   session.terminal.write(ENTER_KEY);

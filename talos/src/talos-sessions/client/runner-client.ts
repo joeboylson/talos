@@ -8,7 +8,9 @@ import { RUNNER_ROUTES, parseRunnerEvent, type RunnerEvent } from "./runner-prot
 // Requests to the session runner go over its file socket; the name in the
 // address is ignored.
 export const runnerFetch = (home: string, route: string, init: RequestInit = {}): Promise<Response> =>
-  fetch(`http://talos-runner${route}`, { ...init, unix: homePaths(home).runnerSocket } as RequestInit);
+  // A new connection each time, so a runner that has stopped is seen as gone at
+  // once, not still reached through a kept connection.
+  fetch(`http://talos-runner${route}`, { ...init, unix: homePaths(home).runnerSocket, keepalive: false } as RequestInit);
 
 export const postToRunner = (home: string, route: string, body: unknown): Promise<Response> =>
   runnerFetch(home, route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

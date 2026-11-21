@@ -76,6 +76,11 @@ const runTurn = async (text: string) => {
   }
   if (text === STATUS_REQUEST) await callTool("mcp__talos__send_status", { text: "all good" });
   if (text.startsWith("Answer to")) await callTool("Bash", { command: "ls" });
+  // A question, then Claude Code compacting the conversation (a SessionStart mid-turn).
+  if (text === "go-compact") {
+    await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
+    await hook({ hook_event_name: "SessionStart", source: "compact" });
+  }
   if (text === "go-prompt") await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
   if (text === "prompt" || text === "go-prompt") {
     await hook({ hook_event_name: "Notification", message: "Claude needs your permission to use Bash" });

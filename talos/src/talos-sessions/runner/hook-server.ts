@@ -32,7 +32,9 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
 
   // Only one ready-loop per session instance, so a forged flood of SessionStart
   // events can't pile up uncancelled loops and exhaust the session runner's memory.
-  if (hookEvent === "SessionStart" && !session.isBecomingReady) {
+  // Only while starting: Claude Code also sends one mid-session (a compaction,
+  // /clear), which mustn't count the turn over or hide an open question.
+  if (hookEvent === "SessionStart" && session.summary.state === "starting" && !session.isBecomingReady) {
     updateHeldSession(sessionName, session.hookToken, { isBecomingReady: true });
     void becomeReadyWhenQuiet(sessionName, session.hookToken, steadyNow() + SESSION_LIMITS.readyLongestWaitMs)
       .catch((error: unknown) => log.warn(`runner: couldn't finish starting ${sessionName}: ${error}`))

@@ -210,6 +210,9 @@ export const readSessionEntries = (value: unknown): SessionEntry[] | null => {
   return capDroppedMarkers(entries, LIMITS.maxDroppedPerBatch);
 };
 
+// Real base64 only, so junk can't be saved and pasted as an image.
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const isBase64Data = (value: unknown): boolean => typeof value === "string" && value.length > 0 && BASE64.test(value);
 export const readSentImages = (value: unknown): SentImage[] | null => {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > LIMITS.maxImagesPerMessage) return null;
@@ -217,7 +220,8 @@ export const readSentImages = (value: unknown): SentImage[] | null => {
     typeof item === "object" &&
     item !== null &&
     isOneOf(IMAGE_MEDIA_TYPES, fieldOf(item, "mediaType")) &&
-    isTextUpTo(fieldOf(item, "dataBase64"), LIMITS.maxImageBase64Length);
+    isTextUpTo(fieldOf(item, "dataBase64"), LIMITS.maxImageBase64Length) &&
+    isBase64Data(fieldOf(item, "dataBase64"));
   if (!value.every(isImage)) return null;
   return value.map(({ mediaType, dataBase64 }) => ({ mediaType, dataBase64 }));
 };

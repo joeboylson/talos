@@ -141,3 +141,7 @@ test("an output or answer as big as the lane allows is read, not dropped for its
   expect(read?.openOutputs.map(({ id }) => id)).toEqual(["o1"]);
   expect(Object.keys(read?.asks ?? {})).toEqual(["status", "other"]);
 });
+
+test.each(["", "!!!!", "A", "data:image/png;base64,AAAA", "-_-_"])("image data that isn't base64 (%p) is turned down", (dataBase64) => {
+  expect(readSentImages([{ mediaType: "image/png", dataBase64 }])).toBeNull();
+});

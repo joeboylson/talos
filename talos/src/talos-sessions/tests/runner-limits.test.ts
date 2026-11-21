@@ -72,3 +72,33 @@ test(
 test("a start in an allowed folder that's gone is refused", async () => {
   expect(await calls.start("gone", "gone", join(home, "not-there"))).toMatchObject({ ok: false, code: "folder-not-allowed" });
 });
+
+const userLines = (dir: string) =>
+  readFileSync(join(dir, "transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((line) => line.type === "user").map((line) => line.message.content as string);
+const png = { mediaType: "image/png" as const, dataBase64: Buffer.from("png").toString("base64") };
+
+test(
+  "images sent while a session starts are all still there when it types them",
+  async () => {
+    const dir = folder("queued");
+    expect(await calls.start("queued", "queued", dir)).toEqual({ ok: true });
+    for (let sent = 0; sent < 6; sent += 1) expect(await calls.send("queued", `msg ${sent}`, [png, png, png, png])).toEqual({ ok: true });
+    await waitUntil(() => existsSync(join(dir, "transcript.jsonl")) && userLines(dir).some((line) => line.startsWith("msg 5")), "the last message", 30_000);
+    expect(readFileSync(join(dir, "transcript.jsonl"), "utf8")).not.toContain("MISSING");
+  },
+  60_000,
+);
+
+test(
+  "two messages sent at once go in one after the other, each whole",
+  async () => {
+    const dir = folder("pair");
+    expect(await calls.start("pair", "pair", dir)).toEqual({ ok: true });
+    await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "pair")?.state === "idle", "the session to be ready");
+    expect(await Promise.all([calls.send("pair", "first", [png]), calls.send("pair", "second", [png])])).toEqual([{ ok: true }, { ok: true }]);
+    await waitUntil(() => userLines(dir).length + readFileSync(join(dir, "transcript.jsonl"), "utf8").split("queued_command").length - 1 >= 2, "both messages", 10_000);
+    const typed = readFileSync(join(dir, "transcript.jsonl"), "utf8");
+    expect(typed).not.toMatch(/\.pngsecond/);
+  },
+  60_000,
+);

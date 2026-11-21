@@ -14,7 +14,7 @@ export type Terminal = { write: (data: string | Uint8Array) => void; resize: (co
 
 export type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
 
-export type TypedMessage = { text: string; hasImages: boolean };
+export type TypedMessage = { text: string; hasImages: boolean; imagePaths?: readonly string[] };
 
 // Where a session's conversation is saved, how much of it has been read, and
 // the tools seen there that haven't ended yet.

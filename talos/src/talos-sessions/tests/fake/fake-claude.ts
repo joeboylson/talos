@@ -13,7 +13,7 @@
 // the terminal closing, and saves that one's id in child.pid. Text typed while
 // a turn runs joins it (see below) and is also saved as a "BUSY" line, and a
 // tool talos denies as a "DENIED" line, so a test can see both.
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { askRunner } from "../../client/hook-client";
 import { SESSION_ENV_KEYS } from "../../constants";
@@ -53,9 +53,14 @@ const callTool = async (toolName: string, input: object, toolUseId = `tool-${++t
   await hook({ hook_event_name: "PostToolUse", tool_name: toolName, tool_input: reply.hookSpecificOutput.updatedInput, tool_use_id: toolUseId });
 };
 
+// An image's path, as talos types it, must be there when the message arrives.
+const notePastedImages = (text: string) =>
+  text.split(/\s+/).filter((word) => /\.(png|jpg|gif|webp)$/.test(word) && !existsSync(word)).forEach((path) => saveText(`MISSING ${path}`));
+
 const runTurn = async (text: string) => {
   await hook({ hook_event_name: "UserPromptSubmit", prompt: text });
   saveLine({ type: "user", message: { content: text } });
+  notePastedImages(text);
   if (text === "go") {
     saveText("Here is a note, then a question.");
     await callTool("mcp__talos__send_note", { text: "a note" }, "tool-note");

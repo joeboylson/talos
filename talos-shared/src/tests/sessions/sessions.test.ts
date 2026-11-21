@@ -358,3 +358,7 @@ test("dropped markers the cap leaves out don't take real entries' places", () =>
   expect(merged.filter(({ kind }) => kind === "dropped")).toHaveLength(20);
   expect(merged.filter(({ kind }) => kind === "text")).toHaveLength(480);
 });
+
+test.each(["", "!!!!", "A", "data:image/png;base64,AAAA", "-_-_"])("image data that isn't base64 (%p) is turned down", (dataBase64) => {
+  expect(readSentImages([{ mediaType: "image/png", dataBase64 }])).toBeNull();
+});

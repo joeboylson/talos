@@ -1,5 +1,5 @@
 // Typing a message, with any images, into a session.
-import { chmod, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { SentImage } from "../shapes";
 import { HOME_MODE, IMAGE_PASTE_SETTLE_MS, UPLOAD_FILE_MODE } from "../constants";
@@ -12,13 +12,27 @@ import { heldSessions, updateHeldSession, type HeldSession, type TypedMessage } 
 
 // The message counts as a draft until its Enter (an image paste waits a second
 // first), and Enter sends any draft along with it, so the box is empty after.
-export const typeIntoSession = async (session: HeldSession, { text, hasImages }: TypedMessage): Promise<void> => {
+// One message at a time per session: one pasted during another's wait would
+// join it, and glue its text onto the other's last image path. Old images go
+// only once a message is in, so none waiting to be typed is lost.
+const typing = new Map<string, Promise<void>>();
+export const typeIntoSession = (session: HeldSession, message: TypedMessage): Promise<void> => {
+  const { sessionName } = session.summary;
+  const typed = (typing.get(sessionName) ?? Promise.resolve()).then(() => typeOne(session, message));
+  const settled = typed.catch(() => {});
+  typing.set(sessionName, settled);
+  void settled.then(() => typing.get(sessionName) === settled && typing.delete(sessionName));
+  return typed;
+};
+
+const typeOne = async (session: HeldSession, { text, hasImages, imagePaths = [] }: TypedMessage): Promise<void> => {
   const { sessionName } = session.summary;
   updateHeldSession(sessionName, session.hookToken, { hasDraft: true });
   session.terminal.write(buildPastedText(text));
   if (hasImages) await Bun.sleep(IMAGE_PASTE_SETTLE_MS);
   session.terminal.write(ENTER_KEY);
   updateHeldSession(sessionName, session.hookToken, { hasDraft: false });
+  if (hasImages) await dropOldImages(sessionName, imagePaths).catch(() => {});
 };
 
 const IMAGE_FILE_EXTENSIONS: Record<SentImage["mediaType"], string> = {
@@ -29,12 +43,16 @@ const IMAGE_FILE_EXTENSIONS: Record<SentImage["mediaType"], string> = {
 };
 
 // Only the newest images stay: a long session would otherwise keep every one it
-// was sent until it ends.
-const dropOldImages = async (folder: string): Promise<void> => {
-  const files = await Promise.all((await readdir(folder)).map(async (name) => ({ path: join(folder, name), atMs: (await stat(join(folder, name))).mtimeMs })));
-  const oldest = files.sort((first, second) => second.atMs - first.atMs).slice(SESSION_LIMITS.maxUploadsKept);
-  await Promise.all(oldest.map(({ path }) => rm(path, { force: true })));
+// was sent until it ends. Counted in the order they were typed, which the
+// runner keeps itself (a file's time moves with the clock).
+const typedImages = new Map<string, string[]>();
+const dropOldImages = async (sessionName: string, justTyped: readonly string[]): Promise<void> => {
+  const all = [...(typedImages.get(sessionName) ?? []), ...justTyped];
+  const kept = all.slice(-SESSION_LIMITS.maxUploadsKept);
+  typedImages.set(sessionName, kept);
+  await Promise.all(all.slice(0, all.length - kept.length).map((path) => rm(path, { force: true })));
 };
+export const forgetTypedImages = (sessionName: string): void => void typedImages.delete(sessionName);
 
 const saveImages = async (sessionName: string, images: SentImage[]): Promise<string[]> => {
   if (images.length === 0) return [];
@@ -48,7 +66,6 @@ const saveImages = async (sessionName: string, images: SentImage[]): Promise<str
       return imagePath;
     }),
   );
-  await dropOldImages(sessionUploadsFolder);
   return saved;
 };
 
@@ -65,7 +82,7 @@ export const sendToSession = async (sessionName: string, text: string, images: S
   });
   const session = heldSessions.get(sessionName);
   if (!session || !imagePaths) return noSuchSession(sessionName);
-  const message = { text: buildMessageWithImages(text, imagePaths), hasImages: images.length > 0 };
+  const message = { text: buildMessageWithImages(text, imagePaths), hasImages: images.length > 0, imagePaths };
   if (session.summary.state === "starting") {
     heldSessions.set(sessionName, { ...session, queuedMessages: [...session.queuedMessages, message] });
   } else {

@@ -20,7 +20,7 @@ import { claudeCommand, claudeConfigFile, isAllowedFolder, log, paths, restoresT
 import { refuse } from "./refuse";
 
 const SESSION_EXIT_WAIT_MS = 5000;
-import { typeIntoSession } from "./messages";
+import { forgetTypedImages, typeIntoSession } from "./messages";
 import { applyLaneEvent, setSessionState } from "./session-state";
 import { broadcastSessions, heldSessions, runnerState, sendToListeners, startingSessions, trustChanges, updateHeldSession, type HeldSession, type Terminal } from "./store";
 import { SESSION_LIMITS } from "../limits";
@@ -42,6 +42,7 @@ const forgetSession = (sessionName: string, token: string) => {
   const session = heldSessions.get(sessionName);
   if (session?.hookToken !== token) return;
   heldSessions.delete(sessionName);
+  forgetTypedImages(sessionName);
   saveSessionGroups();
   session.outputListeners.forEach((listener) => listener.close());
   void rm(join(paths().uploads, sessionName), { recursive: true, force: true }).catch((error: unknown) =>

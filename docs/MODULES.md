@@ -66,7 +66,9 @@ Each block below is listed as what goes in → what comes out.
     `folder-not-allowed` (also a folder that's gone), `already-asking`,
     `closed` (that question has closed), `not-a-choice`, `not-sendable` (a
     choice that would act as a command), and `still-starting` (a starting
-    session already has as many messages waiting as it takes). A malformed
+    session already has as many messages waiting as it takes), and
+    `prompt-showing` (a message can't go in while Claude Code asks permission:
+    it would answer the prompt). A malformed
     request, or a session runner that can't be reached, throws instead.
   - Its home holds: `runner.sock` (the plain calls) and `runner-hooks.sock`
     (the sessions' hooks), `runner.lock` (the one runner holding the home),

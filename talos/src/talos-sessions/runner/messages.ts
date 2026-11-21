@@ -8,7 +8,7 @@ import { noSuchSession, refuse } from "./refuse";
 import { SESSION_LIMITS } from "../limits";
 import { ENTER_KEY, buildMessageWithImages, buildPastedText } from "../terminal";
 import { applyLaneEvent } from "./session-state";
-import { heldSessions, typeInTurn, updateHeldSession, type HeldSession, type TypedMessage } from "./store";
+import { heldSessions, isPromptShowing, typeInTurn, updateHeldSession, type HeldSession, type TypedMessage } from "./store";
 
 // The message counts as a draft until its Enter (an image paste waits a second
 // first), and Enter sends any draft along with it, so the box is empty after.
@@ -67,6 +67,9 @@ export const sendToSession = async (sessionName: string, text: string, images: S
   if (waiting.summary.state === "starting" && waiting.queuedMessages.length >= SESSION_LIMITS.maxQueuedMessages) {
     return refuse("still-starting", "It's still starting; send that once it's ready");
   }
+  // Typed into a permission prompt, the message would answer it (its Enter
+  // approves) and be lost, so it waits for the person to answer the prompt.
+  if (isPromptShowing(waiting)) return refuse("prompt-showing", "Claude is asking permission; answer it first");
   // A session that ends while its images are saved takes its uploads folder with it.
   const imagePaths = await saveImages(sessionName, images).catch((error: unknown) => {
     if (heldSessions.has(sessionName)) throw error;

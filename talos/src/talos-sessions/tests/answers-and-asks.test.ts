@@ -152,3 +152,16 @@ test(
   },
   40_000,
 );
+
+test(
+  "a message sent while a permission prompt shows is refused, not typed into the prompt",
+  async () => {
+    await atPrompt("send-at-prompt");
+    expect(await calls.send("send-at-prompt", "no wait, use git status")).toMatchObject({ ok: false, code: "prompt-showing" });
+    await Bun.sleep(1000);
+    expect(texts("send-at-prompt")).not.toContain("APPROVED");
+    expect(await calls.keys("send-at-prompt", "\x1b")).toEqual({ ok: true });
+    await waitUntil(() => texts("send-at-prompt").includes("REFUSED"), "the prompt to be answered");
+  },
+  30_000,
+);

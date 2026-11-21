@@ -118,3 +118,6 @@ export const typeInTurn = <T>(sessionName: string, type: () => Promise<T>): Prom
   void settled.then(() => typing.get(sessionName) === settled && typing.delete(sessionName));
   return typed;
 };
+
+// A permission prompt shows: Claude Code waits on the person mid-turn.
+export const isPromptShowing = (session: HeldSession): boolean => session.summary.state === "needs-you" && !session.isTurnOver;

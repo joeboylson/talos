@@ -14,7 +14,7 @@ import { restoreTrust, type TrustChange } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
 import { answerOutput, applyLaneEvent, askForOutput, setSessionState } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
-import { eventListeners, heldSessions, listSessions, runnerState, startingSessions, trustChanges, typeInTurn } from "./store";
+import { eventListeners, heldSessions, isPromptShowing, listSessions, runnerState, startingSessions, trustChanges, typeInTurn } from "./store";
 
 const streamOf = <T>(
   onStart: (controller: ReadableStreamDefaultController<T>) => void,
@@ -182,11 +182,11 @@ export const controlServeOptions = (runnerSocket: string) => ({
         const { sessionName } = session.summary;
         // Keys at a permission prompt answer the prompt: they're neither a draft
         // nor the person starting a turn, so what talos holds keeps waiting.
-        const isPromptShowing = session.summary.state === "needs-you" && !session.isTurnOver;
+        const isPrompt = isPromptShowing(session);
         // A terminal sends reports (like focus in or out) as input on its own, so
         // only keys that change the turn or the draft count as the person typing.
-        const isTurnChanging = !isPromptShowing && isTurnChangingKeys(keys);
-        const isDraftChanging = !isPromptShowing && isDraftChangingKeys(keys);
+        const isTurnChanging = !isPrompt && isTurnChangingKeys(keys);
+        const isDraftChanging = !isPrompt && isDraftChangingKeys(keys);
         const hasDraft = isDraftClearingKeys(keys) ? false : isDraftChanging || session.hasDraft;
         heldSessions.set(sessionName, { ...session, hasDraft, draftAtMs: isDraftChanging ? steadyNow() : session.draftAtMs });
         if (isTurnChanging || isDraftChanging) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging });

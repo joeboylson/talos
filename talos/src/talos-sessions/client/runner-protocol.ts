@@ -23,6 +23,7 @@ export const REFUSAL_CODES = [
   "not-a-choice",
   "not-sendable",
   "still-starting",
+  "prompt-showing",
 ] as const;
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
 export type Refusal = { code: RefusalCode; reason: string };

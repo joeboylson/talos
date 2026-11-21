@@ -11,8 +11,8 @@
 // It saves its process id in claude.pid. In a folder named stubborn… it ignores
 // being told to stop; in one named spawner… it starts a process that ignores
 // the terminal closing, and saves that one's id in child.pid. Text typed while
-// a turn runs is saved as a "BUSY" line, and a tool talos denies as a "DENIED"
-// line, so a test can see both.
+// a turn runs joins it (see below) and is also saved as a "BUSY" line, and a
+// tool talos denies as a "DENIED" line, so a test can see both.
 import { appendFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { askRunner } from "../../client/hook-client";
@@ -105,7 +105,14 @@ process.stdin.on("data", (chunk: Buffer) => {
   for (const line of lines) {
     const text = line.replace(/\x1b\[20[01]~/g, "").replace(/\x1b/g, "").trim();
     if (!text) continue;
-    if (turnsWaiting > 0) saveText(`BUSY ${text}`);
+    // Text typed into a running turn joins it, as in Claude Code: it's reported
+    // as a start at once and saved as a queued command, with no turn of its own.
+    if (turnsWaiting > 0) {
+      saveText(`BUSY ${text}`);
+      void hook({ hook_event_name: "UserPromptSubmit", prompt: text });
+      saveLine({ type: "attachment", attachment: { type: "queued_command", prompt: text, commandMode: "prompt" } });
+      continue;
+    }
     turnsWaiting += 1;
     turns = turns.then(() => runTurn(text)).finally(() => (turnsWaiting -= 1));
   }

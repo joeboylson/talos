@@ -24,11 +24,18 @@ describe("an output opens only if the session saw its id", () => {
     const a = pendingOf("a");
     expect(stepOutputs(sent(NO_OUTPUTS, a), { type: "failed", toolUseId: a.toolUseId }).outputs).toEqual(NO_OUTPUTS);
   });
-  test("a call with no PostToolUse by the next turn is dropped", () => {
+  test("a call with no PostToolUse by its turn's end is dropped", () => {
     const a = pendingOf("a");
-    const next = stepOutputs(sent(NO_OUTPUTS, a), { type: "turn-started", isTalosTurn: false }).outputs;
+    const next = stepOutputs(sent(NO_OUTPUTS, a), { type: "turn-ended" }).outputs;
     expect(next.pending).toEqual([]);
     expect(through(next, a).opened).toBeNull();
+  });
+  test("a message typed mid-turn (a start with no end before it) keeps the turn's calls and its count", () => {
+    const a = pendingOf("a");
+    const midTurn = stepOutputs(sent(NO_OUTPUTS, a), { type: "turn-started", isTalosTurn: false }).outputs;
+    expect(openIds(through(midTurn, a).outputs)).toEqual(["a"]);
+    const endOfThatTurn = stepOutputs(through(midTurn, a).outputs, { type: "turn-ended" }).outputs;
+    expect(openIds(endOfThatTurn)).toEqual(["a"]);
   });
   test("one that doesn't wait counts once it goes through, but isn't left open", () => {
     const a = pendingOf("a", "tu-a", false);

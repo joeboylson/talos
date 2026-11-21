@@ -5,7 +5,9 @@
 // open: it went through with its id (PostToolUse), and waits for an answer.
 // An output opens only if the session saw its id: another PreToolUse hook can
 // replace the call's input, and then the id is gone. A question lasts one turn:
-// it closes when the person's turn after the one that asked it ends. Turns
+// it closes when the person's turn after the one that asked it ends. Only a
+// turn's end counts: Claude Code also reports a message the person typed mid-turn
+// as a start, inside the turn that's running. Turns
 // talos types (answers, asked-for requests) don't count, so answering one
 // question doesn't close the next.
 import { OUTPUT_ID_FIELD } from "../kinds";
@@ -13,7 +15,7 @@ import { SESSION_LIMITS } from "../limits";
 
 export type PendingOutput = { id: string; toolUseId: string; kind: string; fields: Record<string, unknown>; atMs: number; waits: boolean };
 export type OpenOutput = { id: string; kind: string; fields: Record<string, unknown>; atMs: number; askedInTurn: number };
-// turn counts only the person's turns; isTalosTurn says the running one is talos's.
+// turn counts the person's turns that have ended; isTalosTurn says the running one is talos's.
 export type Outputs = { turn: number; isTalosTurn: boolean; pending: PendingOutput[]; open: OpenOutput[] };
 
 export const NO_OUTPUTS: Outputs = { turn: 0, isTalosTurn: false, pending: [], open: [] };
@@ -78,12 +80,15 @@ export const stepOutputs = (outputs: Outputs, event: OutputsEvent): OutputsStep 
   if (event.type === "sent") return step({ ...outputs, pending: [...outputs.pending, event.output].slice(-SESSION_LIMITS.maxOutputsInFlight) });
   if (event.type === "went-through") return stepWentThrough(outputs, event.toolUseId, event.toolInput);
   if (event.type === "failed") return step({ ...outputs, pending: outputs.pending.filter((output) => output.toolUseId !== event.toolUseId) });
-  // A call with no PostToolUse by the next turn never went through: the
+  if (event.type === "turn-started") return step({ ...outputs, isTalosTurn: event.isTalosTurn });
+  // A call with no PostToolUse by its turn's end never went through: the
   // person's own rule denied it, or the turn was interrupted.
-  if (event.type === "turn-started") {
-    return step({ ...outputs, turn: event.isTalosTurn ? outputs.turn : outputs.turn + 1, isTalosTurn: event.isTalosTurn, pending: [] });
+  if (event.type === "turn-ended") {
+    const ended = { ...outputs, pending: [] };
+    if (outputs.isTalosTurn) return step(ended);
+    const closed = closeWhere(ended, (output) => output.askedInTurn < outputs.turn);
+    return { ...closed, outputs: { ...closed.outputs, turn: outputs.turn + 1 } };
   }
-  if (event.type === "turn-ended") return outputs.isTalosTurn ? step(outputs) : closeWhere(outputs, (output) => output.askedInTurn < outputs.turn);
   return closeWhere(outputs, (output) => output.id === event.id);
 };
 

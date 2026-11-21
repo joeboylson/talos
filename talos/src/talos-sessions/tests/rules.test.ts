@@ -177,11 +177,14 @@ describe("outputs", () => {
           // A failed call drops only its own pending output.
           if (event.type === "failed" && outputs.pending.length !== before.pending.filter(({ toolUseId }) => toolUseId !== event.toolUseId).length) return false;
           if (step.closedIds.some((id) => !before.open.some((output) => output.id === id))) return false;
-          if (event.type === "turn-ended" && before.isTalosTurn && outputs !== before) return false;
+          if (event.type === "turn-ended" && outputs.pending.length > 0) return false;
+          if (event.type === "turn-ended" && before.isTalosTurn && outputs.open !== before.open) return false;
           if (event.type === "turn-ended" && !before.isTalosTurn) {
-            if (outputs.open.some(({ askedInTurn }) => askedInTurn < outputs.turn)) return false;
+            if (outputs.open.some(({ askedInTurn }) => askedInTurn < before.turn)) return false;
             if (before.open.some((output) => output.askedInTurn === before.turn && !outputs.open.includes(output))) return false;
           }
+          // A start mid-turn never closes or drops anything.
+          if (event.type === "turn-started" && (outputs.open !== before.open || outputs.pending !== before.pending)) return false;
           if (outputs.open.length > SESSION_LIMITS.maxOpenOutputs || outputs.pending.length > SESSION_LIMITS.maxOutputsInFlight) return false;
         }
         return true;

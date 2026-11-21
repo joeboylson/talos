@@ -8,6 +8,9 @@ export type SessionRow = {
   state: SessionState;
   status?: SessionStatus;
   decision?: SessionDecision;
+  // Claude Code asks permission in its terminal (needs you, mid-turn): only
+  // the terminal can answer it.
+  isPromptShowing: boolean;
 };
 
 export const sessionKey = (machineId: string, sessionName: string): string => `${machineId}:${sessionName}`;
@@ -20,7 +23,8 @@ export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
         const status = statusOf(session);
         const decision = openDecisionOf(session);
         const { sessionName, folderName, state } = session;
-        return { machineId, machineName, sessionName, folderName, state, ...(status && { status }), ...(decision && { decision }) };
+        const isPromptShowing = state === "needs-you" && session.isTurnOver === false;
+        return { machineId, machineName, sessionName, folderName, state, isPromptShowing, ...(status && { status }), ...(decision && { decision }) };
       }),
     )
     .sort(

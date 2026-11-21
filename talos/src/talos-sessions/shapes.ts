@@ -21,6 +21,10 @@ export type SessionSummary = {
   state: SessionState;
   asks: Record<string, Ask>;
   openOutputs: OpenOutput[];
+  // Whether the turn is over: "needs-you" with it over is a question waiting
+  // for its answer; with it running, a permission prompt in the terminal.
+  // Missing (an older sender) counts as over.
+  isTurnOver?: boolean;
 };
 
 // One thing in a session's conversation, read from Claude Code's saved
@@ -111,7 +115,15 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
   // Each session is checked on its own: a bad one is left out, not the whole list.
   return value.filter(isSession).map((item) => {
     const { sessionName, folderName, state } = item as SessionSummary;
-    return { sessionName, folderName, state, asks: readAsks(fieldOf(item as object, "asks")), openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")) };
+    const isTurnOver = fieldOf(item as object, "isTurnOver");
+    return {
+      sessionName,
+      folderName,
+      state,
+      asks: readAsks(fieldOf(item as object, "asks")),
+      openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")),
+      ...(typeof isTurnOver === "boolean" && { isTurnOver }),
+    };
   });
 };
 

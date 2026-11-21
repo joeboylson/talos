@@ -125,7 +125,7 @@ export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): voi
 export const setSessionState = (sessionName: string, state: SessionState, isTurnOver = state === "idle") => {
   const session = heldSessions.get(sessionName);
   if (!session || (session.summary.state === state && session.isTurnOver === isTurnOver)) return;
-  heldSessions.set(sessionName, { ...session, isTurnOver, summary: { ...session.summary, state } });
+  heldSessions.set(sessionName, { ...session, isTurnOver, summary: { ...session.summary, state, isTurnOver } });
   log.detail(`runner: ${sessionName} is ${state}`);
   broadcastSessions();
   if (isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);

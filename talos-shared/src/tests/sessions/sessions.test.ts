@@ -362,3 +362,9 @@ test("dropped markers the cap leaves out don't take real entries' places", () =>
 test.each(["", "!!!!", "A", "data:image/png;base64,AAAA", "-_-_"])("image data that isn't base64 (%p) is turned down", (dataBase64) => {
   expect(readSentImages([{ mediaType: "image/png", dataBase64 }])).toBeNull();
 });
+
+test("whether a session's turn is over is kept when sent, and left out when not", () => {
+  const session = { sessionName: "s", folderName: "f", state: "needs-you", asks: {}, openOutputs: [] };
+  expect(readSessionList([{ ...session, isTurnOver: false }])?.[0]?.isTurnOver).toBe(false);
+  expect(readSessionList([session])?.[0]).not.toHaveProperty("isTurnOver");
+});

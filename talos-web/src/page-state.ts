@@ -68,3 +68,12 @@ export const addWaitingPrompt = (
   const waitingPrompts = [...(state.waitingPromptsBySession[key] ?? []), waitingPrompt];
   return { ...state, waitingPromptsBySession: { ...state.waitingPromptsBySession, [key]: waitingPrompts } };
 };
+
+// The image previews a change let go of (their message was saved, or its
+// session ended): each holds an image in the browser until it's freed.
+const previewUrlsOf = (state: PageState): string[] =>
+  Object.values(state.waitingPromptsBySession).flatMap((prompts) => prompts.flatMap(({ imagePreviewUrls }) => imagePreviewUrls));
+export const droppedPreviewUrls = (before: PageState, after: PageState): string[] => {
+  const kept = new Set(previewUrlsOf(after));
+  return previewUrlsOf(before).filter((url) => !kept.has(url));
+};

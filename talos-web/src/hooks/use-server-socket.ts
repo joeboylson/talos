@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RECONNECT_DELAY_MS, SERVER_ROUTES, decode, encode, type PageToServer, type ServerToPage } from "talos-shared";
 import type { PreparedImage } from "@/images";
-import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, forgetEntries, type PageState } from "@/page-state";
+import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries, type PageState } from "@/page-state";
 
 // The page's live line to the server: the person's machines as they connect
 // and disconnect, each machine's latest ping reply, and each session's
@@ -10,6 +10,13 @@ export const useServerSocket = () => {
   const [pageState, setPageState] = useState<PageState>(EMPTY_PAGE_STATE);
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+
+  // A waiting message's image previews are freed once it's gone from the page.
+  const lastPageState = useRef<PageState>(EMPTY_PAGE_STATE);
+  useEffect(() => {
+    droppedPreviewUrls(lastPageState.current, pageState).forEach((url) => URL.revokeObjectURL(url));
+    lastPageState.current = pageState;
+  }, [pageState]);
 
   useEffect(() => {
     let isStopped = false;

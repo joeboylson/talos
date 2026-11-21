@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { LIMITS, type SessionEntry } from "talos-shared";
-import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, forgetEntries } from "../../page-state";
+import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries } from "../../page-state";
 import { sessionKey } from "../../session-rows";
 
 const KEY = sessionKey("m1", "web");
@@ -64,4 +64,12 @@ test("a message longer than a saved prompt keeps still clears its waiting copy o
   const waiting = addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", long, []);
   const saved = applyServerMessage(waiting, entriesFor("web", [prompt("p1", long.slice(0, LIMITS.maxEntryTextLength))]));
   expect(saved.waitingPromptsBySession[KEY]).toEqual([]);
+});
+
+test("a waiting message's image previews are let go once it's saved or its session ends", () => {
+  const waiting = addWaitingPrompt(addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "look", ["blob:1"]), "m1", "api", "see", ["blob:2"]);
+  const saved = applyServerMessage(waiting, entriesFor("web", [{ kind: "prompt", position: 0, entryId: "p1", text: "look", imageCount: 1 }]));
+  expect(droppedPreviewUrls(waiting, saved)).toEqual(["blob:1"]);
+  const ended = applyServerMessage(saved, { type: "machines", machines: [{ machineId: "m1", machineName: "m1", isConnected: true, folders: [], sessions: [] }] });
+  expect(droppedPreviewUrls(saved, ended)).toEqual(["blob:2"]);
 });

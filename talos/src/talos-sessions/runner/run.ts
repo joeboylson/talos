@@ -7,11 +7,11 @@ import { chmod, lstat, mkdir, rm } from "node:fs/promises";
 import type { TrustChange } from "../claude/claude-trust";
 import { parseJsonOrNull } from "../json";
 import { ASK_CHECK_MS, HOME_MODE, RUNNER_SOCKET_MODE, TALOS_MCP_SERVER_KEY, TOOLS_SERVER_SCRIPT, TRANSCRIPT_CHECK_MS } from "../constants";
-import { controlServeOptions, putTrustBack, stopRunner } from "./control-server";
+import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } from "./control-server";
 import { startHookServer } from "./hook-server";
 import { log, paths, useRunnerInputs, type RunnerInputs } from "./inputs";
 import { applyLaneEvent } from "./session-state";
-import { heldSessions } from "./store";
+import { heldSessions, trustChanges as keptTrustChanges } from "./store";
 import { readAllNewEntries } from "./transcript";
 
 const isAlive = (pid: number): boolean => {
@@ -80,7 +80,11 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
     log.event("runner: another session runner holds this home; leaving it be");
     process.exit(0);
   }
-  await putTrustBack(await leftTrustChanges(trustChanges));
+  // Kept to put back at the next stop if they can't be put back now, so the
+  // record this runner writes still holds them.
+  const left = await leftTrustChanges(trustChanges);
+  if (await putTrustBack(left)) await forgetTrustChanges();
+  else keptTrustChanges.push(...left);
   // A stop from the system (logout, kill) ends the sessions and puts trust back,
   // the same as stopRunner.
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(signal, () => void stopRunner());

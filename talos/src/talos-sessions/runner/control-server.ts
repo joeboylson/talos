@@ -84,11 +84,12 @@ export const stopRunner = async (): Promise<Response> => {
     await Promise.all([...heldSessions.values()].map(endSession));
     // Only once every session has exited: Claude Code writes its settings as it
     // closes, which would undo a change made sooner.
-    await putTrustBack(trustChanges);
-    // The sockets and lock go only if they're still this runner's: a home
-    // deleted and started again belongs to the new runner now.
+    const isPutBack = await putTrustBack(trustChanges);
+    // The sockets, lock and trust record go only if they're still this
+    // runner's: a home deleted and started again belongs to the new runner now.
     const { runnerSocket, hooksSocket, runnerLock } = paths();
     const isOurs = await Bun.file(runnerLock).text().then((pid) => Number(pid) === process.pid, () => false);
+    if (isOurs && isPutBack) await forgetTrustChanges();
     if (isOurs) await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true }), rm(runnerLock, { force: true })]);
     setTimeout(() => process.exit(0), 50);
   })();
@@ -96,16 +97,21 @@ export const stopRunner = async (): Promise<Response> => {
   return new Response(null, { status: 204 });
 };
 
-// Puts back the trust answers given, then forgets them, on disk too.
-export const putTrustBack = async (changes: readonly TrustChange[]): Promise<void> => {
-  if (!restoresTrust() || changes.length === 0) return;
+// Puts back the trust answers given; false if it couldn't, so they're kept.
+export const putTrustBack = async (changes: readonly TrustChange[]): Promise<boolean> => {
+  if (!restoresTrust() || changes.length === 0) return true;
   try {
     await restoreTrust(changes, claudeConfigFile());
-    await rm(paths().trustChanges, { force: true });
+    return true;
   } catch (error) {
     log.warn(`runner: couldn't put trust back: ${error}`);
+    return false;
   }
 };
+
+// The record on disk, once everything in it is put back. Only the runner
+// holding the home's lock may do this.
+export const forgetTrustChanges = (): Promise<void> => rm(paths().trustChanges, { force: true });
 
 // Event and output streams stay open for as long as someone listens, so the
 // session runner turns off Bun's limit on quiet requests (0 = none). Bun's types don't

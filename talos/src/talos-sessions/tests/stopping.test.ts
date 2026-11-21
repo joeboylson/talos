@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectToSessions } from "../index";
@@ -140,3 +140,47 @@ test("a malformed ask or answer throws even for a session that isn't there", asy
   await expect(calls.answer("nobody", "q1", 1.5)).rejects.toThrow();
   expect(await calls.answer("nobody", "q1", 0)).toMatchObject({ ok: false, code: "no-such-session" });
 });
+
+test(
+  "a runner whose home was taken over leaves the new runner's trust record alone",
+  async () => {
+    const { home, calls } = newHome();
+    await calls.ensureRunning();
+    // The old runner has trust of its own to put back, in a folder outside the home.
+    const { home: elsewhere } = newHome();
+    expect(await calls.start("old", "old", folderIn(elsewhere, "old"))).toEqual({ ok: true });
+    const oldRunner = pidIn(homePaths(home).runnerLock);
+    rmSync(home, { recursive: true, force: true });
+    // Another program starts a new runner there and a session in it.
+    const index = new URL("../index.ts", import.meta.url).pathname;
+    const script = `import { connectToSessions } from ${JSON.stringify(index)}; import { mkdirSync } from "node:fs";
+const calls = connectToSessions({ home: ${JSON.stringify(home)}, runnerScript: ${JSON.stringify(runnerScript)} });
+await calls.ensureRunning(); mkdirSync(${JSON.stringify(join(home, "work"))}); await calls.start("new", "work", ${JSON.stringify(join(home, "work"))});`;
+    expect(Bun.spawnSync([process.execPath, "-e", script]).exitCode).toBe(0);
+    expect(existsSync(homePaths(home).trustChanges)).toBe(true);
+    await waitUntil(() => !isAlive(oldRunner), "the old runner to stop", 15_000);
+    expect(existsSync(homePaths(home).trustChanges)).toBe(true);
+  },
+  30_000,
+);
+
+test(
+  "trust a crashed runner left that can't be put back at the next start is still put back later",
+  async () => {
+    const { home, calls } = newHome();
+    await calls.ensureRunning();
+    const first = folderIn(home, "first");
+    expect(await calls.start("first", "first", first)).toEqual({ ok: true });
+    const crashed = pidIn(homePaths(home).runnerLock);
+    process.kill(crashed, "SIGKILL");
+    await waitUntil(() => !isAlive(crashed), "the runner to be gone");
+    // The settings file can't be read for a moment, so the put-back at start fails.
+    chmodSync(join(home, "claude.json"), 0o000);
+    await calls.ensureRunning();
+    chmodSync(join(home, "claude.json"), 0o600);
+    expect(await calls.start("second", "second", folderIn(home, "second"))).toEqual({ ok: true });
+    await calls.stopRunner();
+    expect(trustOf(home, first)?.hasTrustDialogAccepted).toBeUndefined();
+  },
+  30_000,
+);

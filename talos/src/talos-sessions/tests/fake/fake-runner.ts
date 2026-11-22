@@ -73,4 +73,6 @@ await runSessionRunner({
   proseTurn: { output: "prose", optional: ["note", "question"] },
   claudeCommand: [process.execPath, new URL("./fake-claude.ts", import.meta.url).pathname],
   claudeConfigFile: `${home}/claude.json`,
+  // Shortened on request, so a test can see a start that never comes.
+  ...(process.env.FAKE_START_WAIT_MS && { startLongestWaitMs: Number(process.env.FAKE_START_WAIT_MS) }),
 });

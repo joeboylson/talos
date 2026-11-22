@@ -274,3 +274,27 @@ test(
   },
   30_000,
 );
+
+test(
+  "a session whose start never comes needs the person, and nothing is typed into it",
+  async () => {
+    const { home, calls } = newHome();
+    process.env.FAKE_START_WAIT_MS = "500";
+    try {
+      await calls.ensureRunning();
+    } finally {
+      delete process.env.FAKE_START_WAIT_MS;
+    }
+    expect(await calls.start("mute", "mute", folderIn(home, "mute"))).toEqual({ ok: true });
+    expect(await calls.send("mute", "sent while starting")).toEqual({ ok: true });
+    const stateOf = async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "mute");
+    await waitUntil(async () => (await stateOf())?.state === "needs-you", "the session to need the person");
+    expect((await stateOf())?.isTurnOver).toBe(false);
+    expect(await calls.send("mute", "and again")).toMatchObject({ ok: false, code: "prompt-showing" });
+    // Esc on its screen doesn't make it look ready.
+    expect(await calls.keys("mute", "\x1b")).toEqual({ ok: true });
+    expect((await stateOf())?.state).toBe("needs-you");
+    await calls.stopRunner();
+  },
+  20_000,
+);

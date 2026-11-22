@@ -10,7 +10,7 @@ import { buildHookSettings } from "../claude/session-hooks";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
-import { claudeCommand, claudeConfigFile, isAllowedFolder, log, paths, restoresTrust } from "./inputs";
+import { claudeCommand, claudeConfigFile, isAllowedFolder, log, paths, restoresTrust, startLongestWaitMs } from "./inputs";
 import { refuse } from "./refuse";
 
 const SESSION_EXIT_WAIT_MS = 5000;
@@ -130,6 +130,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     heldAnswers: [],
     hookToken,
     startedAtMs: Date.now(),
+    hasStarted: false,
     hasDraft: false,
     draftAtMs: 0,
     isTurnOver: false,
@@ -142,10 +143,21 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     isWaitingToAsk: false,
   });
   saveSessionGroups();
+  setTimeout(() => showStuckStart(sessionName, hookToken), startLongestWaitMs()).unref();
   void child.exited.then(() => forgetSession(sessionName, hookToken)).catch((error: unknown) => log.warn(`runner: couldn't clean up ${sessionName}: ${error}`));
   log.event(`runner: started session ${sessionName} in ${path}`);
   broadcastSessions();
   return new Response(null, { status: 201 });
+};
+
+// A session whose start never came is on a screen only the person can get past:
+// it needs them, mid-turn, so nothing is typed into it (what was sent waits, and
+// goes in once it starts) and the page says to answer in the terminal.
+const showStuckStart = (sessionName: string, token: string): void => {
+  const session = heldSessions.get(sessionName);
+  if (session?.hookToken !== token || session.hasStarted) return;
+  log.warn(`runner: ${sessionName} hasn't started; it may be showing a screen only its terminal can answer`);
+  setSessionState(sessionName, "needs-you", false);
 };
 
 // Once Claude Code's screen settles after it starts, the session is ready:

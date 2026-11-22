@@ -86,6 +86,10 @@ export const SESSION_LIMITS = {
   maxQuarantineBytes: 1024 * 1024,
   // Past this, a starting session is typed into even if its screen hasn't settled.
   readyLongestWaitMs: 15_000,
+  // A session whose Claude Code hasn't reported its start by this long after it
+  // was spawned is shown as needing the person (a screen before its hooks run,
+  // like a dialog to approve a folder's MCP servers).
+  startLongestWaitMs: 60_000,
   // An asked-for turn that goes unanswered this long becomes "no response".
   askTimeoutMs: 60_000,
   // An ask queued behind a busy session waits this long for it to go idle: long

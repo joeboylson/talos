@@ -2,6 +2,7 @@
 // here, so none makes its own logger or folder check when it loads.
 import { CLAUDE_COMMAND, CLAUDE_CONFIG_FILE, homePaths, type HomePaths } from "../constants";
 import type { Catalog, OutputKind, TurnShape } from "../kinds";
+import { SESSION_LIMITS } from "../limits";
 
 export type SessionsLogger = {
   event: (message: string) => void;
@@ -26,6 +27,8 @@ export type RunnerInputs = {
   // from. Tests pass stand-ins, so they never touch the real ~/.claude.json.
   claudeCommand?: readonly string[];
   claudeConfigFile?: string;
+  // How long a session may take to report its start (SESSION_LIMITS.startLongestWaitMs).
+  startLongestWaitMs?: number;
 };
 
 const given: RunnerInputs = {
@@ -54,5 +57,7 @@ export const restoresTrust = (): boolean => given.restoreTrustOnStop === true;
 
 export const claudeCommand = (): readonly string[] => given.claudeCommand ?? [CLAUDE_COMMAND];
 export const claudeConfigFile = (): string => given.claudeConfigFile ?? CLAUDE_CONFIG_FILE;
+
+export const startLongestWaitMs = (): number => given.startLongestWaitMs ?? SESSION_LIMITS.startLongestWaitMs;
 
 export const catalog = (): Catalog => ({ kinds: given.kinds, proseTurn: given.proseTurn });

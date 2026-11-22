@@ -192,7 +192,7 @@ export const controlServeOptions = (runnerSocket: string) => ({
         if (isTurnChanging || isDraftChanging) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging });
         // An interrupted turn gets no Stop, so the interrupt is its end. While
         // starting there's no turn yet: Esc there dismisses a startup dialog.
-        if (isInterruptKeys(keys) && !session.isTurnOver && session.summary.state !== "starting") setSessionState(sessionName, session.summary.openOutputs.length > 0 ? "needs-you" : "idle", true);
+        if (isInterruptKeys(keys) && !session.isTurnOver && session.hasStarted) setSessionState(sessionName, session.summary.openOutputs.length > 0 ? "needs-you" : "idle", true);
         // Written in its turn, so it can't land inside a paste talos is typing.
         await typeInTurn(session.summary.sessionName, async () => session.terminal.write(keys));
         return new Response(null, { status: 204 });

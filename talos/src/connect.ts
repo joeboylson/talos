@@ -31,11 +31,13 @@ import { TALOS_LIMITS } from "./limits";
 
 // `talos` with no command: pair this machine if it isn't yet, connect to the
 // server, and stay connected.
-// A call to the session runner that failed: it says so, or its socket did.
-// Anything else (like a folder list talos can't read) is shown as it is,
-// since retrying won't help.
+// A call to the session runner that failed: it says so, or its socket did (a
+// failed fetch has a code but no syscall; a file error has both). Anything else
+// (like a folder list talos can't read) is shown as it is, since retrying
+// won't help.
 const isRunnerProblem = (error: unknown): boolean =>
-  error instanceof Error && (error.message.includes("session runner") || typeof (error as NodeJS.ErrnoException).code === "string");
+  error instanceof Error &&
+  (error.message.includes("session runner") || (typeof (error as NodeJS.ErrnoException).code === "string" && !("syscall" in error)));
 
 export const runConnect = async (): Promise<void> => {
   const serverUrl = requireEnv(ENV_KEYS.serverUrl);

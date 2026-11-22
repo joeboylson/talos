@@ -10,6 +10,7 @@
 // as a start, inside the turn that's running. Turns
 // talos types (answers, asked-for requests) don't count, so answering one
 // question doesn't close the next.
+import { isMainStopFailure } from "../claude/session-hooks";
 import { OUTPUT_ID_FIELD } from "../kinds";
 import { SESSION_LIMITS } from "../limits";
 
@@ -72,7 +73,7 @@ export const readOutputsEvent = (hookDetails: unknown, isBlockedStop: boolean, i
   if (hookEvent === "PostToolUse") return { type: "went-through", toolUseId, toolInput: fieldOf(hookDetails, "tool_input") };
   if (hookEvent === "PostToolUseFailure") return { type: "failed", toolUseId };
   if (hookEvent === "UserPromptSubmit") return { type: "turn-started", isTalosTurn };
-  if (hookEvent === "Stop" && !isBlockedStop) return { type: "turn-ended" };
+  if ((hookEvent === "Stop" && !isBlockedStop) || isMainStopFailure(hookEvent, hookDetails)) return { type: "turn-ended" };
   return null;
 };
 

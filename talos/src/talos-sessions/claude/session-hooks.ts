@@ -3,7 +3,9 @@ import type { SessionState } from "../shapes";
 // Claude Code's hook events that move a session between states. They also
 // carry where the session's conversation is saved.
 // PreToolUse and Stop also carry the lane's decision back (see lanes/lane.ts).
-export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "Stop"] as const;
+// StopFailure comes instead of Stop when a turn ends on an API error (a rate
+// limit, an overload); it can't be blocked.
+export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "Stop", "StopFailure"] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 // Claude Code sends this notification after a minute of waiting for a message.
@@ -11,10 +13,14 @@ export type HookEvent = (typeof HOOK_EVENTS)[number];
 const IDLE_NOTIFICATION_TYPE = "idle_prompt";
 const IDLE_NOTIFICATION_TEXT = "waiting for your input";
 
+// A sub-agent's failure (its hook carries agent_id) doesn't end the session's turn.
+export const isMainStopFailure = (hookEvent: unknown, hookPayload: unknown): boolean =>
+  hookEvent === "StopFailure" && !(typeof hookPayload === "object" && hookPayload !== null && typeof Reflect.get(hookPayload, "agent_id") === "string");
+
 // SessionStart isn't "ready": Claude Code sends it before its input box can
 // take typing. The session runner waits for the screen to settle instead.
 export const nextSessionState = (hookEvent: string, hookPayload: unknown): SessionState | null => {
-  if (hookEvent === "Stop") return "idle";
+  if (hookEvent === "Stop" || isMainStopFailure(hookEvent, hookPayload)) return "idle";
   if (hookEvent === "UserPromptSubmit" || hookEvent === "PostToolUse") return "working";
   if (hookEvent !== "Notification") return null;
   const isObject = typeof hookPayload === "object" && hookPayload !== null;

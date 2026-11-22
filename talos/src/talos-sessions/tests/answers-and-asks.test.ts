@@ -153,6 +153,21 @@ test(
   40_000,
 );
 
+test(
+  "a turn that ends on an API error (StopFailure, no Stop) is over, so a queued ask goes in",
+  async () => {
+    const name = "rate-limited";
+    mkdirSync(join(home, name));
+    expect(await calls.start(name, name, join(home, name))).toEqual({ ok: true });
+    await waitUntil(() => latest[name]?.state === "idle", "the session to be ready");
+    expect(await calls.send(name, "rate-limit")).toEqual({ ok: true });
+    await waitUntil(() => latest[name]?.state === "working", "the turn to start");
+    expect(await calls.ask(name, "status")).toEqual({ ok: true });
+    await waitUntil(() => latest[name]?.asks.status?.state === "answered", "the status", 15_000);
+  },
+  30_000,
+);
+
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 test(

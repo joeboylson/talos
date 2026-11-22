@@ -9,6 +9,8 @@
 //   first, "slow-prompt": 300 ms of work first): Enter or "1" approves it
 //   (APPROVED), Esc refuses it and ends the turn with no Stop (REFUSED), as
 //   Claude Code does.
+// - "rate-limit": a turn that ends on an API error, with StopFailure and no
+//   Stop, as Claude Code does.
 // - "clear" / "resume": a last line in the current conversation file, then a
 //   switch to a second file / back to the first, as /clear and /resume do.
 // Anything else is a prompt it just answers by ending its turn.
@@ -96,6 +98,7 @@ const runTurn = async (text: string) => {
   }
   // A turn takes a moment, so text typed into it would be seen as busy.
   await Bun.sleep(300);
+  if (text === "rate-limit") return void (await hook({ hook_event_name: "StopFailure", error: "rate_limit" }));
   // A Stop the lane blocks keeps the turn going, as Claude Code does.
   if (await hook({ hook_event_name: "Stop" })) await hook({ hook_event_name: "Stop" });
   process.stdout.write("done\n");

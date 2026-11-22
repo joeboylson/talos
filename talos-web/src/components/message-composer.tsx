@@ -6,7 +6,8 @@ import { canSendMessage, isSendKey, takeImagesThatFit } from "@/compose-message"
 import { prepareImage, type PreparedImage } from "@/images";
 import { LIMITS } from "talos-shared";
 
-type MessageComposerProps = { onSend: (text: string, images: PreparedImage[]) => void };
+// onSend: false when it couldn't be sent, so what was typed stays.
+type MessageComposerProps = { onSend: (text: string, images: PreparedImage[]) => boolean };
 
 const imagesOf = (files: Iterable<File>): File[] => [...files].filter((file) => file.type.startsWith("image/"));
 
@@ -35,8 +36,7 @@ export const MessageComposer = ({ onSend }: MessageComposerProps) => {
   };
 
   const sendMessage = () => {
-    if (!canSend) return;
-    onSend(typedText, images);
+    if (!canSend || !onSend(typedText, images)) return;
     setTypedText("");
     setImages([]);
     setProblem(null);

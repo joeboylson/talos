@@ -6,6 +6,15 @@ import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewU
 // The page's live line to the server: the person's machines as they connect
 // and disconnect, each machine's latest ping reply, and each session's
 // entries as they happen. Reconnects if it drops.
+// A socket that isn't open drops what's sent (or, while connecting, throws),
+// so nothing is sent then, and the caller hears it wasn't.
+export const sendIfOpen = (socket: Pick<WebSocket, "readyState" | "send"> | null, text: string): boolean => {
+  if (socket?.readyState !== WebSocket.OPEN) return false;
+  socket.send(text);
+  return true;
+};
+const NOT_CONNECTED = "Not connected; try again once it's back";
+
 export const useServerSocket = () => {
   const [pageState, setPageState] = useState<PageState>(EMPTY_PAGE_STATE);
   const [isConnected, setIsConnected] = useState(false);
@@ -51,11 +60,12 @@ export const useServerSocket = () => {
   const setNotice = useCallback((notice: string | null) => setPageState((current) => ({ ...current, notice })), []);
 
   // Each session command carries an id of its own, so a refusal comes back to
-  // this page only, and names what it refused.
+  // this page only, and names what it refused. False when it wasn't sent.
   const send = useCallback(
-    (message: PageToServer, requestId: string = crypto.randomUUID()) => {
-      setNotice(null);
-      socketRef.current?.send(encode(message.type === "ping" ? message : { ...message, requestId }));
+    (message: PageToServer, requestId: string = crypto.randomUUID()): boolean => {
+      const isSent = sendIfOpen(socketRef.current, encode(message.type === "ping" ? message : { ...message, requestId }));
+      setNotice(isSent ? null : NOT_CONNECTED);
+      return isSent;
     },
     [setNotice],
   );
@@ -72,9 +82,10 @@ export const useServerSocket = () => {
     (machineId: string, sessionName: string, text: string, images: PreparedImage[]) => {
       const imagePreviewUrls = images.map(({ previewUrl }) => previewUrl);
       const requestId = crypto.randomUUID();
-      setPageState((current) => addWaitingPrompt(current, machineId, sessionName, text, imagePreviewUrls, requestId));
       const sentImages = images.map(({ mediaType, dataBase64 }) => ({ mediaType, dataBase64 }));
-      send({ type: "send-to-session", machineId, sessionName, text, images: sentImages }, requestId);
+      const isSent = send({ type: "send-to-session", machineId, sessionName, text, images: sentImages }, requestId);
+      if (isSent) setPageState((current) => addWaitingPrompt(current, machineId, sessionName, text, imagePreviewUrls, requestId));
+      return isSent;
     },
     [send],
   );

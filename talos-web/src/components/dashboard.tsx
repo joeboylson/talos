@@ -96,8 +96,7 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
               waitingPrompts={serverSocket.waitingPromptsBySession[openSessionKey] ?? []}
               notice={notice}
               onSend={(text, images) =>
-                openSessionRow &&
-                serverSocket.sendToSession(openSessionRow.machineId, openSessionRow.sessionName, text, images)
+                openSessionRow !== null && serverSocket.sendToSession(openSessionRow.machineId, openSessionRow.sessionName, text, images)
               }
               onAnswer={(outputId, choice) =>
                 openSessionRow && serverSocket.answerOutput(openSessionRow.machineId, openSessionRow.sessionName, outputId, choice)

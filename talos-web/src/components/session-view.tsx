@@ -12,7 +12,7 @@ type SessionViewProps = {
   sessionRow: SessionRow | null;
   entries: SessionEntry[];
   waitingPrompts: WaitingPrompt[];
-  onSend: (text: string, images: PreparedImage[]) => void;
+  onSend: (text: string, images: PreparedImage[]) => boolean;
   onAnswer: (outputId: string, choice: number) => void;
   // What the person tried here and couldn't do (a closed question, a refused send).
   notice: string | null;

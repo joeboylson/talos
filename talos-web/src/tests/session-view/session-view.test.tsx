@@ -9,7 +9,7 @@ const sessionRow = { machineId: "m1", machineName: "atlas", sessionName: "web", 
 test("what the person couldn't do in a session is shown in it", () => {
   const html = renderToStaticMarkup(
     <TooltipProvider>
-      <SessionView sessionRow={sessionRow} entries={[]} waitingPrompts={[]} onSend={() => {}} onAnswer={() => {}} notice="atlas: That question closed" />
+      <SessionView sessionRow={sessionRow} entries={[]} waitingPrompts={[]} onSend={() => true} onAnswer={() => {}} notice="atlas: That question closed" />
     </TooltipProvider>,
   );
   expect(html).toContain("atlas: That question closed");
@@ -19,7 +19,7 @@ const decision = { id: "d1", question: "Which one?", choices: ["A", "B"], atMs: 
 const viewOf = (row: Partial<SessionRow>) =>
   renderToStaticMarkup(
     <TooltipProvider>
-      <SessionView sessionRow={{ ...sessionRow, state: "needs-you", decision, ...row }} entries={[]} waitingPrompts={[]} onSend={() => {}} onAnswer={() => {}} notice={null} />
+      <SessionView sessionRow={{ ...sessionRow, state: "needs-you", decision, ...row }} entries={[]} waitingPrompts={[]} onSend={() => true} onAnswer={() => {}} notice={null} />
     </TooltipProvider>,
   );
 

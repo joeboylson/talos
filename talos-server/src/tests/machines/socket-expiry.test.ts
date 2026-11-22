@@ -1,4 +1,4 @@
-import { expect, setSystemTime, test } from "bun:test";
+import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { KEEP_ALIVE_GONE_MS, type Logger } from "talos-shared";
 import { steadyNow } from "../../utils/steady-clock";
 import { CLOSE_CODES } from "../../constants";
@@ -62,4 +62,27 @@ test("a socket heard from lately is kept and pinged; one silent too long (a slee
   connections.pingAllSockets(steadyNow() + KEEP_ALIVE_GONE_MS + 1000);
   expect(machine.record.closedWith).toBe(CLOSE_CODES.silent);
   expect(page.record.closedWith).toBe(CLOSE_CODES.silent);
+});
+
+test("a sign-out is kept for checks under way only a minute, and goes once a later one comes", async () => {
+  const connections = createConnections(machinesTable, quietLog);
+  const handlers = connections.websocketHandlers as unknown as Record<string, (socket: unknown) => void>;
+  const checkedAtMs = steadyNow();
+  connections.disconnectPersonPages("joe");
+  const lateCheck = () => fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000, checkedAtMs });
+  const soon = lateCheck();
+  openOn(handlers, soon);
+  await Bun.sleep(0);
+  expect(soon.record.closedWith).toBe(CLOSE_CODES.signedOut);
+  const nowMs = performance.now();
+  const clock = spyOn(performance, "now").mockReturnValue(nowMs + 61_000);
+  try {
+    connections.disconnectPersonPages("sam");
+    const later = lateCheck();
+    openOn(handlers, later);
+    await Bun.sleep(0);
+    expect(later.record.closedWith).toBeNull();
+  } finally {
+    clock.mockRestore();
+  }
 });

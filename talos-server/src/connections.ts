@@ -288,11 +288,21 @@ export const createConnections = (
     });
   };
 
+  // When each sign-out or removal happened, for checks already under way then.
+  // Those take seconds, so each is kept a minute, and older ones go as new ones
+  // come, so neither map grows for good.
+  const RECENT_FOR_MS = 60_000;
+  const noteRecent = (recent: Map<string, number>, key: string): void => {
+    const nowMs = steadyNow();
+    [...recent].filter(([, atMs]) => nowMs - atMs > RECENT_FOR_MS).forEach(([oldKey]) => recent.delete(oldKey));
+    recent.set(key, nowMs);
+  };
+
   // After someone signs out everywhere, their open pages stop getting updates,
   // and so does one whose sign-in check was already under way.
   const signedOutAtMsByPerson = new Map<string, number>();
   const disconnectPersonPages = (personId: string): void => {
-    signedOutAtMsByPerson.set(personId, steadyNow());
+    noteRecent(signedOutAtMsByPerson, personId);
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) =>
       pageSocket.close(CLOSE_CODES.signedOut, "signed out"),
     );
@@ -302,7 +312,7 @@ export const createConnections = (
   // under way when it was removed.
   const removedAtMsByMachine = new Map<string, number>();
   const disconnectMachine = (machineId: string): void => {
-    removedAtMsByMachine.set(machineId, steadyNow());
+    noteRecent(removedAtMsByMachine, machineId);
     machineSockets.get(machineId)?.close(CLOSE_CODES.machineRemoved, "removed from the page");
   };
 

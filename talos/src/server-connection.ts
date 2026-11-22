@@ -39,6 +39,8 @@ export const connectToServer = (options: ServerConnectionOptions): void => {
   // The server writes at least every 30 s; hearing nothing for longer means it
   // or the network is gone (a frozen server, a laptop waking on another
   // network), so the connection is closed and the usual reconnect takes over.
+  // Timed from the start too: a connection can hang before it opens, and Bun
+  // gives up on none.
   let silenceTimer: ReturnType<typeof setTimeout> | undefined;
   const heardFromServer = () => {
     clearTimeout(silenceTimer);
@@ -49,6 +51,7 @@ export const connectToServer = (options: ServerConnectionOptions): void => {
       setTimeout(() => closed(WS_CLOSE_CODES.silent, "heard nothing"), CLOSE_WAIT_MS);
     }, silentAfterMs);
   };
+  heardFromServer();
   let isClosed = false;
   const closed = (code: number, reason: string) => {
     if (isClosed) return;

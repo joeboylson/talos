@@ -83,6 +83,14 @@ describe("the view", () => {
     expect(asks([expenseOf("e1", 10), session({ state: "idle" }), tallyAsk("answered"), expenseOf("e2", 32.5), session({ state: "working" }), session({ state: "idle" })])).toBe(2);
     expect(asks([expenseOf("e1", 10), session({ state: "idle" }), tallyAsk("answered"), session({ state: "idle" })])).toBe(1);
   });
+  test("a question whose answer was refused can be answered again", () => {
+    const open = session({ state: "needs-you", openOutputs: [question] });
+    const refused = { type: "result", action: { do: "answer", outputId: "q1", choice: 0 }, result: { ok: false, code: "prompt-showing", reason: "busy" } } as const;
+    expect(play([open, { type: "key", key: "1" }, refused, open, { type: "key", key: "2" }]).actions).toEqual([
+      { do: "answer", outputId: "q1", choice: 0 },
+      { do: "answer", outputId: "q1", choice: 1 },
+    ]);
+  });
   test("a question's answer goes once, however often its key is pressed", () => {
     const open = session({ state: "needs-you", openOutputs: [question] });
     expect(play([open, { type: "key", key: "1" }, { type: "key", key: "2" }]).actions).toEqual([{ do: "answer", outputId: "q1", choice: 0 }]);

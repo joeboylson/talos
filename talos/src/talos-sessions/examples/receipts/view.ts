@@ -65,7 +65,14 @@ export const receiptsView: ExampleView<ReceiptsState> = {
     if (input.type === "started") return { state, actions: [{ do: "send", text: START_MESSAGE }] };
     if (input.type === "result") {
       const isFailedAsk = input.action.do === "ask" && !input.result.ok;
-      return noActions({ ...state, notice: input.result.ok ? "" : input.result.reason, ...(isFailedAsk && { tallyCovers: null, tallyAsk: null }) });
+      // A refused answer didn't go, so the question can be answered again.
+      const isFailedAnswer = input.action.do === "answer" && !input.result.ok;
+      return noActions({
+        ...state,
+        notice: input.result.ok ? "" : input.result.reason,
+        ...(isFailedAsk && { tallyCovers: null, tallyAsk: null }),
+        ...(isFailedAnswer && { answeredId: null }),
+      });
     }
     if (input.type === "event") {
       const { event } = input;

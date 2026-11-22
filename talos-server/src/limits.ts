@@ -9,10 +9,10 @@ export const SERVER_LIMITS = {
   // A machine's session/folder updates are coalesced per owner into one page
   // broadcast per this window, so a burst (or a flood) can't amplify.
   machineListRelayCoalesceMs: 100,
-  // Requests sent on to machines, remembered so a refusal goes back to the page
-  // that asked; past this the oldest are forgotten (their refusal goes to all
-  // the owner's pages instead).
-  maxPendingRequests: 1000,
+  // Requests one page sent on to machines, remembered so a refusal goes back to
+  // it; past this its oldest are forgotten (their refusal goes to all the
+  // owner's pages instead).
+  maxPendingRequestsPerPage: 200,
   // What may wait for one backed-up page socket before it's closed. A page
   // opening gets every kept history, a few hundred KB a session.
   // shortcut: a person with more kept history than this (about 150 full

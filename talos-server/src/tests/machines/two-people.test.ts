@@ -223,6 +223,16 @@ describe("a refusal goes back to the page that asked", () => {
     expect(parsedMessages(laptop.record.sent).filter((message) => message.type === "error")).toEqual([{ type: "error", message: `${JOE_MACHINE}: That question has closed`, requestId: "laptop-1" }]);
     expect(lastError(phone)).toBeUndefined();
   });
+  test("another person's flood of requests can't push out this page's", async () => {
+    const { open, send, machine } = await setUp();
+    const laptop = await open(pageData("joe"));
+    const stranger = await open(pageData("sam"));
+    send(laptop, { type: "answer-output", machineId: JOE_MACHINE, sessionName: "fix", outputId: "o1", choice: 0, requestId: "laptop-1" });
+    const forwarded = parsedMessages(machine.record.sent).find((message) => message.type === "answer-output");
+    for (let at = 0; at < 1500; at += 1) send(stranger, { type: "stop-session", machineId: "nowhere", sessionName: "x", requestId: `flood-${at}` });
+    send(machine, { type: "error", message: "That question has closed", requestId: forwarded?.requestId });
+    expect(parsedMessages(laptop.record.sent).filter((message) => message.type === "error")).toEqual([{ type: "error", message: `${JOE_MACHINE}: That question has closed`, requestId: "laptop-1" }]);
+  });
   test("an error that names no request goes to all the owner's pages", async () => {
     const { open, send, machine } = await setUp();
     const laptop = await open(pageData("joe"));

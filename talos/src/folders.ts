@@ -52,6 +52,9 @@ const saveFolders = (folders: Folder[]): Promise<void> => writePrivately(FOLDERS
 // One change to the list at a time across every talos process on the machine
 // (two `talos folders add` at once, or one beside a page's rename), so none
 // is lost. A lock left by a process that died is taken over after a while.
+// shortcut: two waiters that both find the same lock stale can both take it
+// (the second deletes the first's new lock), losing one change; that needs a
+// dead holder and two changes waiting at once. Upgrade if folders change often.
 const FOLDERS_LOCK = `${FOLDERS_FILE}.lock`;
 const LOCK_STALE_MS = 10_000;
 const LOCK_TRY_EVERY_MS = 20;

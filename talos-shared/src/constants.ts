@@ -55,4 +55,6 @@ export const WS_CLOSE_CODES = {
   sessionExpired: 4003,
   // Heard nothing for KEEP_ALIVE_GONE_MS: taken as gone, and free to reconnect.
   silent: 4004,
+  // A page so far behind on what was sent to it that its queue hit the cap.
+  tooFarBehind: 4005,
 } as const;

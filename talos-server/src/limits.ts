@@ -13,6 +13,12 @@ export const SERVER_LIMITS = {
   // that asked; past this the oldest are forgotten (their refusal goes to all
   // the owner's pages instead).
   maxPendingRequests: 1000,
+  // What may wait for one backed-up page socket before it's closed. A page
+  // opening gets every kept history, a few hundred KB a session.
+  // shortcut: a person with more kept history than this (about 150 full
+  // sessions) gets a page that's closed while it opens, again and again; send
+  // history on demand, or raise this, before anyone has that many.
+  maxWaitingPageBytes: 64 * 1024 * 1024,
   // Starting a pairing needs no sign-in, so cap how many can wait at once.
   maxWaitingPairings: 100,
   // How often one address may start a pairing, and one person enter a code.

@@ -105,21 +105,33 @@ export const createConnections = (
   // What goes to a page waits while its socket is backed up, and goes on when it
   // drains (Bun drops a message sent past its limit): a page opening gets every
   // kept history, which can be far more than a socket takes at once.
-  const waitingSends = new Map<Socket, string[]>();
+  // A page that stops reading for good (while still pinging) would make it grow
+  // without end, so past a cap it's closed; it gets every kept history again
+  // when it reconnects.
+  const waitingSends = new Map<Socket, { texts: string[]; bytes: number }>();
   const sendToPage = (pageSocket: Socket, text: string): void => {
     const waiting = waitingSends.get(pageSocket);
-    if (waiting) return void waiting.push(text);
-    const sent = pageSocket.send(text);
-    if (sent === 0) waitingSends.set(pageSocket, [text]);
-    else if (sent === -1) waitingSends.set(pageSocket, []);
+    if (!waiting) {
+      const sent = pageSocket.send(text);
+      if (sent === 0) waitingSends.set(pageSocket, { texts: [text], bytes: Buffer.byteLength(text) });
+      else if (sent === -1) waitingSends.set(pageSocket, { texts: [], bytes: 0 });
+      return;
+    }
+    waiting.texts.push(text);
+    waiting.bytes += Buffer.byteLength(text);
+    if (waiting.bytes <= SERVER_LIMITS.maxWaitingPageBytes) return;
+    waitingSends.delete(pageSocket);
+    pageSocket.close(CLOSE_CODES.tooFarBehind, "too far behind");
   };
   const sendWaiting = (pageSocket: Socket): void => {
     const waiting = waitingSends.get(pageSocket);
     if (!waiting) return;
-    while (waiting.length > 0) {
-      const sent = pageSocket.send(waiting[0]!);
+    while (waiting.texts.length > 0) {
+      const text = waiting.texts[0]!;
+      const sent = pageSocket.send(text);
       if (sent === 0) return;
-      waiting.shift();
+      waiting.texts.shift();
+      waiting.bytes -= Buffer.byteLength(text);
       if (sent === -1) return;
     }
     waitingSends.delete(pageSocket);
@@ -237,7 +249,6 @@ export const createConnections = (
     return true;
   };
 
-  // Browsers and talos answer WebSocket pings on their own, so nothing here waits for a reply.
   // Runs on the keep-alive timer. A page socket is authorized only at connect,
   // so this is where an expired session is cut: open == trusted only until the
   // cookie would have expired.

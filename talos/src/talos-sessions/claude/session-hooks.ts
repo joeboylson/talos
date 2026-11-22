@@ -29,7 +29,11 @@ export const isMainStopFailure = (hookEvent: unknown, hookPayload: unknown): boo
 // take typing. The session runner waits for the screen to settle instead.
 export const nextSessionState = (hookEvent: string, hookPayload: unknown): SessionState | null => {
   if (hookEvent === "Stop" || isMainStopFailure(hookEvent, hookPayload)) return "idle";
-  if (hookEvent === "UserPromptSubmit" || hookEvent === "PostToolUse") return isSubagentHook(hookPayload) ? null : "working";
+  // Any of the turn's own tool hooks means Claude works: after an approved
+  // prompt, the tool's end (PostToolUseFailure if it failed) or the next
+  // tool's start. A prompt's PermissionRequest comes after its PreToolUse.
+  const isTurnWork = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"].includes(hookEvent);
+  if (isTurnWork) return isSubagentHook(hookPayload) ? null : "working";
   if (hookEvent === "PermissionRequest") return "needs-you";
   if (hookEvent !== "Notification") return null;
   const isObject = typeof hookPayload === "object" && hookPayload !== null;

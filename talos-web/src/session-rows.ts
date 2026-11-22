@@ -40,16 +40,20 @@ export const findSessionRow = (machines: MachineSummary[], machineName: string, 
 // requestId: the send's own id, so a refusal of it takes its bubble away.
 export type WaitingPrompt = { text: string; imagePreviewUrls: string[]; requestId?: string };
 
+// A message as the session saves it: without the control characters the
+// session runner strips (all but line breaks and tabs; its rule is in
+// talos-sessions' terminal.ts), and cut to the kept length.
+const STRIPPED_CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+const asSaved = (text: string): string => text.replace(STRIPPED_CONTROL_CHARACTERS, "").trim().slice(0, LIMITS.maxEntryTextLength);
+
 // The first waiting message with the same text and number of images is the
 // one Claude Code just saved.
 export const removeAnsweredPrompt = (
   waitingPrompts: WaitingPrompt[],
   answeredPrompt: Extract<SessionEntry, { kind: "prompt" }>,
 ): WaitingPrompt[] => {
-  // A saved prompt is cut to the kept length, so a long message matches by its start.
   const answeredIndex = waitingPrompts.findIndex(
-    ({ text, imagePreviewUrls }) =>
-      text.slice(0, LIMITS.maxEntryTextLength) === answeredPrompt.text.trim() && imagePreviewUrls.length === answeredPrompt.imageCount,
+    ({ text, imagePreviewUrls }) => asSaved(text) === answeredPrompt.text.trim() && imagePreviewUrls.length === answeredPrompt.imageCount,
   );
   return answeredIndex === -1 ? waitingPrompts : waitingPrompts.filter((_, index) => index !== answeredIndex);
 };

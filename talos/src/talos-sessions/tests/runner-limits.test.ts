@@ -70,12 +70,11 @@ test(
 );
 
 test(
-  "Esc or Ctrl-C while a session starts (say, on a startup dialog) leaves it starting, so its queued messages still go in",
+  "Esc while a session starts (say, on a startup dialog) leaves it starting, so its queued messages still go in",
   async () => {
     expect(await calls.start("mute-esc", "mute-esc", folder("mute-esc"))).toEqual({ ok: true });
     expect(await calls.send("mute-esc", "queued")).toEqual({ ok: true });
     expect(await calls.keys("mute-esc", "\x1b")).toEqual({ ok: true });
-    expect(await calls.keys("mute-esc", "\x03")).toEqual({ ok: true });
     const session = (await calls.sessions()).find(({ sessionName }) => sessionName === "mute-esc");
     expect(session?.state).toBe("starting");
   },

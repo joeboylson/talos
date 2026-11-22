@@ -125,6 +125,23 @@ export const createConnections = (
     waitingSends.delete(pageSocket);
   };
 
+  // Requests sent on to a machine, by the server's id for them, so what didn't
+  // happen goes back to the page that asked. The oldest are forgotten past
+  // the cap; a request that went fine never hears back.
+  const pendingRequests = new Map<string, { pageSocket: Socket; requestId: string }>();
+  const rememberRequest = (pageSocket: Socket, requestId: string): string => {
+    const id = crypto.randomUUID();
+    pendingRequests.set(id, { pageSocket, requestId });
+    const oldest = pendingRequests.keys().next().value;
+    if (pendingRequests.size > SERVER_LIMITS.maxPendingRequests && oldest) pendingRequests.delete(oldest);
+    return id;
+  };
+  const takeRequest = (id: string) => {
+    const request = pendingRequests.get(id) ?? null;
+    pendingRequests.delete(id);
+    return request;
+  };
+
   const sendToOwnerPages = (personId: string, message: ServerToPage) => {
     const encodedMessage = encode(message);
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) => sendToPage(pageSocket, encodedMessage));
@@ -295,8 +312,11 @@ export const createConnections = (
     displayName: string,
     message: Exclude<PageToServer, { type: "ping" }>,
   ) => {
-    const sendProblem = (problem: string) => sendToPage(pageSocket, encode<ServerToPage>({ type: "error", message: problem }));
+    const pageRequest = message.requestId ? { requestId: message.requestId } : {};
+    const sendProblem = (problem: string) => sendToPage(pageSocket, encode<ServerToPage>({ type: "error", message: problem, ...pageRequest }));
     const machineSocket = machineSockets.get(message.machineId);
+    // The machine gets an id of the server's own, so a page can't name another's request.
+    const forwarded = message.requestId ? { requestId: rememberRequest(pageSocket, message.requestId) } : {};
     const isOwnMachine = machineSocket?.data.role === "machine" && machineSocket.data.ownerPersonId === personId;
     const report = reportsByMachineId.get(message.machineId);
     if (!machineSocket || !isOwnMachine || !report) return sendProblem("That machine isn't connected");
@@ -312,26 +332,26 @@ export const createConnections = (
       const sessionName = chooseSessionName(message.sessionName, message.folderName, [...sessionNames, ...started]);
       startedNamesByMachine.set(message.machineId, new Set([...started, sessionName]));
       log.event(`${displayName} started session "${sessionName}" in "${message.folderName}" on "${machineName}"`);
-      return machineSocket.send(encode<ServerToMachine>({ type: "start-session", folderName: message.folderName, sessionName }));
+      return machineSocket.send(encode<ServerToMachine>({ type: "start-session", folderName: message.folderName, sessionName, ...forwarded }));
     }
 
     if (!sessionNames.includes(message.sessionName)) return sendProblem("That session isn't running");
 
     if (message.type === "stop-session") {
       log.event(`${displayName} stopped session "${message.sessionName}" on "${machineName}"`);
-      return machineSocket.send(encode<ServerToMachine>({ type: "stop-session", sessionName: message.sessionName }));
+      return machineSocket.send(encode<ServerToMachine>({ type: "stop-session", sessionName: message.sessionName, ...forwarded }));
     }
 
     if (message.type === "ask-for-output") {
       const { sessionName, kind } = message;
       log.detail(`${displayName} asked session "${sessionName}" on "${machineName}" for a ${kind}`);
-      return machineSocket.send(encode<ServerToMachine>({ type: "ask-for-output", sessionName, kind }));
+      return machineSocket.send(encode<ServerToMachine>({ type: "ask-for-output", sessionName, kind, ...forwarded }));
     }
 
     if (message.type === "answer-output") {
       const { sessionName, outputId, choice } = message;
       log.detail(`${displayName} answered a question in session "${sessionName}" on "${machineName}"`);
-      return machineSocket.send(encode<ServerToMachine>({ type: "answer-output", sessionName, outputId, choice }));
+      return machineSocket.send(encode<ServerToMachine>({ type: "answer-output", sessionName, outputId, choice, ...forwarded }));
     }
 
     const text = message.text.trim();
@@ -339,7 +359,7 @@ export const createConnections = (
     if (!text && images.length === 0) return sendProblem("That message can't be sent");
     log.detail(`${displayName} sent a message to session "${message.sessionName}" on "${machineName}"`);
     machineSocket.send(
-      encode<ServerToMachine>({ type: "send-to-session", sessionName: message.sessionName, text, images }),
+      encode<ServerToMachine>({ type: "send-to-session", sessionName: message.sessionName, text, images, ...forwarded }),
     );
   };
 
@@ -399,7 +419,16 @@ export const createConnections = (
     if (message.type === "pong") return handlePong(machine, message.id);
     if (message.type === "sessions") return handleSessions(machine, message.sessions);
     if (message.type === "session-entries") return handleSessionEntries(machine, message.sessionName, message.entries);
-    if (message.type === "error") return sendToOwnerPages(machine.ownerPersonId, { type: "error", message: `${machine.machineName}: ${message.message}` });
+    if (message.type === "error") {
+      const problem = `${machine.machineName}: ${message.message}`;
+      // Shown on the page whose request it was, if the machine names one;
+      // otherwise on all the owner's pages.
+      const request = message.requestId ? takeRequest(message.requestId) : null;
+      const isOwnersPage = request && request.pageSocket.data.role === "page" && request.pageSocket.data.personId === machine.ownerPersonId;
+      if (!request) return sendToOwnerPages(machine.ownerPersonId, { type: "error", message: problem });
+      if (isOwnersPage && pageSockets.has(request.pageSocket)) sendToPage(request.pageSocket, encode<ServerToPage>({ type: "error", message: problem, requestId: request.requestId }));
+      return;
+    }
     log.detail(`"${machine.machineName}" has ${message.folders.length} folder(s)`);
     updateReport(machine, { folders: message.folders });
   };

@@ -124,6 +124,9 @@ something.
   docs/MODULES.md) and a reason to show.
 - **notice**: something the session runner tells a program didn't happen, like
   a dropped answer.
+- **request id**: the id a page gives each thing it asks a session to do, so a
+  refusal is shown on that page only (and a refused message's waiting copy
+  goes). The server gives the machine an id of its own in its place.
 - **folder check**: the program's rule for which folders a session may start in.
 - **kind** and **asked-for turn** belong to the module: any program passes its
   own kinds in, not only talos.

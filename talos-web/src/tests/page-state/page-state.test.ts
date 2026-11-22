@@ -73,3 +73,10 @@ test("a waiting message's image previews are let go once it's saved or its sessi
   const ended = applyServerMessage(saved, { type: "machines", machines: [{ machineId: "m1", machineName: "m1", isConnected: true, folders: [], sessions: [] }] });
   expect(droppedPreviewUrls(saved, ended)).toEqual(["blob:2"]);
 });
+
+test("a refused send's waiting copy goes, and only that one", () => {
+  const waiting = addWaitingPrompt(addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "first", [], "r1"), "m1", "web", "second", [], "r2");
+  const refused = applyServerMessage(waiting, { type: "error", message: "atlas: Claude is asking permission; answer it first", requestId: "r1" });
+  expect(refused.waitingPromptsBySession[KEY]?.map(({ text }) => text)).toEqual(["second"]);
+  expect(refused.notice).toContain("asking permission");
+});

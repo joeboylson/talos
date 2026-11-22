@@ -28,6 +28,17 @@ const isStillThere = (machines: readonly MachineSummary[]) => {
 const keptWhere = <Value>(byKey: Record<string, Value>, isKept: (key: string) => boolean): Record<string, Value> =>
   Object.fromEntries(Object.entries(byKey).filter(([key]) => isKept(key)));
 
+// A send that was turned down won't be saved, so its waiting copy goes.
+const withoutRefusedPrompt = (state: PageState, requestId: string | undefined): PageState =>
+  requestId === undefined
+    ? state
+    : {
+        ...state,
+        waitingPromptsBySession: Object.fromEntries(
+          Object.entries(state.waitingPromptsBySession).map(([key, prompts]) => [key, prompts.filter((prompt) => prompt.requestId !== requestId)]),
+        ),
+      };
+
 export const applyServerMessage = (state: PageState, message: ServerToPage): PageState => {
   if (message.type === "machines") {
     const isKept = isStillThere(message.machines);
@@ -38,7 +49,7 @@ export const applyServerMessage = (state: PageState, message: ServerToPage): Pag
       waitingPromptsBySession: keptWhere(state.waitingPromptsBySession, isKept),
     };
   }
-  if (message.type === "error") return { ...state, notice: message.message };
+  if (message.type === "error") return { ...withoutRefusedPrompt(state, message.requestId), notice: message.message };
   if (message.type === "pong") {
     return { ...state, roundTripMsByMachineId: { ...state.roundTripMsByMachineId, [message.machineId]: message.roundTripMs } };
   }
@@ -62,9 +73,10 @@ export const addWaitingPrompt = (
   sessionName: string,
   text: string,
   imagePreviewUrls: string[],
+  requestId?: string,
 ): PageState => {
   const key = sessionKey(machineId, sessionName);
-  const waitingPrompt = { text: text.trim(), imagePreviewUrls };
+  const waitingPrompt = { text: text.trim(), imagePreviewUrls, ...(requestId && { requestId }) };
   const waitingPrompts = [...(state.waitingPromptsBySession[key] ?? []), waitingPrompt];
   return { ...state, waitingPromptsBySession: { ...state.waitingPromptsBySession, [key]: waitingPrompts } };
 };

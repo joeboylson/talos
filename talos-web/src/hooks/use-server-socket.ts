@@ -50,10 +50,12 @@ export const useServerSocket = () => {
 
   const setNotice = useCallback((notice: string | null) => setPageState((current) => ({ ...current, notice })), []);
 
+  // Each session command carries an id of its own, so a refusal comes back to
+  // this page only, and names what it refused.
   const send = useCallback(
-    (message: PageToServer) => {
+    (message: PageToServer, requestId: string = crypto.randomUUID()) => {
       setNotice(null);
-      socketRef.current?.send(encode(message));
+      socketRef.current?.send(encode(message.type === "ping" ? message : { ...message, requestId }));
     },
     [setNotice],
   );
@@ -69,9 +71,10 @@ export const useServerSocket = () => {
   const sendToSession = useCallback(
     (machineId: string, sessionName: string, text: string, images: PreparedImage[]) => {
       const imagePreviewUrls = images.map(({ previewUrl }) => previewUrl);
-      setPageState((current) => addWaitingPrompt(current, machineId, sessionName, text, imagePreviewUrls));
+      const requestId = crypto.randomUUID();
+      setPageState((current) => addWaitingPrompt(current, machineId, sessionName, text, imagePreviewUrls, requestId));
       const sentImages = images.map(({ mediaType, dataBase64 }) => ({ mediaType, dataBase64 }));
-      send({ type: "send-to-session", machineId, sessionName, text, images: sentImages });
+      send({ type: "send-to-session", machineId, sessionName, text, images: sentImages }, requestId);
     },
     [send],
   );

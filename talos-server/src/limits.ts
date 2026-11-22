@@ -9,6 +9,10 @@ export const SERVER_LIMITS = {
   // A machine's session/folder updates are coalesced per owner into one page
   // broadcast per this window, so a burst (or a flood) can't amplify.
   machineListRelayCoalesceMs: 100,
+  // Requests sent on to machines, remembered so a refusal goes back to the page
+  // that asked; past this the oldest are forgotten (their refusal goes to all
+  // the owner's pages instead).
+  maxPendingRequests: 1000,
   // Starting a pairing needs no sign-in, so cap how many can wait at once.
   maxWaitingPairings: 100,
   // How often one address may start a pairing, and one person enter a code.

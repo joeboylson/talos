@@ -37,7 +37,8 @@ export const findSessionRow = (machines: MachineSummary[], machineName: string, 
 
 // A message sent from the page, with previews of its images, shown as
 // waiting until Claude Code saves it.
-export type WaitingPrompt = { text: string; imagePreviewUrls: string[] };
+// requestId: the send's own id, so a refusal of it takes its bubble away.
+export type WaitingPrompt = { text: string; imagePreviewUrls: string[]; requestId?: string };
 
 // The first waiting message with the same text and number of images is the
 // one Claude Code just saved.

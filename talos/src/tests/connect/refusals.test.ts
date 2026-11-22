@@ -82,6 +82,12 @@ test(
       while (!fromTalos.slice(before).some(({ type }) => type === "error") && Date.now() < giveUpAt) await Bun.sleep(25);
       told.push(fromTalos.slice(before).find(({ type }) => type === "error")?.message ?? "NOTHING");
     }
+    // A command with a request id gets its refusal back under the same id.
+    const beforeAnswer = fromTalos.length;
+    machineSocket?.send(JSON.stringify({ type: "answer-output", sessionName: "web", outputId: "o1", choice: 0, requestId: "req-9" }));
+    const answerGiveUpAt = Date.now() + 3000;
+    while (!fromTalos.slice(beforeAnswer).some(({ type }) => type === "error") && Date.now() < answerGiveUpAt) await Bun.sleep(25);
+    expect(fromTalos.slice(beforeAnswer).find(({ type }) => type === "error")).toMatchObject({ requestId: "req-9" });
     // A folder list talos can't read says so, rather than blaming the runner.
     writeFileSync(join(home, "folders.json"), '[{"folderName":"proj"');
     const before = fromTalos.length;

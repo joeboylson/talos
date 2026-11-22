@@ -157,31 +157,33 @@ export const runConnect = async (): Promise<void> => {
 
   // What the owner tried and couldn't do is shown on their page, so a click
   // never fails silently.
-  const tellPage = (problem: string) => sendToServer?.({ type: "error", message: problem.slice(0, LIMITS.maxMachineErrorLength) });
-  const reportRefusal = (result: Result) => {
-    if (!result.ok) tellPage(result.reason);
+  // With the request's id, it's shown on the page that asked.
+  const tellPage = (problem: string, requestId?: string) =>
+    sendToServer?.({ type: "error", message: problem.slice(0, LIMITS.maxMachineErrorLength), ...(requestId && { requestId }) });
+  const reportRefusal = (result: Result, requestId?: string) => {
+    if (!result.ok) tellPage(result.reason, requestId);
   };
 
   // A session starts only in a folder this machine allows, found by name in
   // its own folder list: the page never sends a path.
-  const startSession = async (folderName: string, sessionName: string) => {
+  const startSession = async (folderName: string, sessionName: string, requestId?: string) => {
     const folder = (await readFolders()).find((candidate) => candidate.folderName === folderName);
-    if (!folder) return tellPage(`There's no folder called ${folderName}`);
-    reportRefusal(await sessions.start(sessionName, folderName, folder.path));
+    if (!folder) return tellPage(`There's no folder called ${folderName}`, requestId);
+    reportRefusal(await sessions.start(sessionName, folderName, folder.path), requestId);
   };
 
   // The owner, on the page: renamed this machine or a folder, or started,
   // messaged or stopped a session.
   const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
-    if (message.type === "start-session") return startSession(message.folderName, message.sessionName);
-    if (message.type === "send-to-session") return reportRefusal(await sessions.send(message.sessionName, message.text, message.images));
-    if (message.type === "stop-session") return reportRefusal(await sessions.stop(message.sessionName));
+    if (message.type === "start-session") return startSession(message.folderName, message.sessionName, message.requestId);
+    if (message.type === "send-to-session") return reportRefusal(await sessions.send(message.sessionName, message.text, message.images), message.requestId);
+    if (message.type === "stop-session") return reportRefusal(await sessions.stop(message.sessionName), message.requestId);
     if (message.type === "ask-for-output") {
-      return reportRefusal(await sessions.ask(message.sessionName, message.kind));
+      return reportRefusal(await sessions.ask(message.sessionName, message.kind), message.requestId);
     }
     if (message.type === "answer-output") {
-      const { sessionName, outputId, choice } = message;
-      return reportRefusal(await sessions.answer(sessionName, outputId, choice));
+      const { sessionName, outputId, choice, requestId } = message;
+      return reportRefusal(await sessions.answer(sessionName, outputId, choice), requestId);
     }
     if (message.type === "machine-name") {
       machineName = message.machineName;
@@ -229,7 +231,8 @@ export const runConnect = async (): Promise<void> => {
       onServerMessage: (message) =>
         void handleServerMessage(message).catch((error: unknown) => {
           log.warn(`talos: couldn't handle ${message.type} from the server (${error})`);
-          tellPage(isRunnerProblem(error) ? "That didn't reach the session runner; try again" : `That couldn't be done: ${error instanceof Error ? error.message : error}`);
+          const problem = isRunnerProblem(error) ? "That didn't reach the session runner; try again" : `That couldn't be done: ${error instanceof Error ? error.message : error}`;
+          tellPage(problem, "requestId" in message ? message.requestId : undefined);
         }),
       onOpen: (send) => {
         sendToServer = send;

@@ -165,12 +165,12 @@ Only the separator changes.
 
 | Identifier                                | Page                        | Command                                      |
 | ----------------------------------------- | --------------------------- | -------------------------------------------- |
-| `talos:machines`                          | `/machines`                 | `talos machines`                             |
-| `talos:machines:work-mac`                 | `/machines/work-mac`        | `talos machines work-mac`                    |
-| `talos:machines:work-mac` + ping          | the row's ping button       | `talos machines work-mac ping`               |
+| `talos:machines`                          | `/machines`                 | `talos machines` (page only, for now)        |
+| `talos:machines:work-mac`                 | `/machines/work-mac`        | `talos machines work-mac` (page only, for now) |
+| `talos:machines:work-mac` + ping          | the row's ping button       | `talos machines work-mac ping` (page only, for now) |
 | `talos:folders`                           | `/folders`                  | `talos folders`                              |
 | `talos:machines:atlas:sessions:fix-login` | `/sessions/atlas/fix-login` | `talos sessions fix-login attach` (on atlas) |
-| `talos:settings`                          | `/settings`                 | `talos settings`                             |
+| `talos:settings`                          | `/settings`                 | `talos settings` (page only, for now)        |
 
 Actions (`ping`, `add`, `remove`, `rename`, `attach`) come after the thing they act on.
 They're verbs, so they never appear in an identifier.

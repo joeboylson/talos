@@ -10,3 +10,10 @@ test("Backspace takes off a whole character, an emoji included", () => {
   expect(typeIntoDraft("hi 😀", BACKSPACE).draft).toBe("hi ");
   expect(typeIntoDraft("ok 👍🏽", BACKSPACE).draft).toBe("ok ");
 });
+
+test("each Backspace or Ctrl-H in one piece of keys takes a character", () => {
+  expect(typeIntoDraft("abc", "\x7f\x7f").draft).toBe("a");
+  expect(typeIntoDraft("abc", "d\x7f").draft).toBe("abc");
+  expect(typeIntoDraft("abc", "\x08").draft).toBe("ab");
+  expect(typeIntoDraft("", "hi\rno\x7f\x7fok")).toEqual({ draft: "ok", sent: ["hi"] });
+});

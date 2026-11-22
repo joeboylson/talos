@@ -51,8 +51,19 @@ const graphemes = new Intl.Segmenter();
 const withoutLastCharacter = (text: string): string =>
   [...graphemes.segment(text)].slice(0, -1).map(({ segment }) => segment).join("");
 
-export const typeIntoDraft = (draft: string, key: string): { draft: string; sent: string[] } => {
-  if (key === BACKSPACE) return { draft: withoutLastCharacter(draft), sent: [] };
+// Each Backspace (or Ctrl-H) in the keys takes one character, wherever it is:
+// a busy moment or a held key sends several keys in one piece.
+const BACKSPACE_KEYS = /[\x7f\x08]/;
+export const typeIntoDraft = (draft: string, key: string): { draft: string; sent: string[] } =>
+  key.split(BACKSPACE_KEYS).reduce(
+    (typed, piece, index) => {
+      const next = typeText(index === 0 ? typed.draft : withoutLastCharacter(typed.draft), piece);
+      return { draft: next.draft, sent: [...typed.sent, ...next.sent] };
+    },
+    { draft, sent: [] as string[] },
+  );
+
+const typeText = (draft: string, key: string): { draft: string; sent: string[] } => {
   const parts = key
     .replace(ESCAPE_SEQUENCE, "")
     .replace(/\r\n/g, "\r")

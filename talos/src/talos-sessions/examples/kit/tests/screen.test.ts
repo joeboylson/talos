@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { bold, fit, fitScreen, frame, padTo, visibleLength, wrapText } from "../screen";
+import { bold, fit, fitScreen, frame, lastCells, padTo, visibleLength, wrapText } from "../screen";
 
 test("a line is cut to the terminal's cells, colours kept whole and closed", () => {
   const cut = fit(`${bold("receipts")} ${"x".repeat(100)}`, 20);
@@ -47,4 +47,14 @@ test("a frame is drawn over the last one in place, never a full clear", () => {
   const drawn = frame(["one", "two"]);
   expect(drawn).not.toContain("\x1b[2J");
   expect(drawn).toBe("\x1b[Hone\x1b[K\r\ntwo\x1b[K\x1b[J");
+});
+
+test("the end of a draft is the last characters that fit, wide ones whole, and a long paste is quick", () => {
+  expect(lastCells("hello", 3)).toBe("llo");
+  expect(lastCells("ab東京", 5)).toBe("b東京");
+  expect(lastCells("ab東京", 3)).toBe("京");
+  expect(lastCells("hi", 10)).toBe("hi");
+  const startedAt = performance.now();
+  expect(lastCells("x".repeat(30_000), 77)).toBe("x".repeat(77));
+  expect(performance.now() - startedAt).toBeLessThan(200);
 });

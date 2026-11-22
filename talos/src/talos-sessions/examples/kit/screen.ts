@@ -71,10 +71,18 @@ export const wrapText = (text: string, width: number): string[] =>
   );
 
 // The end of a line that's too long, so what's being typed, and the cursor, show.
+// Walked back from the end a character at a time, so a long paste stays quick.
 export const lastCells = (text: string, width: number): string => {
-  const characters = [...text];
-  const start = characters.findIndex((_character, index) => visibleLength(characters.slice(index).join("")) <= width);
-  return characters.slice(start === -1 ? characters.length : start).join("");
+  const characters = [...graphemes.segment(text)].map(({ segment }) => segment);
+  const { start } = characters.reduceRight(
+    (taken, character, index) => {
+      if (taken.isFull) return taken;
+      const room = taken.room - visibleLength(character);
+      return room < 0 ? { ...taken, isFull: true } : { room, start: index, isFull: false };
+    },
+    { room: width, start: characters.length, isFull: false },
+  );
+  return characters.slice(start).join("");
 };
 
 // A whole frame drawn over the last one in place, each line cleared to its end

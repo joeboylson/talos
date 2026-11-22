@@ -76,8 +76,13 @@ export const catalogProblems = ({ kinds, proseTurn }: Catalog): string[] => {
       .filter(({ requestText }) => requestText !== undefined)
       .filter(({ requestText = "" }) => !cleanLine(requestText) || requestText.length > MAX_REQUEST_LENGTH || hasCommandMarker(cleanLine(requestText)))
       .map(({ kind }) => `${kind}'s request must be plain text of at most ${MAX_REQUEST_LENGTH} characters, with no commands`),
-    ...proseTurn.optional.filter((name) => !kindOf(name)).map((name) => `the prose turn names ${name}, which isn't a kind`),
-    ...proseTurn.optional.filter((name) => kindOf(name)?.requestText).map((name) => `${name} is asked for, so a prose turn can't send it`),
+    // A turn's own output is checked like its optional ones: an asked-for kind
+    // there would be allowed with nothing to record it.
+    ...[proseTurn.output, ...proseTurn.optional]
+      .filter((name) => name !== PROSE || proseTurn.optional.includes(name))
+      .filter((name) => !kindOf(name))
+      .map((name) => `the prose turn names ${name}, which isn't a kind`),
+    ...[proseTurn.output, ...proseTurn.optional].filter((name) => kindOf(name)?.requestText).map((name) => `${name} is asked for, so a prose turn can't send it`),
   ];
 };
 export const checkCatalog = (catalog: Catalog): void => {

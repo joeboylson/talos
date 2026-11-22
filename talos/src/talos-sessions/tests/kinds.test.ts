@@ -54,6 +54,12 @@ describe("the kinds a program gives the session runner", () => {
   ])("%s is turned down", (_name, kinds, optional) => {
     expect(problems(kinds as OutputKind[], optional as string[]).length).toBeGreaterThan(0);
   });
+  test("a prose turn whose own output is asked for, or no kind at all, is turned down", () => {
+    const asked = kind({ requestText: "Send it." });
+    expect(catalogProblems({ kinds: [asked], proseTurn: { output: "note", optional: [] } })).toEqual(["note is asked for, so a prose turn can't send it"]);
+    expect(catalogProblems({ kinds: [kind({})], proseTurn: { output: "missing", optional: [] } })).toEqual(["the prose turn names missing, which isn't a kind"]);
+    expect(catalogProblems({ kinds: [kind({})], proseTurn: { output: "note", optional: [] } })).toEqual([]);
+  });
 });
 
 test("the examples' kinds all pass the start check", async () => {

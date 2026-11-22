@@ -10,6 +10,7 @@ import { ENTER_KEY, ESC_KEY, ESC_PAUSE_MS, buildPastedText } from "../terminal";
 import { catalog, log } from "./inputs";
 import { noSuchSession, refuse } from "./refuse";
 import { broadcast, broadcastSessions, heldSessions, typeInTurn, updateHeldSession, type HeldSession } from "./store";
+import { typeIntoSession } from "./messages";
 
 // The summary shows each ask's state and latest answer, and the open outputs.
 const withAsk = (summary: SessionSummary, change: LaneStep["askChange"]): SessionSummary => {
@@ -131,15 +132,31 @@ export const setSessionState = (sessionName: string, state: SessionState, isTurn
   if (isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);
 };
 
+// Messages sent while it started wait only if something else came up as it
+// became ready (see becomeReadyWhenQuiet).
+const hasWaitingMessages = (session: HeldSession): boolean => session.queuedMessages.length > 0 && session.summary.state !== "starting";
 const isWaitingToSettle = (session: HeldSession | undefined): boolean =>
-  session !== undefined && (session.lane.stage === "queued" || session.lane.stage === "answered" || session.heldAnswers.length > 0);
+  session !== undefined && (session.lane.stage === "queued" || session.lane.stage === "answered" || session.heldAnswers.length > 0 || hasWaitingMessages(session));
 
 // Once the screen has settled: a finished asked-for turn ends, then the oldest
 // of a queued ask and the held answers goes in. One per settle: what's typed
 // starts a turn, and the next goes in once that one is over.
+// The person's own messages go first, as if just sent: they end any ask, and
+// the session works on them. One a prompt stopped again goes on waiting.
+const typeWaitingMessages = async (sessionName: string, session: HeldSession): Promise<void> => {
+  updateHeldSession(sessionName, session.hookToken, { queuedMessages: [] });
+  applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
+  setSessionState(sessionName, "working");
+  const typed = await Promise.all(session.queuedMessages.map((message) => typeIntoSession(session, message)));
+  const notTyped = session.queuedMessages.filter((_message, index) => !typed[index]);
+  const current = heldSessions.get(sessionName);
+  if (notTyped.length > 0 && current) updateHeldSession(sessionName, session.hookToken, { queuedMessages: [...notTyped, ...current.queuedMessages] });
+};
+
 const typeNextWhenSettled = async (sessionName: string): Promise<void> => {
   const session = heldSessions.get(sessionName);
   if (!session) return;
+  if (hasWaitingMessages(session)) return typeWaitingMessages(sessionName, session);
   if (session.lane.stage === "answered") applyLaneEvent(sessionName, { type: "settled", hasDraft: session.hasDraft });
   const current = heldSessions.get(sessionName);
   if (!current) return;

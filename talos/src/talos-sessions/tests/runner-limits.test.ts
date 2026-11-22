@@ -113,7 +113,7 @@ test(
 );
 
 test(
-  "a permission prompt while a session's screen settles stands, and nothing is typed into it",
+  "a permission prompt while a session's screen settles stands, and what was sent goes in once it's answered",
   async () => {
     expect(await calls.start("prompting", "prompting", folder("prompting"))).toEqual({ ok: true });
     expect(await calls.send("prompting", "queued")).toEqual({ ok: true });
@@ -121,6 +121,9 @@ test(
     const session = (await calls.sessions()).find(({ sessionName }) => sessionName === "prompting");
     expect(session?.state).toBe("needs-you");
     expect(userLines(join(home, "prompting"))).toEqual([]);
+    // Once the prompt is answered and the turn is over, what was sent goes in.
+    expect(await calls.keys("prompting", "1")).toEqual({ ok: true });
+    await waitUntil(() => userLines(join(home, "prompting")).includes("queued"), "the waiting message", 10_000);
     await calls.stop("prompting");
   },
   20_000,

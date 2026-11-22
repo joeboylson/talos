@@ -176,16 +176,11 @@ export const becomeReadyWhenQuiet = async (sessionName: string, token: string, g
   }
   const session = heldSessions.get(sessionName);
   if (!session || session.hookToken !== token) return;
-  heldSessions.set(sessionName, { ...session, queuedMessages: [] });
   // Something happened while it settled (a permission prompt, the person
-  // typing in its terminal): that state stands, and what was sent goes in
-  // unless a prompt shows (its Enter would answer the prompt).
-  if (session.summary.state !== "starting") {
-    const typed = await Promise.all(session.queuedMessages.map((message) => typeIntoSession(session, message)));
-    const notTyped = typed.filter((isTyped) => !isTyped).length;
-    if (notTyped > 0) log.warn(`runner: ${notTyped} message(s) sent while ${sessionName} started weren't typed: a permission prompt showed`);
-    return;
-  }
+  // typing in its terminal): that state stands. What was sent waits for the
+  // turn to be over (a prompt's Enter would answer it), and then goes in.
+  if (session.summary.state !== "starting") return;
+  heldSessions.set(sessionName, { ...session, queuedMessages: [] });
   // Messages sent during startup are the person typing, so they end any ask.
   // The session is then working, not idle, so a new ask waits for their Stop
   // instead of landing on top of them.

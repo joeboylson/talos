@@ -125,12 +125,11 @@ if (basename(process.cwd()).startsWith("spawner")) {
 }
 writeFileSync(firstTranscript, "");
 writeFileSync(secondTranscript, "");
-// In a folder named mute… it never reports its start, like a Claude Code stuck
-// on a screen before its hooks run.
 // In a folder named late… it reports its start after 1.5 s.
 if (basename(process.cwd()).startsWith("late")) await Bun.sleep(1500);
+// In a folder named mute… it never reports its start, like a Claude Code stuck
+// on a screen before its hooks run.
 if (!basename(process.cwd()).startsWith("mute")) await hook({ hook_event_name: "SessionStart" });
-if (isPrompting) await hook({ hook_event_name: "Notification", message: "Claude needs your permission to use Bash" });
 process.stdin.setRawMode?.(true);
 process.stdout.write("ready\n");
 
@@ -165,3 +164,11 @@ process.stdin.on("data", (chunk: Buffer) => {
     turns = turns.then(() => runTurn(text)).finally(() => (turnsWaiting -= 1));
   }
 });
+
+// The prompting… folder's prompt: a key answers it, and its turn ends.
+if (isPrompting) {
+  await hook({ hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command: "ls" } });
+  await new Promise<string>((resolve) => (answerPrompt = resolve));
+  saveText("APPROVED");
+  await hook({ hook_event_name: "Stop" });
+}

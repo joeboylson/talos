@@ -51,6 +51,12 @@ describe("recipes", () => {
     expect(lines.some((line) => line.includes("END▏"))).toBe(true);
     expect(lines.every((line) => visibleLength(line) <= 40)).toBe(true);
   });
+  test("in a window under 40 columns, text wraps to it and no word is lost", () => {
+    const entry = { kind: "text" as const, position: 1, entryId: "t1", text: "one two three four five six seven eight nine ten eleven twelve" };
+    const state = recipesView.step(recipesView.initial, { type: "event", event: { type: "session-entries", sessionName: "example", entries: [entry] } }).state;
+    const lines = plain(fitScreen(recipesView.render(state, 30), 30, 100));
+    expect(lines.join(" ").replace(/\s+/g, " ")).toContain(entry.text);
+  });
   test("every file a run made counts, folders and links included, and data/ is never changed through a link", () => {
     const folder = mkdtempSync(join(tmpdir(), "talos-recipes-"));
     mkdirSync(join(folder, "data", "book"), { recursive: true });

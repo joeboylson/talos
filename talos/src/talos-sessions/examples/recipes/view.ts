@@ -46,7 +46,7 @@ export const recipesView: ExampleView<RecipesState> = {
     return { state: { ...state, draft }, actions: sent.map((text) => ({ do: "send" as const, text })) };
   },
   render: (state, columns) => {
-    const width = Math.max(columns, 40);
+    const width = Math.max(columns, 1);
     const mark = state.session === "working" ? yellow("◐ cooking") : state.session === "needs-you" ? yellow("⚠ needs you · ^A") : state.session === "starting" ? dim("○ starting") : state.session === "gone" ? dim("○ ended") : "● ready";
     return [
       `${bold("recipes")}  ${mark}`,

@@ -122,3 +122,14 @@ test("in a narrow window, every amount still shows", () => {
   expect(screen).toContain("12.00");
   expect(screen).toContain("24.60 GBP");
 });
+
+test("in a narrow window, a long question and every one of its choices can be read", () => {
+  const long = (word: string) => Array.from({ length: 12 }, () => word).join(" ");
+  const choices = [long("alpha"), long("bravo"), long("charlie"), long("delta")];
+  const question = { id: "q1", kind: "question", fields: { file: "07-dinner.txt", question: long("question"), choices }, atMs: 0 };
+  const open: Input = { type: "event", event: { type: "sessions", sessions: [{ sessionName: "example", folderName: "work", state: "needs-you", asks: {}, openOutputs: [question] }] } };
+  const screen = plain(fitScreen(receiptsView.render(receiptsView.step(receiptsView.initial, open).state, 40), 40, 100)).join(" ");
+  const words = screen.replace(/\s+/g, " ");
+  expect(screen).not.toContain("…");
+  [long("question"), ...choices].forEach((text) => expect(words).toContain(text));
+});

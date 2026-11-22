@@ -2,7 +2,7 @@
 // receipt could go either way, and totals out. The session's prose is never
 // shown: the program gets data, not text.
 import { mergeSessionEntries, type SessionEntry, type SessionSummary } from "../../index";
-import { bar, bold, cyan, dim, fit, padTo, yellow } from "../kit/screen";
+import { bar, bold, cyan, dim, fit, padTo, wrapText, yellow } from "../kit/screen";
 import { CTRL_A, noActions, type Action, type ExampleView } from "../kit/view";
 import { TALLY } from "./kinds";
 
@@ -112,8 +112,13 @@ export const receiptsView: ExampleView<ReceiptsState> = {
       ...(question
         ? [
             "",
-            yellow(`? ${question.fields.file}: ${question.fields.question}`),
-            (question.id === state.answeredId ? dim : (text: string) => text)(`  ${(question.fields.choices as string[]).map((choice, index) => `${bold(String(index + 1))} ${choice}`).join("   ")}`),
+            ...wrapText(`? ${question.fields.file}: ${question.fields.question}`, width).map(yellow),
+            // A choice a line, wrapped, so every one can be read before it's picked.
+            ...(question.fields.choices as string[]).flatMap((choice, index) =>
+              wrapText(choice, Math.max(width - 4, 1)).map((line, at) =>
+                (question.id === state.answeredId ? dim : (text: string) => text)(at === 0 ? `  ${bold(String(index + 1))} ${line}` : `    ${line}`),
+              ),
+            ),
           ]
         : []),
       ...(state.tally ? ["", bold("Totals"), ...drawTally(state.tally, width)] : []),

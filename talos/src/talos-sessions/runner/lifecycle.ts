@@ -1,5 +1,5 @@
 // Starting a session, holding its terminal, and ending it.
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { trustFolder, type TrustChange } from "../claude/claude-trust";
@@ -16,6 +16,7 @@ import { refuse } from "./refuse";
 const SESSION_EXIT_WAIT_MS = 5000;
 import { forgetTypedImages, typeIntoSession } from "./messages";
 import { applyLaneEvent, setSessionState } from "./session-state";
+import { writeWhole } from "./write-whole";
 import { broadcastSessions, heldSessions, runnerState, sendToListeners, startingSessions, trustChanges, updateHeldSession, type HeldSession, type Terminal } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
@@ -32,7 +33,7 @@ const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => 
 const saveSessionGroups = (): void => {
   const groups = [...heldSessions.values()].map(({ child, startedAtMs }) => ({ groupId: child.pid, atMs: startedAtMs }));
   try {
-    writeFileSync(paths().sessionGroups, JSON.stringify(groups), { mode: 0o600 });
+    writeWhole(paths().sessionGroups, JSON.stringify(groups));
   } catch (error) {
     log.warn(`runner: couldn't save the session groups: ${error}`);
   }
@@ -63,9 +64,9 @@ const refuseNewSession = (sessionName: string): Response | null => {
 };
 
 // Saved before Claude starts, so a runner that dies still leaves them to put back.
-const keepTrustChange = async (trustChange: TrustChange): Promise<void> => {
+const keepTrustChange = (trustChange: TrustChange): void => {
   trustChanges.push(trustChange);
-  await Bun.write(paths().trustChanges, JSON.stringify(trustChanges));
+  writeWhole(paths().trustChanges, JSON.stringify(trustChanges));
 };
 
 // The name is held from the first check until the session is recorded, so a
@@ -89,7 +90,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   // An allowed folder can be gone since it was added.
   if (!existsSync(path)) return refuse("folder-not-allowed", `${folderName} isn't there any more`, 403);
   const trustChange = await trustFolder(path, claudeConfigFile());
-  if (trustChange && restoresTrust()) await keepTrustChange(trustChange);
+  if (trustChange && restoresTrust()) keepTrustChange(trustChange);
   if (runnerState.isStopping) return STOPPING();
 
   const hookCommand = `"${process.execPath}" "${HOOK_SCRIPT}"`;

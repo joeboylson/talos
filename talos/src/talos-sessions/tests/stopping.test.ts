@@ -298,3 +298,18 @@ test(
   },
   20_000,
 );
+
+test(
+  "trust changed for sessions started together is all kept, so all of it is put back",
+  async () => {
+    const { home, calls } = newHome();
+    await calls.ensureRunning();
+    const names = ["t1", "t2", "t3", "t4", "t5", "t6"];
+    const folders = names.map((name) => folderIn(home, name));
+    expect(await Promise.all(names.map((name, at) => calls.start(name, name, folders[at]!)))).toEqual(names.map(() => ({ ok: true })));
+    const kept = JSON.parse(readFileSync(homePaths(home).trustChanges, "utf8")) as unknown[];
+    expect(kept).toHaveLength(names.length);
+    await calls.stopRunner();
+  },
+  30_000,
+);

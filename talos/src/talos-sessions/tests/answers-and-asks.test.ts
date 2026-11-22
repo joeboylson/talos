@@ -153,6 +153,26 @@ test(
   40_000,
 );
 
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+test(
+  "a prompt that comes up while a message's images settle stops its Enter, which would approve it",
+  async () => {
+    const name = "prompt-mid-paste";
+    mkdirSync(join(home, name));
+    expect(await calls.start(name, name, join(home, name))).toEqual({ ok: true });
+    await waitUntil(() => latest[name]?.state === "idle", "the session to be ready");
+    expect(await calls.send(name, "slow-prompt")).toEqual({ ok: true });
+    const sent = calls.send(name, "look at this", [{ mediaType: "image/png", dataBase64: PNG }]);
+    expect(await sent).toMatchObject({ ok: false, code: "prompt-showing" });
+    await Bun.sleep(500);
+    expect(texts(name)).not.toContain("APPROVED");
+    expect(await calls.keys(name, "\x1b")).toEqual({ ok: true });
+    await waitUntil(() => texts(name).includes("REFUSED"), "the prompt to be answered");
+  },
+  30_000,
+);
+
 test(
   "a message sent while a permission prompt shows is refused, not typed into the prompt",
   async () => {

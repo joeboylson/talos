@@ -14,17 +14,29 @@ import { heldSessions, isPromptShowing, typeInTurn, updateHeldSession, type Held
 // first), and Enter sends any draft along with it, so the box is empty after.
 // One at a time (see typeInTurn). Old images go only once a message is in, so
 // none waiting to be typed is lost.
-export const typeIntoSession = (session: HeldSession, message: TypedMessage): Promise<void> =>
+// False when a permission prompt came up first: its Enter would approve it.
+export const typeIntoSession = (session: HeldSession, message: TypedMessage): Promise<boolean> =>
   typeInTurn(session.summary.sessionName, () => typeOne(session, message));
 
-const typeOne = async (session: HeldSession, { text, hasImages, imagePaths = [] }: TypedMessage): Promise<void> => {
+// Checked again just before each write, since the prompt can come up while the
+// message waits its turn or for its images.
+const isPromptShowingNow = (sessionName: string): boolean => {
+  const current = heldSessions.get(sessionName);
+  return current !== undefined && isPromptShowing(current);
+};
+
+// A message stopped before its Enter stays in the box as a draft.
+const typeOne = async (session: HeldSession, { text, hasImages, imagePaths = [] }: TypedMessage): Promise<boolean> => {
   const { sessionName } = session.summary;
+  if (isPromptShowingNow(sessionName)) return false;
   updateHeldSession(sessionName, session.hookToken, { hasDraft: true, draftAtMs: steadyNow() });
   session.terminal.write(buildPastedText(text));
   if (hasImages) await Bun.sleep(IMAGE_PASTE_SETTLE_MS);
+  if (isPromptShowingNow(sessionName)) return false;
   session.terminal.write(ENTER_KEY);
   updateHeldSession(sessionName, session.hookToken, { hasDraft: false });
   if (hasImages) await dropOldImages(sessionName, imagePaths).catch(() => {});
+  return true;
 };
 
 const IMAGE_FILE_EXTENSIONS: Record<SentImage["mediaType"], string> = {
@@ -69,7 +81,7 @@ export const sendToSession = async (sessionName: string, text: string, images: S
   }
   // Typed into a permission prompt, the message would answer it (its Enter
   // approves) and be lost, so it waits for the person to answer the prompt.
-  if (isPromptShowing(waiting)) return refuse("prompt-showing", "Claude is asking permission; answer it first");
+  if (isPromptShowing(waiting)) return refusePromptShowing();
   // A session that ends while its images are saved takes its uploads folder with it.
   const imagePaths = await saveImages(sessionName, images).catch((error: unknown) => {
     if (heldSessions.has(sessionName)) throw error;
@@ -82,7 +94,9 @@ export const sendToSession = async (sessionName: string, text: string, images: S
     heldSessions.set(sessionName, { ...session, queuedMessages: [...session.queuedMessages, message] });
   } else {
     applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
-    await typeIntoSession(session, message);
+    if (!(await typeIntoSession(session, message))) return refusePromptShowing();
   }
   return new Response(null, { status: 204 });
 };
+
+const refusePromptShowing = (): Response => refuse("prompt-showing", "Claude is asking permission; answer it first");

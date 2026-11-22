@@ -6,7 +6,7 @@
 // - the status request: sends a status.
 // - an answer: runs Bash, as a normal turn would.
 // - "prompt": a permission prompt before a Bash call ("go-prompt": a question
-//   first): Enter or "1" approves it
+//   first, "slow-prompt": 300 ms of work first): Enter or "1" approves it
 //   (APPROVED), Esc refuses it and ends the turn with no Stop (REFUSED), as
 //   Claude Code does.
 // - "clear" / "resume": a last line in the current conversation file, then a
@@ -82,7 +82,8 @@ const runTurn = async (text: string) => {
     await hook({ hook_event_name: "SessionStart", source: "compact" });
   }
   if (text === "go-prompt") await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
-  if (text === "prompt" || text === "go-prompt") {
+  if (text === "slow-prompt") await Bun.sleep(300);
+  if (text === "prompt" || text === "go-prompt" || text === "slow-prompt") {
     await hook({ hook_event_name: "Notification", message: "Claude needs your permission to use Bash" });
     const key = await new Promise<string>((resolve) => (answerPrompt = resolve));
     if (key.includes("\x1b") && !key.includes("\r")) return saveText("REFUSED");

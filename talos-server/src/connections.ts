@@ -181,7 +181,12 @@ export const createConnections = (
   // The newest read whose list was sent, so an older read that worked is still
   // sent when a newer one failed.
   const sentReadByOwner = new Map<string, number>();
-  const startedNamesByMachine = new Map<string, Set<string>>();
+  // Names handed out by start and not yet reported, with when, so two starts
+  // close together don't get the same one. A report that lists one ends its
+  // wait; one the machine never reports (it refused the start) lapses.
+  const startedNamesByMachine = new Map<string, Map<string, number>>();
+  const waitingStartedNames = (machineId: string, nowMs: number): Map<string, number> =>
+    new Map([...(startedNamesByMachine.get(machineId) ?? [])].filter(([, atMs]) => nowMs - atMs < SERVER_LIMITS.startedNameWaitMs));
 
   const sendOwnerMachineList = (personId: string, machines: MachineRecord[]) =>
     findOwnedSockets(pageSockets, personId).forEach((pageSocket) => sendMachineList(pageSocket, machines));
@@ -339,11 +344,11 @@ export const createConnections = (
     if (message.type === "start-session") {
       const hasFolder = report.folders.some((folder) => folder.folderName === message.folderName);
       if (!hasFolder) return sendProblem("That folder isn't on that machine");
-      // Names handed out since the machine last reported are taken too, so two
-      // starts close together don't get the same one.
-      const started = startedNamesByMachine.get(message.machineId) ?? new Set<string>();
-      const sessionName = chooseSessionName(message.sessionName, message.folderName, [...sessionNames, ...started]);
-      startedNamesByMachine.set(message.machineId, new Set([...started, sessionName]));
+      const nowMs = steadyNow();
+      const started = waitingStartedNames(message.machineId, nowMs);
+      if (started.size >= SERVER_LIMITS.maxStartingSessions) return sendProblem("Too many sessions are starting on that machine; wait a moment");
+      const sessionName = chooseSessionName(message.sessionName, message.folderName, [...sessionNames, ...started.keys()]);
+      startedNamesByMachine.set(message.machineId, new Map([...started, [sessionName, nowMs]]));
       log.event(`${displayName} started session "${sessionName}" in "${message.folderName}" on "${machineName}"`);
       return machineSocket.send(encode<ServerToMachine>({ type: "start-session", folderName: message.folderName, sessionName, ...forwarded }));
     }
@@ -400,7 +405,8 @@ export const createConnections = (
     const liveNames = new Set(sessions.map(({ sessionName }) => sessionName));
     [...(keptByName?.keys() ?? [])].filter((sessionName) => !liveNames.has(sessionName)).forEach((sessionName) => keptByName?.delete(sessionName));
     log.detail(`"${machine.machineName}" has ${sessions.length} session(s)`);
-    startedNamesByMachine.delete(machine.machineId);
+    const stillStarting = [...waitingStartedNames(machine.machineId, steadyNow())].filter(([sessionName]) => !liveNames.has(sessionName));
+    startedNamesByMachine.set(machine.machineId, new Map(stillStarting));
     updateReport(machine, { sessions });
   };
 
@@ -492,6 +498,7 @@ export const createConnections = (
     reportsByMachineId.delete(socket.data.machineId);
     entriesByMachine.delete(socket.data.machineId);
     pendingPingByMachineId.delete(socket.data.machineId);
+    startedNamesByMachine.delete(socket.data.machineId);
     log.event(`machine disconnected: "${socket.data.machineName}"`);
     await sendMachineListToPages(socket.data.ownerPersonId);
   };

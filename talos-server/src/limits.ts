@@ -32,4 +32,8 @@ export const SERVER_LIMITS = {
   // server's whole queue and lock pairing for everyone.
   maxWaitingPairingsPerAddress: 2,
   maxMachineNameLength: 64,
+  // A started session's name stays taken this long while the machine hasn't
+  // reported it yet, and no more than this many wait per machine.
+  startedNameWaitMs: 30_000,
+  maxStartingSessions: 100,
 } as const;

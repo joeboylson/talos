@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { createConnections } from "../../connections";
 import { createMachineRoutes } from "../../machine-routes";
 import { decideSocket } from "../../server-routes";
+import { SERVER_LIMITS } from "../../limits";
 import { hashSecret } from "../../utils/crypto";
 
 // The server under things happening at once: real sockets where order matters
@@ -27,6 +28,40 @@ test("two starts at once get different session names", async () => {
   h.message(laptop, JSON.stringify({ type: "start-session", machineId: "m1", folderName: "talos" }));
   const names = machine.sent.map((t) => JSON.parse(t)).filter((m) => m.type === "start-session").map((m) => m.sessionName);
   expect(names).toEqual(["talos", "talos-2"]);
+});
+
+test("a report sent before the machine saw a start doesn't free that start's name", async () => {
+  const table = { listMachines: async () => [{ machineId: "m1", machineName: "atlas", ownerPersonId: "joe" }] };
+  const c = createConnections(table as never, quiet, 10);
+  const h = c.websocketHandlers as unknown as Record<string, (...a: unknown[]) => unknown>;
+  const machine = fake({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe", checkedAtMs: 0 });
+  const page = fake({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000, checkedAtMs: -1 });
+  h.open(machine); h.open(page);
+  await Bun.sleep(5);
+  h.message(machine, JSON.stringify({ type: "folders", folders: [{ folderName: "talos", path: "/tmp/talos" }] }));
+  const other = { sessionName: "other", folderName: "talos", state: "idle" };
+  h.message(machine, JSON.stringify({ type: "sessions", sessions: [other] }));
+  h.message(page, JSON.stringify({ type: "start-session", machineId: "m1", folderName: "talos" }));
+  h.message(machine, JSON.stringify({ type: "sessions", sessions: [{ ...other, state: "working" }] }));
+  h.message(page, JSON.stringify({ type: "start-session", machineId: "m1", folderName: "talos" }));
+  const names = machine.sent.map((t) => JSON.parse(t)).filter((m) => m.type === "start-session").map((m) => m.sessionName);
+  expect(names).toEqual(["talos", "talos-2"]);
+});
+
+test("starts waiting on a machine are capped", async () => {
+  const table = { listMachines: async () => [{ machineId: "m1", machineName: "atlas", ownerPersonId: "joe" }] };
+  const c = createConnections(table as never, quiet, 10);
+  const h = c.websocketHandlers as unknown as Record<string, (...a: unknown[]) => unknown>;
+  const machine = fake({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe", checkedAtMs: 0 });
+  const page = fake({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000, checkedAtMs: -1 });
+  h.open(machine); h.open(page);
+  await Bun.sleep(5);
+  h.message(machine, JSON.stringify({ type: "folders", folders: [{ folderName: "talos", path: "/tmp/talos" }] }));
+  h.message(machine, JSON.stringify({ type: "sessions", sessions: [] }));
+  for (let at = 0; at <= SERVER_LIMITS.maxStartingSessions; at += 1) h.message(page, JSON.stringify({ type: "start-session", machineId: "m1", folderName: "talos" }));
+  const starts = machine.sent.map((t) => JSON.parse(t)).filter((m) => m.type === "start-session");
+  expect(starts.length).toBe(SERVER_LIMITS.maxStartingSessions);
+  expect(page.sent.map((t) => JSON.parse(t)).some((m) => m.type === "error" && m.message.includes("Too many sessions are starting"))).toBe(true);
 });
 
 test("an older read that worked is still sent when a newer one fails", async () => {

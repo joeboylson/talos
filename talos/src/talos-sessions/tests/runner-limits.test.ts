@@ -69,6 +69,19 @@ test(
   20_000,
 );
 
+test(
+  "Esc or Ctrl-C while a session starts (say, on a startup dialog) leaves it starting, so its queued messages still go in",
+  async () => {
+    expect(await calls.start("mute-esc", "mute-esc", folder("mute-esc"))).toEqual({ ok: true });
+    expect(await calls.send("mute-esc", "queued")).toEqual({ ok: true });
+    expect(await calls.keys("mute-esc", "\x1b")).toEqual({ ok: true });
+    expect(await calls.keys("mute-esc", "\x03")).toEqual({ ok: true });
+    const session = (await calls.sessions()).find(({ sessionName }) => sessionName === "mute-esc");
+    expect(session?.state).toBe("starting");
+  },
+  20_000,
+);
+
 test("a start in an allowed folder that's gone is refused", async () => {
   expect(await calls.start("gone", "gone", join(home, "not-there"))).toMatchObject({ ok: false, code: "folder-not-allowed" });
 });

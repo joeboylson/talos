@@ -3,7 +3,7 @@
 // thin, impure part; everything the example decides is in its view.
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { DETACH_KEY, connectToSessions, type Result } from "../../index";
+import { DETACH_KEY, connectToSessions, type Result, type SessionsConnection } from "../../index";
 import { readRecording, recordEvent, toInput, writeRecording, type RecordedLine } from "./recording";
 import { fitScreen, frame } from "./screen";
 import type { Action, ExampleView, Input } from "./view";
@@ -44,6 +44,13 @@ export const prepareRun = (exampleFolder: string) => {
 
 // A run's folder, prepared fresh, unless another run of the example is using
 // it: preparing would delete its runner's sockets and trust record from under it.
+// The call to the session runner each action a view asks for makes.
+export const callFor = (calls: SessionsConnection, action: Exclude<Action, { do: "attach" | "quit" }>): Promise<Result> => {
+  if (action.do === "send") return calls.send(SESSION_NAME, action.text);
+  if (action.do === "ask") return calls.ask(SESSION_NAME, action.kind);
+  return calls.answer(SESSION_NAME, action.outputId, action.choice);
+};
+
 export const claimRun = async (exampleFolder: string) => {
   const isInUse = await connectToSessions({ home: join(exampleFolder, "run"), runnerScript: "" }).isRunning();
   if (isInUse) throw new Error("another run of this example is going; wait for it to end");
@@ -95,12 +102,6 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
   };
   ["SIGINT", "SIGTERM", "SIGHUP"].forEach((signal) => process.on(signal, () => void stop(0)));
 
-  const callFor = (action: Exclude<Action, { do: "attach" | "quit" }>): Promise<Result> => {
-    if (action.do === "send") return calls.send(SESSION_NAME, action.text);
-    if (action.do === "ask") return calls.ask(SESSION_NAME, action.kind);
-    return calls.answer(SESSION_NAME, action.outputId, action.choice);
-  };
-
   const run = async (action: Action) => {
     if (action.do === "quit") return stop(0);
     if (action.do === "attach") {
@@ -113,7 +114,7 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
       process.stdin.on("data", onKeys);
       return draw(view, state);
     }
-    const result = await callFor(action);
+    const result = await callFor(calls, action);
     record({ type: "result", action, result });
     dispatch({ type: "result", action, result });
   };

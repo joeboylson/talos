@@ -1,21 +1,16 @@
 // explorer: ask about a shop's sales, and see the session's answer as text with
 // its charts, tables and numbers drawn in between, in the order it sent them.
-import { mergeSessionEntries, type SessionEntry, type SessionSummary } from "../../index";
-import { bar, bold, cyan, dim, fit, lastCells, padTo, red, visibleLength, wrapText, yellow } from "../kit/screen";
-import { CTRL_A, exampleSession, noActions, typeIntoDraft, type ExampleView } from "../kit/view";
+import type { SessionEntry } from "../../index";
+import { CHAT_START, chatFooter, chatMark, chatStep, drawChatEntry, type ChatState } from "../kit/chat";
+import { bar, bold, cyan, dim, fit, padTo, red, visibleLength } from "../kit/screen";
+import type { ExampleView } from "../kit/view";
 
 export const SUMMARY_REQUEST = "Summarize this data with send_summary.";
-const KEPT_ENTRIES = 500;
 // Labels take up to 14 cells, less on a narrow screen so the data still shows.
 const labelWidthFor = (width: number) => Math.min(14, Math.max(Math.floor(width / 3), 2));
 const SPARKS = "▁▂▃▄▅▆▇█";
 
-export type ExplorerState = {
-  session: SessionSummary["state"] | "starting" | "gone";
-  entries: SessionEntry[];
-  draft: string;
-  notice: string;
-};
+export type ExplorerState = ChatState;
 
 type Fields = Record<string, unknown>;
 // Two decimals, but a small number keeps 3 digits that say something, so 0.004
@@ -104,57 +99,16 @@ const drawOutput = (entry: Extract<SessionEntry, { kind: "output" }>, width: num
   return [dim(JSON.stringify(fields))];
 };
 
-const drawEntry = (entry: SessionEntry, width: number): string[] => {
-  if (entry.kind === "prompt") return ["", ...wrapText(entry.text, width - 2).map((line, index) => bold(`${index === 0 ? "›" : " "} ${line}`))];
-  if (entry.kind === "text") return wrapText(entry.text, width);
-  if (entry.kind === "tool") return [dim(fit(`· ${entry.toolName} ${entry.summary}`, width))];
-  if (entry.kind === "output") return ["", ...drawOutput(entry, width), ""];
-  return [dim("· (not shown)")];
-};
-
-const STATE_MARKS: Record<ExplorerState["session"], string> = {
-  starting: dim("○ starting"),
-  gone: dim("○ ended"),
-  idle: "● ready",
-  working: yellow("◐ working"),
-  "needs-you": yellow("⚠ needs you · ^A"),
-};
-
 export const explorerView: ExampleView<ExplorerState> = {
-  initial: { session: "starting", entries: [], draft: "", notice: "" },
-  step: (state, input) => {
-    if (input.type === "event") {
-      const { event } = input;
-      if (event.type === "sessions") {
-        // Not listed once it has ended; before it starts, it isn't listed yet either.
-        const session = exampleSession(event.sessions)?.state ?? (state.session === "starting" ? "starting" : "gone");
-        return noActions({ ...state, session });
-      }
-      if (event.type === "session-entries") return noActions({ ...state, entries: mergeSessionEntries(state.entries, event.entries, KEPT_ENTRIES) });
-      return noActions({ ...state, notice: event.message });
-    }
-    if (input.type === "result") {
-      // A message that couldn't be sent goes back into the draft, so it isn't lost.
-      const { action, result } = input;
-      const draft = !result.ok && action.do === "send" && state.draft === "" ? action.text : state.draft;
-      return noActions({ ...state, draft, notice: result.ok ? "" : result.reason });
-    }
-    if (input.type !== "key") return noActions(state);
-    const { key } = input;
-    if (key === CTRL_A) return { state, actions: [{ do: "attach" }] };
-    if (key === "s" && state.draft === "") return { state, actions: [{ do: "send", text: SUMMARY_REQUEST }] };
-    const { draft, sent } = typeIntoDraft(state.draft, key);
-    return { state: { ...state, draft }, actions: sent.map((text) => ({ do: "send" as const, text })) };
-  },
+  initial: CHAT_START,
+  step: (state, input) =>
+    input.type === "key" && input.key === "s" && state.draft === "" ? { state, actions: [{ do: "send", text: SUMMARY_REQUEST }] } : chatStep(state, input),
   render: (state, columns) => {
     const width = Math.max(columns, 1);
     return [
-      `${bold("explorer")}  ${STATE_MARKS[state.session]}`,
-      ...state.entries.flatMap((entry) => drawEntry(entry, width)),
-      "",
-      ...(state.notice ? [yellow(fit(state.notice, width))] : []),
-      `› ${lastCells(state.draft, width - 3)}▏`,
-      dim("⏎ ask · s summary · ^A attach · ^C quit"),
+      `${bold("explorer")}  ${chatMark(state.session, "working")}`,
+      ...state.entries.flatMap((entry) => drawChatEntry(entry, width, (output) => drawOutput(output, width))),
+      ...chatFooter(state, width, "⏎ ask · s summary · ^A attach · ^C quit"),
     ];
   },
 };

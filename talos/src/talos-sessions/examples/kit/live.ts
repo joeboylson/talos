@@ -3,9 +3,9 @@
 // sees what a person would. With MODE=record it saves the run as the example's
 // recording, the same way a recorded live run does.
 import { join } from "node:path";
-import { connectToSessions, type Result } from "../../index";
+import { connectToSessions } from "../../index";
 import { recordEvent, writeRecording, type RecordedLine } from "./recording";
-import { SESSION_NAME, claimRun } from "./run-example";
+import { SESSION_NAME, callFor, claimRun } from "./run-example";
 import type { Action, ExampleView, Input } from "./view";
 
 export const startLiveCheck = async <State>(exampleFolder: string, view: ExampleView<State>) => {
@@ -17,12 +17,7 @@ export const startLiveCheck = async <State>(exampleFolder: string, view: Example
 
   const run = async (action: Action): Promise<void> => {
     if (action.do === "attach" || action.do === "quit") return;
-    const result: Result =
-      action.do === "send"
-        ? await calls.send(SESSION_NAME, action.text)
-        : action.do === "ask"
-          ? await calls.ask(SESSION_NAME, action.kind)
-          : await calls.answer(SESSION_NAME, action.outputId, action.choice);
+    const result = await callFor(calls, action);
     recorded.push({ type: "result", action, result });
     dispatch({ type: "result", action, result });
   };

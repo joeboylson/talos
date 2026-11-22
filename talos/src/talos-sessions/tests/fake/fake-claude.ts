@@ -104,6 +104,12 @@ const runTurn = async (text: string) => {
   process.stdout.write("done\n");
 };
 
+// In a folder named noisy… its screen never settles: it writes all the time,
+// from before it reports its start.
+if (basename(process.cwd()).startsWith("noisy")) {
+  process.stdout.write(".\n");
+  setInterval(() => process.stdout.write(".\n"), 100);
+}
 writeFileSync(join(process.cwd(), "claude.pid"), String(process.pid));
 if (basename(process.cwd()).startsWith("stubborn")) for (const signal of ["SIGTERM", "SIGHUP"] as const) process.on(signal, () => {});
 if (basename(process.cwd()).startsWith("spawner")) {

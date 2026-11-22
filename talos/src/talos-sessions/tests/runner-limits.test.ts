@@ -99,6 +99,19 @@ test(
   20_000,
 );
 
+test(
+  "Esc after a session reports its start but before it's ready leaves it starting",
+  async () => {
+    expect(await calls.start("noisy-esc", "noisy-esc", folder("noisy-esc"))).toEqual({ ok: true });
+    await Bun.sleep(1500);
+    expect(await calls.keys("noisy-esc", "\x1b")).toEqual({ ok: true });
+    const session = (await calls.sessions()).find(({ sessionName }) => sessionName === "noisy-esc");
+    expect(session?.state).toBe("starting");
+    await calls.stop("noisy-esc");
+  },
+  20_000,
+);
+
 test("a start in an allowed folder that's gone is refused", async () => {
   expect(await calls.start("gone", "gone", join(home, "not-there"))).toMatchObject({ ok: false, code: "folder-not-allowed" });
 });

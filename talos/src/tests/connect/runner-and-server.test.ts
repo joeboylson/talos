@@ -18,22 +18,25 @@ afterAll(async () => {
   homes.forEach((home) => rmSync(home, { recursive: true, force: true }));
 });
 
-// A runner that reports one session, then goes away after endAfterMs.
-const startRunner = (home: string, endAfterMs: number) => {
+// A runner that reports one session, then goes away after endAfterMs, or with
+// keepsRunning only cuts off the stream (as it does a reader that fell behind).
+const startRunner = (home: string, endAfterMs: number, keepsRunning = false) => {
+  const web = { sessionName: "web", folderName: "proj", state: "idle", asks: {}, openOutputs: [] };
   const runner = Bun.serve({
     unix: join(home, "runner.sock"),
     fetch(request) {
       const path = new URL(request.url).pathname;
       if (path === "/health") return new Response("ok");
+      if (path === "/sessions") return Response.json([web]);
       if (path !== "/events") return new Response("?", { status: 404 });
-      const line = JSON.stringify({ type: "sessions", sessions: [{ sessionName: "web", folderName: "proj", state: "idle", asks: {}, openOutputs: [] }] });
+      const line = JSON.stringify({ type: "sessions", sessions: [web] });
       return new Response(
         new ReadableStream({
           start(controller) {
             controller.enqueue(new TextEncoder().encode(`${line}\n`));
             setTimeout(() => {
               controller.close();
-              runner.stop(true);
+              if (!keepsRunning) runner.stop(true);
             }, endAfterMs);
           },
         }),
@@ -93,6 +96,17 @@ test(
     const told = () => fromTalos.find(({ type, message }) => type === "error" && message?.includes("ended web"));
     while (!told() && Date.now() < giveUpAt) await Bun.sleep(50);
     expect(told()?.message).toBe("The session runner stopped; ended web");
+  },
+  15_000,
+);
+
+test(
+  "when the runner only cuts off a reader that fell behind, the page isn't told its sessions ended",
+  async () => {
+    const { home, fromTalos } = startTalos();
+    startRunner(home, 500, true);
+    await Bun.sleep(4000);
+    expect(fromTalos.some(({ type, message }) => type === "error" && message?.includes("ended"))).toBe(false);
   },
   15_000,
 );

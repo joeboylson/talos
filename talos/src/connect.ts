@@ -138,11 +138,14 @@ export const runConnect = async (): Promise<void> => {
   // Sessions run in the session runner, which outlives talos. If the session runner goes
   // away (`talos runner stop`), a fresh one is started.
   // The page is told which sessions ended with the runner, since they and
-  // anything waiting in them go without a word otherwise.
-  const forgetRunnerSessions = () => {
-    const ended = latestSessions.map(({ sessionName }) => sessionName);
+  // anything waiting in them go without a word otherwise. Asked first: the
+  // runner also cuts off a reader that fell behind, with its sessions running.
+  const forgetRunnerSessions = async () => {
+    const stillRunning = await sessions.sessions().catch(() => []);
+    const stillNames = new Set(stillRunning.map(({ sessionName }) => sessionName));
+    const ended = latestSessions.map(({ sessionName }) => sessionName).filter((sessionName) => !stillNames.has(sessionName));
     if (ended.length > 0) tellPage(`The session runner stopped; ended ${ended.join(", ")}`);
-    forwardRunnerEvent({ type: "sessions", sessions: [] });
+    forwardRunnerEvent(toSharedEvent({ type: "sessions", sessions: stillRunning }));
   };
   const followRunner = async (): Promise<void> => {
     await sessions.ensureRunning();
@@ -151,8 +154,8 @@ export const runConnect = async (): Promise<void> => {
   const followRunnerWithRetry = (): void => {
     followRunner()
       .catch((error: unknown) => log.warn(`talos: lost the session runner (${error})`))
-      .finally(() => {
-        forgetRunnerSessions();
+      .finally(async () => {
+        await forgetRunnerSessions().catch((error: unknown) => log.warn(`talos: couldn't tell which sessions ended (${error})`));
         setTimeout(followRunnerWithRetry, RECONNECT_DELAY_MS);
       });
   };

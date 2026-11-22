@@ -62,3 +62,31 @@ test("a page that never drains is closed once what waits for it passes the cap",
   }
   expect(page.record.closedWith).toBe(CLOSE_CODES.tooFarBehind);
 }, 20_000);
+
+test("a page closed while it opens is sent nothing after, so nothing waits for it", async () => {
+  let release = () => {};
+  let isHeld = false;
+  // The reads while the machine reports fail, so no machine list is kept.
+  const table = {
+    listMachines: () =>
+      isHeld ? new Promise((resolve) => (release = () => resolve([{ machineId: "m1", machineName: "atlas", ownerPersonId: "joe" }]))) : Promise.reject(new Error("throttled")),
+  } as unknown as MachinesTable;
+  const connections = createConnections(table, quietLog, 10);
+  const handlers = connections.websocketHandlers as unknown as Record<string, (socket: unknown, message?: string) => void>;
+  const machine = scriptedSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe", checkedAtMs: 0 });
+  handlers.open?.(machine);
+  await Bun.sleep(50);
+  handlers.message?.(machine, JSON.stringify({ type: "sessions", sessions: [{ sessionName: "s", folderName: "f", state: "idle" }] }));
+  handlers.message?.(machine, JSON.stringify({ type: "session-entries", sessionName: "s", entries: [{ kind: "text", entryId: "e1", position: 0, text: "kept" }] }));
+  await Bun.sleep(150);
+  // With no machine list kept, this page reads the table.
+  isHeld = true;
+  const page = scriptedSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000, checkedAtMs: Date.now() });
+  handlers.open?.(page);
+  await Bun.sleep(10);
+  handlers.close?.(page);
+  const sentBeforeClose = page.record.sent.map((text) => JSON.parse(text).type);
+  release();
+  await Bun.sleep(50);
+  expect(page.record.sent.map((text) => JSON.parse(text).type)).toEqual(sentBeforeClose);
+});

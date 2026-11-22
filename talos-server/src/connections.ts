@@ -110,6 +110,8 @@ export const createConnections = (
   // when it reconnects.
   const waitingSends = new Map<Socket, { texts: string[]; bytes: number }>();
   const sendToPage = (pageSocket: Socket, text: string): void => {
+    // A page closed while it opened would keep a queue nothing ever drains.
+    if (!pageSockets.has(pageSocket)) return;
     const waiting = waitingSends.get(pageSocket);
     if (!waiting) {
       const sent = pageSocket.send(text);

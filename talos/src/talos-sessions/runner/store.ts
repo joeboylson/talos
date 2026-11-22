@@ -40,6 +40,9 @@ export type HeldSession = {
   heldAnswers: HeldAnswer[];
   // Proves a hook POST on the shared hooks socket came from this session.
   hookToken: string;
+  // When it started, on the wall clock: saved with its process group, so a
+  // later runner can tell a recent group from a number reused since.
+  startedAtMs: number;
   // Unsent text the person left in Claude Code's input box from an attached
   // terminal. A request talos types mustn't be pasted onto it.
   hasDraft: boolean;

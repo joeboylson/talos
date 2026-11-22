@@ -30,7 +30,7 @@ const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => 
 // A failed write (a full disk) is only logged: thrown mid-start or mid-end, it
 // would leave a session listed forever.
 const saveSessionGroups = (): void => {
-  const groups = [...heldSessions.values()].map(({ child }) => ({ groupId: child.pid, atMs: Date.now() }));
+  const groups = [...heldSessions.values()].map(({ child, startedAtMs }) => ({ groupId: child.pid, atMs: startedAtMs }));
   try {
     writeFileSync(paths().sessionGroups, JSON.stringify(groups), { mode: 0o600 });
   } catch (error) {
@@ -129,6 +129,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     placing: NO_PLACING,
     heldAnswers: [],
     hookToken,
+    startedAtMs: Date.now(),
     hasDraft: false,
     draftAtMs: 0,
     isTurnOver: false,

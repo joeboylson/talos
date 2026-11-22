@@ -83,16 +83,28 @@ const holdsLock = (lockFile: string): boolean => {
   }
 };
 
-// What the sessions of a runner that died outright started is ended now: a
-// group still alive with a recorded number since the last boot is that session's.
-// shortcut: a group number can only be reused once process ids wrap around, so
-// groups recorded over an hour ago are left alone rather than risk another's.
-const LEFT_GROUP_MAX_AGE_MS = 60 * 60_000;
+// When the process with this id started (to the second), or null if there's none.
+const startedAtMsOf = (pid: number): number | null => {
+  const listed = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)]);
+  const startedAtMs = new Date(listed.stdout.toString().trim()).getTime();
+  return listed.exitCode === 0 && Number.isFinite(startedAtMs) ? startedAtMs : null;
+};
+
+// What the sessions of a runner that died outright started is ended now. A
+// group is still that session's when its leader is the process recorded (it
+// started when the session did, as psutil tells processes apart), or the leader
+// is gone and the group lives on: an id isn't handed out again while a group
+// still has it. A process that got the number since is left alone.
+const LEADER_START_SLACK_MS = 5_000;
+const isStillTheSession = (groupId: number, atMs: number): boolean => {
+  const leaderStartedAtMs = startedAtMsOf(groupId);
+  return leaderStartedAtMs === null || Math.abs(leaderStartedAtMs - atMs) <= LEADER_START_SLACK_MS;
+};
 const endLeftSessionGroups = async (file: string): Promise<void> => {
   const saved = Bun.file(file);
   const groups = (await saved.exists()) ? parseJsonOrNull(await saved.text()) : [];
   const recent = (Array.isArray(groups) ? groups : []).filter(
-    ({ groupId, atMs }) => Number.isInteger(groupId) && groupId > 1 && typeof atMs === "number" && atMs >= bootAtMs() && Date.now() - atMs >= 0 && Date.now() - atMs < LEFT_GROUP_MAX_AGE_MS,
+    ({ groupId, atMs }) => Number.isInteger(groupId) && groupId > 1 && typeof atMs === "number" && atMs >= bootAtMs() && isStillTheSession(groupId, atMs),
   );
   recent.forEach(({ groupId }) => {
     try {

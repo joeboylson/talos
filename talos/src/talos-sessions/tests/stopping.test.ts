@@ -230,3 +230,47 @@ test(
   },
   30_000,
 );
+
+const groupsFile = (home: string) => homePaths(home).sessionGroups;
+const readGroups = (home: string): { groupId: number; atMs: number }[] => JSON.parse(readFileSync(groupsFile(home), "utf8"));
+
+test(
+  "a killed runner's session that had run for hours still has what it started ended",
+  async () => {
+    const { home, calls } = newHome();
+    await calls.ensureRunning();
+    const spawner = folderIn(home, "spawner");
+    expect(await calls.start("spawner", "spawner", spawner)).toEqual({ ok: true });
+    await waitUntil(() => fileExists(join(spawner, "child.pid")), "the child to start");
+    const killed = pidIn(homePaths(home).runnerLock);
+    process.kill(killed, "SIGKILL");
+    await waitUntil(() => !isAlive(killed), "the runner to be gone");
+    // As if it had started hours ago (but since the machine started).
+    const hoursAgoMs = Date.now() - Math.min(3 * 3_600_000, (uptime() * 1000) / 2);
+    writeFileSync(groupsFile(home), JSON.stringify(readGroups(home).map((group) => ({ ...group, atMs: hoursAgoMs }))));
+    await Bun.sleep(500);
+    await calls.ensureRunning();
+    await waitUntil(() => !isAlive(pidIn(join(spawner, "child.pid"))), "the child to be gone", 3000);
+  },
+  30_000,
+);
+
+test(
+  "a recorded group number another process has since is left alone",
+  async () => {
+    const { home, calls } = newHome();
+    // A process leading its own group, as if it got a dead session's number.
+    const stranger = Bun.spawn(["perl", "-e", "setpgrp; sleep 30"], { stdio: ["ignore", "ignore", "ignore"] });
+    await Bun.sleep(300);
+    writeFileSync(groupsFile(home), JSON.stringify([{ groupId: stranger.pid, atMs: Date.now() - 10 * 60_000 }]), { mode: 0o600 });
+    try {
+      await calls.ensureRunning();
+      await Bun.sleep(300);
+      expect(isAlive(stranger.pid)).toBe(true);
+    } finally {
+      stranger.kill("SIGKILL");
+      await calls.stopRunner().catch(() => {});
+    }
+  },
+  30_000,
+);

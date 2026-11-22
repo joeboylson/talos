@@ -81,6 +81,24 @@ test(
   20_000,
 );
 
+test(
+  "a session started and ended while its groups can't be saved (a full disk) still starts, and is gone once it ends",
+  async () => {
+    const listed = async () => (await calls.sessions()).some(({ sessionName }) => sessionName === "no-disk");
+    rmSync(homePaths(home).sessionGroups, { force: true });
+    mkdirSync(homePaths(home).sessionGroups);
+    try {
+      expect(await calls.start("no-disk", "no-disk", folder("no-disk"))).toEqual({ ok: true });
+      await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "no-disk")?.state === "idle", "the session to be ready");
+      expect(await calls.stop("no-disk")).toEqual({ ok: true });
+      await waitUntil(async () => !(await listed()), "the session to go");
+    } finally {
+      rmSync(homePaths(home).sessionGroups, { recursive: true, force: true });
+    }
+  },
+  20_000,
+);
+
 test("a start in an allowed folder that's gone is refused", async () => {
   expect(await calls.start("gone", "gone", join(home, "not-there"))).toMatchObject({ ok: false, code: "folder-not-allowed" });
 });

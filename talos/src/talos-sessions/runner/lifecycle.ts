@@ -27,9 +27,15 @@ const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => 
 };
 
 // Written on every start and end, so it lists the groups of the sessions held now.
+// A failed write (a full disk) is only logged: thrown mid-start or mid-end, it
+// would leave a session listed forever.
 const saveSessionGroups = (): void => {
   const groups = [...heldSessions.values()].map(({ child }) => ({ groupId: child.pid, atMs: Date.now() }));
-  writeFileSync(paths().sessionGroups, JSON.stringify(groups), { mode: 0o600 });
+  try {
+    writeFileSync(paths().sessionGroups, JSON.stringify(groups), { mode: 0o600 });
+  } catch (error) {
+    log.warn(`runner: couldn't save the session groups: ${error}`);
+  }
 };
 
 const forgetSession = (sessionName: string, token: string) => {

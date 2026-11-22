@@ -334,3 +334,25 @@ test(
   },
   30_000,
 );
+
+test(
+  "a session shown as stuck that starts after all becomes ready and types what was sent meanwhile",
+  async () => {
+    const { home, calls } = newHome();
+    process.env.FAKE_START_WAIT_MS = "500";
+    try {
+      await calls.ensureRunning();
+    } finally {
+      delete process.env.FAKE_START_WAIT_MS;
+    }
+    const late = folderIn(home, "late");
+    expect(await calls.start("late", "late", late)).toEqual({ ok: true });
+    expect(await calls.send("late", "sent while starting")).toEqual({ ok: true });
+    const stateOf = async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "late")?.state;
+    await waitUntil(async () => (await stateOf()) === "needs-you", "the session to look stuck");
+    await waitUntil(() => readFileSync(join(late, "transcript.jsonl"), "utf8").includes("sent while starting"), "the message to be typed", 10_000);
+    await waitUntil(async () => (await stateOf()) === "idle", "the session to be ready", 10_000);
+    await calls.stopRunner();
+  },
+  30_000,
+);

@@ -127,6 +127,8 @@ writeFileSync(firstTranscript, "");
 writeFileSync(secondTranscript, "");
 // In a folder named mute… it never reports its start, like a Claude Code stuck
 // on a screen before its hooks run.
+// In a folder named late… it reports its start after 1.5 s.
+if (basename(process.cwd()).startsWith("late")) await Bun.sleep(1500);
 if (!basename(process.cwd()).startsWith("mute")) await hook({ hook_event_name: "SessionStart" });
 if (isPrompting) await hook({ hook_event_name: "Notification", message: "Claude needs your permission to use Bash" });
 process.stdin.setRawMode?.(true);

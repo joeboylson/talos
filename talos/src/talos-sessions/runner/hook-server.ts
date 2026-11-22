@@ -36,6 +36,9 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   // /clear), which mustn't count the turn over or hide an open question.
   if (hookEvent === "SessionStart" && !session.hasStarted && !session.isBecomingReady) {
     updateHeldSession(sessionName, session.hookToken, { isBecomingReady: true, hasStarted: true });
+    // One shown as stuck (its start was late) is only starting after all, so
+    // what was sent meanwhile goes in once it's ready.
+    if (session.summary.state !== "starting") setSessionState(sessionName, "starting", false);
     void becomeReadyWhenQuiet(sessionName, session.hookToken, steadyNow() + SESSION_LIMITS.readyLongestWaitMs)
       .catch((error: unknown) => log.warn(`runner: couldn't finish starting ${sessionName}: ${error}`))
       .finally(() => updateHeldSession(sessionName, session.hookToken, { isBecomingReady: false }));

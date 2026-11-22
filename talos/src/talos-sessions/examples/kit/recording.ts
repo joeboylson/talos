@@ -63,17 +63,19 @@ export const toInput = (recorded: RecordedLine, index: number): Input => {
 
 // Plays a recording through a view, with no session runner and no Claude.
 // Gives back every state and every action, for tests to check. A recorded
-// result is for the oldest action still waiting for one: if the view didn't
-// ask for that, it no longer does what was recorded.
+// result is for an action still waiting for one (the first the same, since
+// live results come back in the order they finish): if the view asked for no
+// such action, it no longer does what was recorded.
 export const replay = <State>(view: ExampleView<State>, recording: readonly RecordedLine[]) => {
   const played = [{ type: "started" } as Input, ...recording.map(toInput)].reduce(
     (played, input) => {
-      const [waiting, ...stillWaiting] = played.waiting;
-      if (input.type === "result" && !Bun.deepEquals(waiting, input.action)) {
-        throw new Error(`the view did ${JSON.stringify(waiting ?? null)}, but the recording has a result for ${JSON.stringify(input.action)}: re-record this`);
+      const resultFor = input.type === "result" ? played.waiting.findIndex((waiting) => Bun.deepEquals(waiting, input.action)) : -1;
+      if (input.type === "result" && resultFor === -1) {
+        throw new Error(`the view did ${JSON.stringify(played.waiting)}, but the recording has a result for ${JSON.stringify(input.action)}: re-record this`);
       }
+      const stillWaiting = played.waiting.filter((_waiting, index) => index !== resultFor);
       const { state, actions } = view.step(played.state, input);
-      const waitingNow = [...(input.type === "result" ? stillWaiting : played.waiting), ...actions.filter(({ do: what }) => what !== "attach" && what !== "quit")];
+      const waitingNow = [...stillWaiting, ...actions.filter(({ do: what }) => what !== "attach" && what !== "quit")];
       return { state, states: [...played.states, state], actions: [...played.actions, ...actions], waiting: waitingNow };
     },
     { state: view.initial, states: [view.initial], actions: [] as Action[], waiting: [] as Action[] },

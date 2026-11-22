@@ -46,6 +46,12 @@ describe("recordings", () => {
     expect(replay(sender, [result("now")]).actions).toEqual([{ do: "send", text: "now" }]);
     expect(() => replay(sender, [result("then")])).toThrow("re-record");
   });
+  test("results that came back in another order than their actions still replay", () => {
+    const twoSends: ExampleView<null> = { initial: null, step: (state, input) => ({ state, actions: input.type === "started" ? [{ do: "send", text: "first" }, { do: "send", text: "second" }] : [] }), render: () => [] };
+    const result = (text: string): RecordedLine => ({ type: "result", action: { do: "send", text }, result: { ok: true } });
+    expect(replay(twoSends, [result("second"), result("first")]).actions).toHaveLength(2);
+    expect(() => replay(twoSends, [result("second"), result("second")])).toThrow("re-record");
+  });
   test("a replay feeds a view every input in order, starting with started", () => {
     const counter: ExampleView<string[]> = {
       initial: [],

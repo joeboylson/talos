@@ -11,6 +11,10 @@ describe("nextSessionState", () => {
     ["Notification", { notification_type: "permission_prompt" }, "needs-you"],
     ["Notification", { notification_type: "idle_prompt" }, null],
     ["Notification", { message: "Claude is waiting for your input" }, null],
+    ["Notification", { notification_type: "auth_success", message: "Signed in" }, null],
+    ["Notification", { notification_type: "quota_auto_resume_fired" }, null],
+    ["Notification", { notification_type: "elicitation_dialog" }, "needs-you"],
+    ["PermissionRequest", { tool_name: "Bash", tool_input: { command: "ls" } }, "needs-you"],
     ["SessionEnd", {}, null],
   ] as const)("%s %p → %p", (hookEvent, payload, expected) => {
     expect(nextSessionState(hookEvent, payload)).toBe(expected);
@@ -19,7 +23,7 @@ describe("nextSessionState", () => {
 
 test("buildHookSettings runs the hook command on every event", () => {
   const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"', { TALOS_RUNNER_SOCKET: "/sock", TALOS_HOOK_TOKEN: "tok" }));
-  expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "Stop", "StopFailure"]);
+  expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "PermissionRequest", "Stop", "StopFailure"]);
   expect(settings.hooks.Stop).toEqual([{ hooks: [{ type: "command", command: '"/bin/bun" "/talos/hook.ts"' }] }]);
   // Pinned so a project's own disableAllHooks:true can't switch off enforcement.
   expect(settings.disableAllHooks).toBe(false);

@@ -5,12 +5,17 @@ import type { SessionState } from "../shapes";
 // PreToolUse and Stop also carry the lane's decision back (see lanes/lane.ts).
 // StopFailure comes instead of Stop when a turn ends on an API error (a rate
 // limit, an overload); it can't be blocked.
-export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "Stop", "StopFailure"] as const;
+// PermissionRequest comes the moment Claude Code asks permission (its
+// permission_prompt notification only after about six seconds); talos only
+// listens, and its hook answers nothing, so the prompt shows as usual.
+export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "PermissionRequest", "Stop", "StopFailure"] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
-// Claude Code sends this notification after a minute of waiting for a message.
-// That's just being idle, not a question for the person.
-const IDLE_NOTIFICATION_TYPE = "idle_prompt";
+// The notifications that mean a screen in the terminal waits on the person: a
+// permission prompt, or an MCP server's form or link. The rest (signing in,
+// usage limits, being idle a minute) don't. One with no type, from an older
+// Claude Code, counts unless its text says it's only idle.
+const PROMPT_NOTIFICATION_TYPES = new Set(["permission_prompt", "elicitation_dialog", "elicitation_url_dialog"]);
 const IDLE_NOTIFICATION_TEXT = "waiting for your input";
 
 // A sub-agent's failure (its hook carries agent_id) doesn't end the session's turn.
@@ -22,13 +27,13 @@ export const isMainStopFailure = (hookEvent: unknown, hookPayload: unknown): boo
 export const nextSessionState = (hookEvent: string, hookPayload: unknown): SessionState | null => {
   if (hookEvent === "Stop" || isMainStopFailure(hookEvent, hookPayload)) return "idle";
   if (hookEvent === "UserPromptSubmit" || hookEvent === "PostToolUse") return "working";
+  if (hookEvent === "PermissionRequest") return "needs-you";
   if (hookEvent !== "Notification") return null;
   const isObject = typeof hookPayload === "object" && hookPayload !== null;
   const notificationType: unknown = isObject ? Reflect.get(hookPayload, "notification_type") : undefined;
   const notificationText: unknown = isObject ? Reflect.get(hookPayload, "message") : undefined;
-  const isIdleNotification =
-    notificationType === IDLE_NOTIFICATION_TYPE ||
-    (typeof notificationText === "string" && notificationText.includes(IDLE_NOTIFICATION_TEXT));
+  if (typeof notificationType === "string") return PROMPT_NOTIFICATION_TYPES.has(notificationType) ? "needs-you" : null;
+  const isIdleNotification = typeof notificationText === "string" && notificationText.includes(IDLE_NOTIFICATION_TEXT);
   return isIdleNotification ? null : "needs-you";
 };
 

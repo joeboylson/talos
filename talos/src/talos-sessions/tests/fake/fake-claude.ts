@@ -86,7 +86,7 @@ const runTurn = async (text: string) => {
   if (text === "go-prompt") await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
   if (text === "slow-prompt") await Bun.sleep(300);
   if (text === "prompt" || text === "go-prompt" || text === "slow-prompt") {
-    await hook({ hook_event_name: "Notification", message: "Claude needs your permission to use Bash" });
+    await hook({ hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command: "ls" } });
     const key = await new Promise<string>((resolve) => (answerPrompt = resolve));
     if (key.includes("\x1b") && !key.includes("\r")) return saveText("REFUSED");
     saveText("APPROVED");

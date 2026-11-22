@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { connectToSessions } from "../index";
 import { homePaths } from "../constants";
@@ -214,4 +214,19 @@ test(
     expect(await calls.isRunning()).toBe(false);
   },
   20_000,
+);
+
+test(
+  "a lock left from before the machine started is taken over, even if its process number is alive again",
+  async () => {
+    const { home, calls } = newHome();
+    // This test's own process stands in for whatever got the old runner's number.
+    writeFileSync(homePaths(home).runnerLock, String(process.pid), { mode: 0o600 });
+    const beforeBoot = new Date(Date.now() - uptime() * 1000 - 3_600_000);
+    utimesSync(homePaths(home).runnerLock, beforeBoot, beforeBoot);
+    await calls.ensureRunning();
+    expect(pidIn(homePaths(home).runnerLock)).not.toBe(process.pid);
+    await calls.stopRunner();
+  },
+  30_000,
 );

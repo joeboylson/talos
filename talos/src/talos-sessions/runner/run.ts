@@ -2,7 +2,8 @@
 // terminals it holds, so they keep running when talos restarts. talos starts
 // it (see runner-client.ts) and talks to it through a file socket only this
 // user can open. `talos runner stop` ends it and every session it holds.
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { uptime } from "node:os";
 import { chmod, lstat, mkdir, rm } from "node:fs/promises";
 import type { TrustChange } from "../claude/claude-trust";
 import { checkCatalog } from "../kinds";
@@ -25,6 +26,13 @@ const isAlive = (pid: number): boolean => {
   }
 };
 
+// Process ids start over at boot, so one recorded before it means nothing now.
+// shortcut: the boot time comes from the wall clock, so a clock moved forward by
+// more than the time since boot makes records look older than the boot; that
+// needs the jump and a second runner start together.
+const BOOT_SLACK_MS = 60_000;
+const bootAtMs = (): number => Date.now() - uptime() * 1000 - BOOT_SLACK_MS;
+
 // Only one runner holds a home: a second one started at the same moment (two
 // programs calling ensureRunning) would delete the first one's sockets. A lock
 // left by a runner that died is taken over.
@@ -39,7 +47,8 @@ const takeRunnerLock = (lockFile: string, isRetry = false): boolean => {
     // can't write) is the real problem, and says so.
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     const holder = Number(readFileSync(lockFile, "utf8"));
-    if (isRetry || (Number.isInteger(holder) && holder > 0 && isAlive(holder))) return false;
+    const isFromThisBoot = statSync(lockFile).mtimeMs >= bootAtMs();
+    if (isRetry || (isFromThisBoot && Number.isInteger(holder) && holder > 0 && isAlive(holder))) return false;
     rmSync(lockFile, { force: true });
     return takeRunnerLock(lockFile, true);
   }
@@ -75,7 +84,7 @@ const holdsLock = (lockFile: string): boolean => {
 };
 
 // What the sessions of a runner that died outright started is ended now: a
-// group still alive with a recorded number is that session's.
+// group still alive with a recorded number since the last boot is that session's.
 // shortcut: a group number can only be reused once process ids wrap around, so
 // groups recorded over an hour ago are left alone rather than risk another's.
 const LEFT_GROUP_MAX_AGE_MS = 60 * 60_000;
@@ -83,7 +92,7 @@ const endLeftSessionGroups = async (file: string): Promise<void> => {
   const saved = Bun.file(file);
   const groups = (await saved.exists()) ? parseJsonOrNull(await saved.text()) : [];
   const recent = (Array.isArray(groups) ? groups : []).filter(
-    ({ groupId, atMs }) => Number.isInteger(groupId) && groupId > 1 && typeof atMs === "number" && Date.now() - atMs >= 0 && Date.now() - atMs < LEFT_GROUP_MAX_AGE_MS,
+    ({ groupId, atMs }) => Number.isInteger(groupId) && groupId > 1 && typeof atMs === "number" && atMs >= bootAtMs() && Date.now() - atMs >= 0 && Date.now() - atMs < LEFT_GROUP_MAX_AGE_MS,
   );
   recent.forEach(({ groupId }) => {
     try {

@@ -7,6 +7,8 @@ describe("nextSessionState", () => {
     ["Stop", {}, "idle"],
     ["UserPromptSubmit", {}, "working"],
     ["PostToolUse", {}, "working"],
+    ["PostToolUse", { agent_id: "a1" }, null],
+    ["PermissionRequest", { agent_id: "a1", tool_name: "Bash" }, "needs-you"],
     ["Notification", { message: "Claude needs your permission to use Bash" }, "needs-you"],
     ["Notification", { notification_type: "permission_prompt" }, "needs-you"],
     ["Notification", { notification_type: "idle_prompt" }, null],

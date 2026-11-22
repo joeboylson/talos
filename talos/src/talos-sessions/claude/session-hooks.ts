@@ -18,15 +18,18 @@ export type HookEvent = (typeof HOOK_EVENTS)[number];
 const PROMPT_NOTIFICATION_TYPES = new Set(["permission_prompt", "elicitation_dialog", "elicitation_url_dialog"]);
 const IDLE_NOTIFICATION_TEXT = "waiting for your input";
 
-// A sub-agent's failure (its hook carries agent_id) doesn't end the session's turn.
-export const isMainStopFailure = (hookEvent: unknown, hookPayload: unknown): boolean =>
-  hookEvent === "StopFailure" && !(typeof hookPayload === "object" && hookPayload !== null && typeof Reflect.get(hookPayload, "agent_id") === "string");
+// A sub-agent's hook carries agent_id. Its work and its failure aren't the
+// session's turn: a background one can finish its tools after the turn is over.
+// (Its permission prompt still shows in the session's terminal.)
+const isSubagentHook = (hookPayload: unknown): boolean =>
+  typeof hookPayload === "object" && hookPayload !== null && typeof Reflect.get(hookPayload, "agent_id") === "string";
+export const isMainStopFailure = (hookEvent: unknown, hookPayload: unknown): boolean => hookEvent === "StopFailure" && !isSubagentHook(hookPayload);
 
 // SessionStart isn't "ready": Claude Code sends it before its input box can
 // take typing. The session runner waits for the screen to settle instead.
 export const nextSessionState = (hookEvent: string, hookPayload: unknown): SessionState | null => {
   if (hookEvent === "Stop" || isMainStopFailure(hookEvent, hookPayload)) return "idle";
-  if (hookEvent === "UserPromptSubmit" || hookEvent === "PostToolUse") return "working";
+  if (hookEvent === "UserPromptSubmit" || hookEvent === "PostToolUse") return isSubagentHook(hookPayload) ? null : "working";
   if (hookEvent === "PermissionRequest") return "needs-you";
   if (hookEvent !== "Notification") return null;
   const isObject = typeof hookPayload === "object" && hookPayload !== null;

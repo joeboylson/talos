@@ -22,13 +22,18 @@ test(
     const folder = exampleFolder();
     const { home } = await claimRun(folder);
     const other = connectToSessions({ home, runnerScript: fakeRunner });
-    await other.ensureRunning();
-    await expect(claimRun(folder)).rejects.toThrow("another run");
-    expect(await other.isRunning()).toBe(true);
-    await other.stopRunner();
-    while (await other.isRunning()) await Bun.sleep(50);
-    expect((await claimRun(folder)).work).toBe(join(folder, "run", "work"));
-    rmSync(folder, { recursive: true, force: true });
+    // Cleaned up even when an expect fails, so no runner is left going.
+    try {
+      await other.ensureRunning();
+      await expect(claimRun(folder)).rejects.toThrow("another run");
+      expect(await other.isRunning()).toBe(true);
+      await other.stopRunner();
+      while (await other.isRunning()) await Bun.sleep(50);
+      expect((await claimRun(folder)).work).toBe(join(folder, "run", "work"));
+    } finally {
+      await other.stopRunner().catch(() => {});
+      rmSync(folder, { recursive: true, force: true });
+    }
   },
   20_000,
 );
@@ -38,9 +43,12 @@ test("an example run without a terminal says so before it touches anything", () 
   const script = `import { runExample } from ${JSON.stringify(runExample)};
 await runExample(${JSON.stringify(folder)}, { initial: null, step: (state) => ({ state, actions: [] }), render: () => [] });`;
   writeFileSync(join(folder, "main.ts"), script);
-  const ran = Bun.spawnSync([process.execPath, join(folder, "main.ts")], { stdin: "pipe", env: { ...process.env, MODE: "live" } });
-  expect(ran.exitCode).not.toBe(0);
-  expect(ran.stderr.toString()).toContain("run an example in a terminal");
-  expect(existsSync(join(folder, "run"))).toBe(false);
-  rmSync(folder, { recursive: true, force: true });
+  try {
+    const ran = Bun.spawnSync([process.execPath, join(folder, "main.ts")], { stdin: "pipe", env: { ...process.env, MODE: "live" } });
+    expect(ran.exitCode).not.toBe(0);
+    expect(ran.stderr.toString()).toContain("run an example in a terminal");
+    expect(existsSync(join(folder, "run"))).toBe(false);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });

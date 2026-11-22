@@ -1,5 +1,22 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { bold, fit, fitScreen, frame, lastCells, padTo, visibleLength, wrapText } from "../screen";
+
+// Colour is on in every test here, whatever the machine's own NO_COLOR and
+// TERM say, and they're put back after.
+const startingEnv = { NO_COLOR: process.env.NO_COLOR, TERM: process.env.TERM };
+const putBack = (name: keyof typeof startingEnv) => {
+  const value = startingEnv[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+};
+beforeEach(() => {
+  delete process.env.NO_COLOR;
+  process.env.TERM = "xterm-256color";
+});
+afterEach(() => {
+  putBack("NO_COLOR");
+  putBack("TERM");
+});
 
 test("a line is cut to the terminal's cells, colours kept whole and closed", () => {
   const cut = fit(`${bold("receipts")} ${"x".repeat(100)}`, 20);
@@ -30,17 +47,12 @@ test("a tab counts as the room it takes on screen", () => {
 });
 
 test("no colour when NO_COLOR is set or the terminal is dumb", () => {
-  const before = { noColor: process.env.NO_COLOR, term: process.env.TERM };
+  expect(bold("x")).toBe("\x1b[1mx\x1b[22m");
   process.env.NO_COLOR = "1";
   expect(bold("x")).toBe("x");
   delete process.env.NO_COLOR;
   process.env.TERM = "dumb";
   expect(bold("x")).toBe("x");
-  process.env.TERM = "xterm-256color";
-  expect(bold("x")).toBe("\x1b[1mx\x1b[22m");
-  if (before.noColor === undefined) delete process.env.NO_COLOR;
-  else process.env.NO_COLOR = before.noColor;
-  process.env.TERM = before.term;
 });
 
 test("a frame is drawn over the last one in place, never a full clear", () => {

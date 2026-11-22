@@ -313,3 +313,24 @@ test(
   },
   30_000,
 );
+
+test(
+  "a lock whose process number another process has since is taken over",
+  async () => {
+    const { home, calls } = newHome();
+    // A process started after the lock was written, as if it got the dead runner's number.
+    const stranger = Bun.spawn(["sleep", "30"], { stdio: ["ignore", "ignore", "ignore"] });
+    try {
+      writeFileSync(homePaths(home).runnerLock, String(stranger.pid), { mode: 0o600 });
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60_000);
+      utimesSync(homePaths(home).runnerLock, tenMinutesAgo, tenMinutesAgo);
+      await calls.ensureRunning();
+      expect(pidIn(homePaths(home).runnerLock)).not.toBe(stranger.pid);
+      expect(isAlive(stranger.pid)).toBe(true);
+    } finally {
+      stranger.kill("SIGKILL");
+      await calls.stopRunner().catch(() => {});
+    }
+  },
+  30_000,
+);

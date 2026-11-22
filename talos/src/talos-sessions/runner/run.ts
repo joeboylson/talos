@@ -35,7 +35,8 @@ const bootAtMs = (): number => Date.now() - uptime() * 1000 - BOOT_SLACK_MS;
 
 // Only one runner holds a home: a second one started at the same moment (two
 // programs calling ensureRunning) would delete the first one's sockets. A lock
-// left by a runner that died is taken over.
+// left by a runner that died is taken over, and so is one whose number another
+// process has since: that one started after the lock was written.
 // shortcut: two runners taking over the same dead lock at the same moment can
 // both get it; that needs a crash and a double start together.
 const takeRunnerLock = (lockFile: string, isRetry = false): boolean => {
@@ -47,8 +48,10 @@ const takeRunnerLock = (lockFile: string, isRetry = false): boolean => {
     // can't write) is the real problem, and says so.
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     const holder = Number(readFileSync(lockFile, "utf8"));
-    const isFromThisBoot = statSync(lockFile).mtimeMs >= bootAtMs();
-    if (isRetry || (isFromThisBoot && Number.isInteger(holder) && holder > 0 && isAlive(holder))) return false;
+    const isHolderAlive = Number.isInteger(holder) && holder > 0 && isAlive(holder);
+    const holderStartedAtMs = isHolderAlive ? startedAtMsOf(holder) : null;
+    const isLockHolders = holderStartedAtMs === null || holderStartedAtMs <= statSync(lockFile).mtimeMs + LEADER_START_SLACK_MS;
+    if (isRetry || (isHolderAlive && isLockHolders)) return false;
     rmSync(lockFile, { force: true });
     return takeRunnerLock(lockFile, true);
   }

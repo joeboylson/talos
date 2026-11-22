@@ -114,6 +114,12 @@ describe("terminal", () => {
     expect(isDraftClearingKeys(keys("\x15"))).toBe(true);
     expect(isDraftClearingKeys(keys("\x1b\x1b"))).toBe(true);
   });
+  test("Ctrl-U and Esc Esc clear the draft with kitty or modifyOtherKeys encoding on too", () => {
+    expect(isDraftClearingKeys(keys("\x1b[117;5u"))).toBe(true);
+    expect(isDraftClearingKeys(keys("\x1b[27;5;117~"))).toBe(true);
+    expect(isDraftClearingKeys(keys("\x1b[27u\x1b[27u"))).toBe(true);
+    expect(isDraftClearingKeys(keys("\x1b[27u"))).toBe(false);
+  });
   test("Enter, then the start of an unended paste, leaves a draft", () => expect(isDraftClearingKeys(keys("\r\x1b[200~x"))).toBe(false));
   test("an encoded Ctrl-C pasted as text doesn't clear the draft", () => expect(isDraftClearingKeys(keys("\x1b[200~\x1b[99;5u"))).toBe(false));
   test("an encoded Esc is an interrupt", () => expect(isTurnChangingKeys(keys("\x1b[27u"))).toBe(true));

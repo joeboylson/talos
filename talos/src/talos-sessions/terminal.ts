@@ -71,13 +71,14 @@ export const isDraftChangingKeys = (keys: Uint8Array): boolean => {
 // Keys that empty the input box: Enter sends it and Ctrl-C clears it. Judged by
 // the last key, since a paste can hold a line break and still leave a draft.
 // Esc then Enter (Option-Enter) only adds a line.
-// Ctrl-U deletes the line, and Esc twice clears the box.
-const CTRL_U = "\x15";
+// Ctrl-U deletes the line, and Esc twice clears the box. Each also as a
+// terminal sends it with kitty or modifyOtherKeys key encoding on.
+const OTHER_CLEARING_KEYS = ["\x15", "\x1b[117;5u", "\x1b[27;5;117~", "\x1b\x1b", "\x1b[27u\x1b[27u"];
 export const isDraftClearingKeys = (keys: Uint8Array): boolean => {
   const keysText = keysOutsidePastes(keys);
   const endsWithSend = new TextDecoder().decode(keys).endsWith("\r") && keysText.endsWith("\r");
   const endsWithCtrlC = keys.at(-1) === CTRL_C_BYTE || ENCODED_CTRL_C_KEYS.some((sequence) => keysText.endsWith(sequence));
-  return endsWithSend || endsWithCtrlC || keysText.endsWith(CTRL_U) || keysText.endsWith("\x1b\x1b");
+  return endsWithSend || endsWithCtrlC || OTHER_CLEARING_KEYS.some((sequence) => keysText.endsWith(sequence));
 };
 
 // The message typed into Claude Code: the text, then each image's saved path.

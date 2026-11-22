@@ -112,6 +112,32 @@ test(
   20_000,
 );
 
+test(
+  "a permission prompt while a session's screen settles stands, and nothing is typed into it",
+  async () => {
+    expect(await calls.start("prompting", "prompting", folder("prompting"))).toEqual({ ok: true });
+    expect(await calls.send("prompting", "queued")).toEqual({ ok: true });
+    await Bun.sleep(4000);
+    const session = (await calls.sessions()).find(({ sessionName }) => sessionName === "prompting");
+    expect(session?.state).toBe("needs-you");
+    expect(userLines(join(home, "prompting"))).toEqual([]);
+    await calls.stop("prompting");
+  },
+  20_000,
+);
+
+test(
+  "a session that reports its start before drawing anything still waits for its screen to settle",
+  async () => {
+    const startedAtMs = Date.now();
+    expect(await calls.start("drawn-late", "drawn-late", folder("drawn-late"))).toEqual({ ok: true });
+    await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "drawn-late")?.state === "idle", "the session to be ready");
+    expect(Date.now() - startedAtMs).toBeGreaterThanOrEqual(900);
+    await calls.stop("drawn-late");
+  },
+  20_000,
+);
+
 test("a start in an allowed folder that's gone is refused", async () => {
   expect(await calls.start("gone", "gone", join(home, "not-there"))).toMatchObject({ ok: false, code: "folder-not-allowed" });
 });

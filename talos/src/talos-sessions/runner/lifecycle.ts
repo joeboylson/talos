@@ -162,20 +162,30 @@ const showStuckStart = (sessionName: string, token: string): void => {
 };
 
 // Once Claude Code's screen settles after it starts, the session is ready:
-// type anything sent while it was starting.
-export const becomeReadyWhenQuiet = async (sessionName: string, token: string, giveUpAtMs: number): Promise<void> => {
+// type anything sent while it was starting. Quiet counts from the wait's start
+// too, since a screen that hasn't drawn yet isn't settled.
+export const becomeReadyWhenQuiet = async (sessionName: string, token: string, giveUpAtMs: number, waitedFromMs = steadyNow()): Promise<void> => {
   // Bail if the session is gone, or was replaced by a new instance with the same
   // name, so a stale loop never drives the replacement.
   const startingSession = heldSessions.get(sessionName);
   if (startingSession?.hookToken !== token) return;
-  const quietForMs = steadyNow() - startingSession.lastOutputAtMs;
+  const quietForMs = steadyNow() - Math.max(startingSession.lastOutputAtMs, waitedFromMs);
   if (quietForMs < READY_QUIET_MS && steadyNow() < giveUpAtMs) {
     await Bun.sleep(READY_CHECK_MS);
-    return becomeReadyWhenQuiet(sessionName, token, giveUpAtMs);
+    return becomeReadyWhenQuiet(sessionName, token, giveUpAtMs, waitedFromMs);
   }
   const session = heldSessions.get(sessionName);
   if (!session || session.hookToken !== token) return;
   heldSessions.set(sessionName, { ...session, queuedMessages: [] });
+  // Something happened while it settled (a permission prompt, the person
+  // typing in its terminal): that state stands, and what was sent goes in
+  // unless a prompt shows (its Enter would answer the prompt).
+  if (session.summary.state !== "starting") {
+    const typed = await Promise.all(session.queuedMessages.map((message) => typeIntoSession(session, message)));
+    const notTyped = typed.filter((isTyped) => !isTyped).length;
+    if (notTyped > 0) log.warn(`runner: ${notTyped} message(s) sent while ${sessionName} started weren't typed: a permission prompt showed`);
+    return;
+  }
   // Messages sent during startup are the person typing, so they end any ask.
   // The session is then working, not idle, so a new ask waits for their Stop
   // instead of landing on top of them.

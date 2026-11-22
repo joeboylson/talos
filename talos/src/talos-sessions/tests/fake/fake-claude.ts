@@ -110,6 +110,13 @@ if (basename(process.cwd()).startsWith("noisy")) {
   process.stdout.write(".\n");
   setInterval(() => process.stdout.write(".\n"), 100);
 }
+// In a folder named prompting… it asks permission right after it reports its
+// start, while its screen is still drawing (for 2 s).
+const isPrompting = basename(process.cwd()).startsWith("prompting");
+if (isPrompting) {
+  const drawing = setInterval(() => process.stdout.write(".\n"), 100);
+  setTimeout(() => clearInterval(drawing), 2000);
+}
 writeFileSync(join(process.cwd(), "claude.pid"), String(process.pid));
 if (basename(process.cwd()).startsWith("stubborn")) for (const signal of ["SIGTERM", "SIGHUP"] as const) process.on(signal, () => {});
 if (basename(process.cwd()).startsWith("spawner")) {
@@ -121,6 +128,7 @@ writeFileSync(secondTranscript, "");
 // In a folder named mute… it never reports its start, like a Claude Code stuck
 // on a screen before its hooks run.
 if (!basename(process.cwd()).startsWith("mute")) await hook({ hook_event_name: "SessionStart" });
+if (isPrompting) await hook({ hook_event_name: "Notification", message: "Claude needs your permission to use Bash" });
 process.stdin.setRawMode?.(true);
 process.stdout.write("ready\n");
 

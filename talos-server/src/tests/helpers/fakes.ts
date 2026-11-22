@@ -33,14 +33,15 @@ export const signInOf = (githubId: number): SignInRecord => ({
 });
 
 // Sign-ins for any of these GitHub ids exist; endedAtMs says when each last signed out.
-export const fakeSignInsTable = (githubIds: number[], endedAtMs: Map<string, number> = new Map()) => {
+// signOutCounts: how many times a sign-in has signed out everywhere (missing: none).
+export const fakeSignInsTable = (githubIds: number[], signOutCounts: Map<string, number> = new Map()) => {
   const endedSignIns: string[] = [];
   const table = {
     findSignIn: async (signInId: string) => {
       const githubId = Number(signInId.replace("github-id:", ""));
       if (!githubIds.includes(githubId)) return null;
-      const ended = endedAtMs.get(signInId);
-      return { ...signInOf(githubId), ...(ended === undefined ? {} : { sessionsEndedAtMs: ended }) };
+      const signOutCount = signOutCounts.get(signInId);
+      return { ...signInOf(githubId), ...(signOutCount === undefined ? {} : { signOutCount }) };
     },
     saveSignIn: async () => {},
     endSessions: async (signInId: string) => void endedSignIns.push(signInId),
@@ -48,9 +49,10 @@ export const fakeSignInsTable = (githubIds: number[], endedAtMs: Map<string, num
   return { table, endedSignIns };
 };
 
-export const sessionCookieFor = (githubId: number, issuedAtMs = Date.now() - ISSUED_BEFORE_NOW_MS) => {
+// signOutCount: the sign-in's count when the cookie was made.
+export const sessionCookieFor = (githubId: number, signOutCount = 0) => {
   const { signInId, personId, displayName } = signInOf(githubId);
-  const times = { issuedAtMs, expiresAtMs: Date.now() + SESSION_LIFETIME_FOR_TESTS_MS };
+  const times = { issuedAtMs: Date.now() - ISSUED_BEFORE_NOW_MS, expiresAtMs: Date.now() + SESSION_LIFETIME_FOR_TESTS_MS, signOutCount };
   return `${cookieName(COOKIE_NAMES.session, true)}=${createSessionToken({ signInId, personId, displayName }, times, testConfig.sessionSecret)}`;
 };
 

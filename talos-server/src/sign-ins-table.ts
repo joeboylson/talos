@@ -4,14 +4,15 @@ import type { DocumentClient } from "./dynamo";
 // One row per way a person signs in, pointing at the person. A person is just
 // the personId their sign-ins share, so linking a second account later is
 // one more row.
-// Sessions made at or before sessionsEndedAtMs no longer count: signing out
-// sets it, which ends every session for that sign-in at once.
+// signOutCount counts each sign out everywhere; a session made under an
+// older count no longer counts, which ends every session for that sign-in at
+// once. Missing means 0.
 export type SignInRecord = {
   signInId: string;
   personId: string;
   displayName: string;
   linkedAtMs: number;
-  sessionsEndedAtMs?: number;
+  signOutCount?: number;
 };
 
 // By GitHub's permanent account number, never the login, which can change hands.
@@ -28,14 +29,15 @@ export const createSignInsTable = (documentClient: DocumentClient, tableName: st
     await documentClient.send(new PutCommand({ TableName: tableName, Item: signIn }));
   },
 
-  endSessions: async (signInId: string, endedAtMs: number): Promise<void> => {
+  // Added in the table in one step, so two sign-outs at once both count.
+  endSessions: async (signInId: string): Promise<void> => {
     await documentClient.send(
       new UpdateCommand({
         TableName: tableName,
         Key: { signInId },
-        UpdateExpression: "SET sessionsEndedAtMs = :endedAtMs",
+        UpdateExpression: "ADD signOutCount :one",
         ConditionExpression: "attribute_exists(signInId)",
-        ExpressionAttributeValues: { ":endedAtMs": endedAtMs },
+        ExpressionAttributeValues: { ":one": 1 },
       }),
     );
   },

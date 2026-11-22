@@ -45,7 +45,7 @@ export const createAuthRoutes = (
 
   // Finds the person behind a GitHub account, making a new person if this is
   // their first visit and the switch lets them in. Null means turned away.
-  const findOrCreatePerson = async ({ githubId, login: githubLogin }: GithubUser): Promise<SessionPerson | null> => {
+  const findOrCreatePerson = async ({ githubId, login: githubLogin }: GithubUser): Promise<(SessionPerson & { signOutCount: number }) | null> => {
     const signInId = buildGithubSignInId(githubId);
     const existingSignIn = await signInsTable.findSignIn(signInId);
     const { allowNewPeople } = await settingsTable.readSettings();
@@ -58,13 +58,13 @@ export const createAuthRoutes = (
     if (decision.outcome === "closed") return null;
     if (decision.outcome === "welcome-back") {
       log.event(`signed in: ${githubLogin}`);
-      return { personId: decision.personId, signInId, displayName: githubLogin };
+      return { personId: decision.personId, signInId, displayName: githubLogin, signOutCount: existingSignIn?.signOutCount ?? 0 };
     }
 
     const newSignIn = { signInId, personId: randomUUID(), displayName: githubLogin, linkedAtMs: Date.now() };
     await signInsTable.saveSignIn(newSignIn);
     log.event(`new person signed up: ${githubLogin}`);
-    return { personId: newSignIn.personId, signInId, displayName: githubLogin };
+    return { personId: newSignIn.personId, signInId, displayName: githubLogin, signOutCount: 0 };
   };
 
   const signInCallback = async (request: Request): Promise<Response> => {
@@ -91,9 +91,10 @@ export const createAuthRoutes = (
       return redirectTo(`${HOME_PAGE_PATH}?${SIGN_IN_RESULT_PARAM}=${SIGN_IN_CLOSED}`, [clearStateCookie]);
     }
 
+    const { signOutCount, ...sessionPerson } = person;
     const issuedAtMs = Date.now();
-    const sessionTimes = { issuedAtMs, expiresAtMs: issuedAtMs + SESSION_LIFETIME_MS };
-    const sessionToken = createSessionToken(person, sessionTimes, config.sessionSecret);
+    const sessionStamp = { issuedAtMs, expiresAtMs: issuedAtMs + SESSION_LIFETIME_MS, signOutCount };
+    const sessionToken = createSessionToken(sessionPerson, sessionStamp, config.sessionSecret);
     const sessionCookie = buildCookie(cookieName(COOKIE_NAMES.session, isSecure), sessionToken, { maxAgeMs: SESSION_LIFETIME_MS, isSecure });
     return redirectTo(HOME_PAGE_PATH, [sessionCookie, clearStateCookie]);
   };
@@ -102,7 +103,7 @@ export const createAuthRoutes = (
   const signOut = async (request: Request): Promise<Response> => {
     const person = await checks.readTrustedPerson(request);
     if (!person) return textResponse("Not signed in", 401);
-    await signInsTable.endSessions(person.signInId, Date.now());
+    await signInsTable.endSessions(person.signInId);
     onSignedOut(person.personId);
     log.event(`signed out everywhere: ${person.displayName}`);
     const headers = { "Set-Cookie": buildExpiredCookie(cookieName(COOKIE_NAMES.session, isSecure), isSecure) };

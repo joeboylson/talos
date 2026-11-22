@@ -37,12 +37,12 @@ export const isTurnChangingKeys = (keys: Uint8Array): boolean => {
   return keysText.includes("\r") || keysText.includes("\x03") || isOnlyEsc || hasEncodedInterrupt;
 };
 
-// Keys that stop Claude Code's running turn: Esc or Ctrl-C. It sends no Stop
-// for an interrupted turn, so these end it.
+// Keys that stop Claude Code's running turn: Esc or Ctrl-C, not pasted. It
+// sends no Stop for an interrupted turn, so these end it.
 export const isInterruptKeys = (keys: Uint8Array): boolean => {
-  const keysText = new TextDecoder().decode(keys);
+  const keysText = keysOutsidePastes(keys);
   const isOnlyEsc = keys.length > 0 && keys.every((byte) => byte === ESC_BYTE);
-  return isOnlyEsc || keys.includes(CTRL_C_BYTE) || ENCODED_INTERRUPT_KEYS.some((sequence) => keysText.includes(sequence));
+  return isOnlyEsc || keysText.includes(String.fromCharCode(CTRL_C_BYTE)) || ENCODED_INTERRUPT_KEYS.some((sequence) => keysText.includes(sequence));
 };
 
 // The session runner guesses whether the input box holds unsent text from the keys sent

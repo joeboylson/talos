@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { SessionEntry } from "talos-shared";
-import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, forgetEntries } from "../../page-state";
+import { LIMITS, type SessionEntry } from "talos-shared";
+import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries } from "../../page-state";
 import { sessionKey } from "../../session-rows";
 
 const KEY = sessionKey("m1", "web");
@@ -47,4 +47,36 @@ test("a new connection forgets entries but keeps waiting messages", () => {
 test("a waiting message is kept without its outer spaces, with its previews", () => {
   const state = addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "  hi\n", ["blob:a"]);
   expect(state.waitingPromptsBySession[KEY]).toEqual([{ text: "hi", imagePreviewUrls: ["blob:a"] }]);
+});
+
+test("a session that's gone forgets its entries, so a new one under its name starts fresh; an offline machine's are kept", () => {
+  const session = (sessionName: string) => ({ sessionName, folderName: "talos", state: "idle" as const, asks: {}, openOutputs: [] });
+  const machine = (machineId: string, sessions: ReturnType<typeof session>[] | null) => ({ machineId, machineName: machineId, isConnected: sessions !== null, folders: null, sessions });
+  const withEntries = [entriesFor("web", [textEntry("t1", "old")]), entriesFor("api", [textEntry("t2", "kept")]), { ...entriesFor("web", [textEntry("t3", "offline")]), machineId: "m2" }]
+    .reduce(applyServerMessage, addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "hi", []));
+  const afterStop = applyServerMessage(withEntries, { type: "machines", machines: [machine("m1", [session("api")]), machine("m2", null)] });
+  expect(Object.keys(afterStop.entriesBySession).sort()).toEqual([OTHER_KEY, sessionKey("m2", "web")]);
+  expect(afterStop.waitingPromptsBySession[KEY]).toBeUndefined();
+});
+
+test("a message longer than a saved prompt keeps still clears its waiting copy once it's saved", () => {
+  const long = "x".repeat(LIMITS.maxEntryTextLength + 500);
+  const waiting = addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", long, []);
+  const saved = applyServerMessage(waiting, entriesFor("web", [prompt("p1", long.slice(0, LIMITS.maxEntryTextLength))]));
+  expect(saved.waitingPromptsBySession[KEY]).toEqual([]);
+});
+
+test("a waiting message's image previews are let go once it's saved or its session ends", () => {
+  const waiting = addWaitingPrompt(addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "look", ["blob:1"]), "m1", "api", "see", ["blob:2"]);
+  const saved = applyServerMessage(waiting, entriesFor("web", [{ kind: "prompt", position: 0, entryId: "p1", text: "look", imageCount: 1 }]));
+  expect(droppedPreviewUrls(waiting, saved)).toEqual(["blob:1"]);
+  const ended = applyServerMessage(saved, { type: "machines", machines: [{ machineId: "m1", machineName: "m1", isConnected: true, folders: [], sessions: [] }] });
+  expect(droppedPreviewUrls(saved, ended)).toEqual(["blob:2"]);
+});
+
+test("a refused send's waiting copy goes, and only that one", () => {
+  const waiting = addWaitingPrompt(addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "first", [], "r1"), "m1", "web", "second", [], "r2");
+  const refused = applyServerMessage(waiting, { type: "error", message: "atlas: Claude is asking permission; answer it first", requestId: "r1" });
+  expect(refused.waitingPromptsBySession[KEY]?.map(({ text }) => text)).toEqual(["second"]);
+  expect(refused.notice).toContain("asking permission");
 });

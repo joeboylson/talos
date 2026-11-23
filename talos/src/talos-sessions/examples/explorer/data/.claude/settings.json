@@ -1,5 +1,5 @@
 {
   "permissions": {
-    "allow": ["Bash(sqlite3:*)", "Read(./**)", "Glob", "Grep", "ToolSearch"]
+    "allow": ["Bash(sqlite3 -safe -readonly -header -column shop.db:*)", "Read(./**)", "Glob", "Grep", "ToolSearch"]
   }
 }

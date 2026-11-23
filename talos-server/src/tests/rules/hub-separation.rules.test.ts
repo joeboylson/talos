@@ -107,7 +107,7 @@ const runScenario = async (owners: number[], actions: Action[]) => {
 
     if (step.kind === "open-machine") {
       const machineId = machineIdOf(step.machine);
-      const socket = fakeSocket({ role: "machine", machineId, machineName: machineId, ownerPersonId: ownerOf.get(machineId) ?? "" });
+      const socket = fakeSocket({ role: "machine", machineId, machineName: machineId, ownerPersonId: ownerOf.get(machineId) ?? "", checkedAtMs: 0 });
       machineSockets.set(machineId, socket);
       allMachineSockets.push(socket);
       reported.set(machineId, { folders: [], sessions: [] });
@@ -116,7 +116,7 @@ const runScenario = async (owners: number[], actions: Action[]) => {
       machineSockets.get(machineIdOf(step.machine))?.close();
     } else if (step.kind === "open-page") {
       const personId = PEOPLE[step.person] ?? "p0";
-      const page = fakeSocket({ role: "page", personId, displayName: personId, expiresAtMs: Date.now() + 3_600_000 });
+      const page = fakeSocket({ role: "page", personId, displayName: personId, expiresAtMs: Date.now() + 3_600_000, checkedAtMs: Date.now() });
       pages.push(page);
       handlers.open?.(page);
     } else if (step.kind === "sign-out") {

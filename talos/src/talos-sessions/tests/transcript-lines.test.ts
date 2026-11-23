@@ -12,6 +12,23 @@ import { SESSION_LIMITS } from "../limits";
 
 describe("readTranscriptLine", () => {
   const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
+  test("a message typed while Claude works, saved as a queued command, is a prompt", () => {
+    const queued = { type: "attachment", attachment: { type: "queued_command", prompt: "Also tell me 2+2.", commandMode: "prompt", humanTurn: true } };
+    expect(readTranscriptLine(line(queued))).toEqual([{ kind: "prompt", entryId: "u1", text: "Also tell me 2+2.", imageCount: 0 }]);
+    expect(readTranscriptLine(line({ ...queued, attachment: { ...queued.attachment, commandMode: "bash" } }))).toEqual([]);
+    expect(readTranscriptLine(line({ type: "attachment", attachment: { type: "file" } }))).toEqual([]);
+  });
+  test("what a session wrote can't act on a terminal: control characters go, line breaks stay", () => {
+    const painted = "\x1b]52;c;aGk=\x07\x1b[2Jcleared\nnext";
+    const entries = [
+      ...readTranscriptLine(line({ type: "assistant", message: { content: [{ type: "text", text: painted }, { type: "tool_use", id: "t1", name: "Bash\x1b[2J", input: { command: `echo ${painted}` } }] } })),
+      ...readTranscriptLine(line({ type: "user", message: { content: painted } })),
+      ...readTranscriptLine(line({ type: "user", message: { content: `<local-command-stdout>${painted}</local-command-stdout>` } })),
+    ];
+    expect(entries).toHaveLength(4);
+    expect(JSON.stringify(entries)).not.toMatch(/\\u001b|\\u0007/);
+    expect(entries.map((entry) => ("text" in entry ? entry.text.includes("\n") : true))).toEqual([true, true, true, true]);
+  });
 
   test("a typed message is a prompt", () => {
     expect(readTranscriptLine(line({ type: "user", message: { content: "fix the login" } }))).toEqual([

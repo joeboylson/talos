@@ -55,7 +55,7 @@ const fakeFrame = (size: number) => ({ length: size, toString: () => "not json" 
 const openPage = (handlers: Record<string, (...args: unknown[]) => void>, personId: string) => {
   const replies: number[] = [];
   const socket = {
-    data: { role: "page", personId, displayName: personId, expiresAtMs: Infinity } satisfies SocketData,
+    data: { role: "page", personId, displayName: personId, expiresAtMs: Infinity, checkedAtMs: Date.now() } satisfies SocketData,
     send: () => replies.push(Date.now()),
     close: () => {},
     ping: () => {},

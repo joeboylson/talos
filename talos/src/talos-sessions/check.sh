@@ -6,4 +6,5 @@
 set -e
 cd "$(dirname "$0")"
 bunx tsc --noEmit -p tsconfig.json
-bun test .
+# CI=true: a stray test.only fails instead of skipping the tests beside it.
+CI=true bun test .

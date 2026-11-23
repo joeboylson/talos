@@ -1,12 +1,13 @@
 // The hooks socket: the only routes a session can reach, its own Claude Code hooks.
 import type { Socket } from "bun";
-import { NEWLINE_BYTE } from "../constants";
+import { NEWLINE_BYTE, steadyNow } from "../constants";
 import { encodeHookLine, readHookRequest, type HookAnswer, type ListedTool } from "../client/runner-protocol";
 import { hookTokenAuthorized, nextSessionState } from "../claude/session-hooks";
 import { readLaneEvent } from "../lanes/lane";
 import { readOutputsEvent } from "../lanes/outputs";
 import { allowTranscriptSwitch } from "../transcript/transcript-lines";
 import { becomeReadyWhenQuiet } from "./lifecycle";
+import { switchTranscript } from "./transcript";
 import { catalog, log } from "./inputs";
 import { applyLaneEvent, applyOutputsEvent, setSessionState } from "./session-state";
 import { heldSessions, updateHeldSession } from "./store";
@@ -25,30 +26,30 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   const decision = laneEvent ? applyLaneEvent(sessionName, laneEvent) : "";
   // A Stop the lane blocked keeps the turn going, so the session isn't idle.
   const blockedStop = hookEvent === "Stop" && decision !== "";
-  const outputsEvent = readOutputsEvent(hookDetails, blockedStop);
+  const outputsEvent = readOutputsEvent(hookDetails, blockedStop, session.isTalosTypedNext);
+  if (outputsEvent?.type === "turn-started") updateHeldSession(sessionName, token, { isTalosTypedNext: false });
   if (outputsEvent) applyOutputsEvent(sessionName, outputsEvent);
 
   // Only one ready-loop per session instance, so a forged flood of SessionStart
   // events can't pile up uncancelled loops and exhaust the session runner's memory.
-  if (hookEvent === "SessionStart" && !session.isBecomingReady) {
-    updateHeldSession(sessionName, session.hookToken, { isBecomingReady: true });
-    void becomeReadyWhenQuiet(sessionName, session.hookToken, Date.now() + SESSION_LIMITS.readyLongestWaitMs)
+  // Only the first: Claude Code also sends one mid-session (a compaction,
+  // /clear), which mustn't count the turn over or hide an open question.
+  if (hookEvent === "SessionStart" && !session.hasStarted && !session.isBecomingReady) {
+    updateHeldSession(sessionName, session.hookToken, { isBecomingReady: true, hasStarted: true });
+    // One shown as stuck (its start was late) is only starting after all, so
+    // what was sent meanwhile goes in once it's ready.
+    if (session.summary.state !== "starting") setSessionState(sessionName, "starting", false);
+    void becomeReadyWhenQuiet(sessionName, session.hookToken, steadyNow() + SESSION_LIMITS.readyLongestWaitMs)
       .catch((error: unknown) => log.warn(`runner: couldn't finish starting ${sessionName}: ${error}`))
       .finally(() => updateHeldSession(sessionName, session.hookToken, { isBecomingReady: false }));
   }
 
-  // Claude Code can start a new conversation file (like after /clear), so
-  // a new path starts over from its beginning.
+  // Claude Code can move to another conversation file (like after /clear or /resume).
   const transcriptPath = Reflect.get(hookDetails as object, "transcript_path");
   const current = heldSessions.get(sessionName);
-  const isNewTranscript =
-    typeof transcriptPath === "string" &&
-    current !== undefined &&
-    transcriptPath !== current.transcript?.path &&
-    allowTranscriptSwitch(transcriptPath, current.transcript?.path ?? null);
-  if (isNewTranscript && current) {
-    heldSessions.set(sessionName, { ...current, transcript: { path: transcriptPath, readByteCount: 0, runningTools: new Map() } });
-  }
+  const currentPath = current?.transcripts.at(-1)?.path ?? null;
+  const isSwitch = typeof transcriptPath === "string" && transcriptPath !== currentPath && allowTranscriptSwitch(transcriptPath, currentPath);
+  if (isSwitch && current) heldSessions.set(sessionName, { ...current, transcripts: switchTranscript(current.transcripts, transcriptPath) });
   // A turn that ends on an open output is waiting for the person, not idle.
   const nextState = nextSessionState(hookEvent, hookDetails);
   const hasOpenOutput = (heldSessions.get(sessionName)?.summary.openOutputs.length ?? 0) > 0;
@@ -63,6 +64,16 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
 const listedTools = (): ListedTool[] =>
   catalog().kinds.map((kind) => ({ name: kind.toolName, description: kind.description, inputSchema: listedSchema(kind), reply: replyWording(kind) }));
 
+// Anything can reach the hooks socket and name any session, so the name is
+// cut and quoted (it can't forge log lines), and a flood is logged once a second.
+let lastBadTokenLogMs = 0;
+const warnBadToken = (sessionName: unknown): void => {
+  const nowMs = steadyNow();
+  if (nowMs - lastBadTokenLogMs < SESSION_LIMITS.badTokenLogEveryMs) return;
+  lastBadTokenLogMs = nowMs;
+  log.warn(`runner: ignored a hook for ${JSON.stringify(String(sessionName).slice(0, SESSION_LIMITS.maxIdentifierLength))} with a bad token`);
+};
+
 // The answer to one hook request. The token check and the hook's handling run
 // in one step, so a session replaced under the same name can't be acted on.
 const answerHookRequest = (line: string): HookAnswer => {
@@ -70,7 +81,7 @@ const answerHookRequest = (line: string): HookAnswer => {
   if (!request) return { kind: "reply", reply: "" };
   const { sessionName, token } = request;
   const isAuthorized = hookTokenAuthorized(token, heldSessions.get(sessionName)?.hookToken);
-  if (!isAuthorized) log.warn(`runner: ignored a hook for "${sessionName}" with a bad token`);
+  if (!isAuthorized) warnBadToken(sessionName);
   if ("wants" in request) return isAuthorized ? { kind: "tools", tools: listedTools() } : { kind: "refused" };
   if (!isAuthorized) return { kind: "reply", reply: "" };
   try {
@@ -82,11 +93,11 @@ const answerHookRequest = (line: string): HookAnswer => {
   }
 };
 
-type HookConnection = { chunks: Buffer[]; byteCount: number; deadline: ReturnType<typeof setTimeout> };
+// unsent: what's left of the answer, written as the socket drains.
+type HookConnection = { chunks: Buffer[]; byteCount: number; deadline: ReturnType<typeof setTimeout>; unsent: Buffer | null };
 type HookSocket = Socket<HookConnection>;
 
-// Oldest first, so a new connection past the cap closes the oldest: a real
-// hook connects and sends at once, while a flood's idle connections linger.
+// In the order they opened, so the cap can close the oldest idle one.
 const openHookSockets = new Set<HookSocket>();
 
 const closeHookSocket = (socket: HookSocket) => {
@@ -95,9 +106,18 @@ const closeHookSocket = (socket: HookSocket) => {
   socket.end();
 };
 
+// A socket takes only so much at once (about 8 KB), so a long answer (a big
+// tools listing) goes in pieces, and the socket closes once it's all written.
+const writeRest = (socket: HookSocket) => {
+  const unsent = socket.data.unsent;
+  if (!unsent) return;
+  const written = socket.write(unsent);
+  socket.data.unsent = written < unsent.length ? unsent.subarray(Math.max(written, 0)) : null;
+  if (!socket.data.unsent) closeHookSocket(socket);
+};
 const answerAndClose = (socket: HookSocket, answer: HookAnswer) => {
-  socket.write(encodeHookLine(answer));
-  closeHookSocket(socket);
+  socket.data.unsent = Buffer.from(encodeHookLine(answer));
+  writeRest(socket);
 };
 
 // The only route a session can reach: its own Claude Code hooks. A request is
@@ -109,13 +129,17 @@ export const startHookServer = (hooksSocket: string) =>
     unix: hooksSocket,
     socket: {
       open: (socket) => {
-        const oldestSocket = openHookSockets.values().next().value;
-        if (openHookSockets.size >= SESSION_LIMITS.maxHookConnections && oldestSocket) closeHookSocket(oldestSocket);
-        socket.data = { chunks: [], byteCount: 0, deadline: setTimeout(() => closeHookSocket(socket), SESSION_LIMITS.hookTimeoutMs) };
+        // Past the cap, the oldest that hasn't sent anything goes first: a real
+        // hook sends at once, a flood's idle connections don't.
+        const sockets = [...openHookSockets];
+        const evicted = sockets.find(({ data }) => data.byteCount === 0) ?? sockets[0];
+        if (openHookSockets.size >= SESSION_LIMITS.maxHookConnections && evicted) closeHookSocket(evicted);
+        socket.data = { chunks: [], byteCount: 0, deadline: setTimeout(() => closeHookSocket(socket), SESSION_LIMITS.hookTimeoutMs), unsent: null };
         openHookSockets.add(socket);
       },
+      drain: writeRest,
       data: (socket, chunk) => {
-        if (!openHookSockets.has(socket)) return;
+        if (!openHookSockets.has(socket) || socket.data.unsent) return;
         socket.data.chunks.push(chunk);
         socket.data.byteCount += chunk.length;
         if (socket.data.byteCount > SESSION_LIMITS.maxHookBodyBytes) return answerAndClose(socket, { kind: "too-big" });

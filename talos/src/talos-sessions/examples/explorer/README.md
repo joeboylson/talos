@@ -18,10 +18,12 @@ Keys: type a question and ⏎ · `s` summary · `^A` the session's own terminal
 
 ## What's where
 
-- `data/`: `shop.db` (built by `build.ts`), and the session's `CLAUDE.md` and
-  `.claude/settings.json`. Copied fresh into `run/work/` each run.
-- `run/`: the last run, kept so you can look: the session runner's socket and
-  log, the MCP config, and `work/`, the session's copy of the data.
+- `data/`: `shop.db` and `build.ts`, which builds it, and the session's
+  `CLAUDE.md` and `.claude/settings.json`. Copied fresh into `run/work/` each run.
+- `run/`: the last run, kept so you can look: the session runner's home (its
+  sockets, lock, log, MCP config and trust record) and `work/`, the session's
+  copy of the data.
+- `recordings/run.jsonl`: a recorded run, which `MODE=replay` plays back.
 - `kinds.ts`, `runner.ts`, `view.ts`, `main.ts`: the example. `view.ts` is pure.
 - `tests/`: free tests, in `make test`. `live-check.ts`: a real run, by hand.
 
@@ -30,5 +32,6 @@ Keys: type a question and ⏎ · `s` summary · `^A` the session's own terminal
 - Claude Code writes its own records under your `~/.claude`.
 - Your own Claude Code settings apply, and Claude Code also reads the
   `CLAUDE.md` files of the folders around `run/work/` (this repo's).
-- Nothing walls Claude in: `data/.claude/settings.json` allows `sqlite3` and
-  reading, and auto mode decides the rest.
+- Nothing walls Claude in: `data/.claude/settings.json` allows reading, and
+  `sqlite3` only in safe, read-only mode on `shop.db` (no shell, no attaching
+  other files, no changes), and auto mode decides the rest.

@@ -19,8 +19,8 @@ test("a burst of machine session updates scans the table not once and is coalesc
   const machinesTable = { listMachines: async () => (scans++, [atlas]) } as unknown as MachinesTable;
   const connections = createConnections(machinesTable, quietLog);
   const handlers = connections.websocketHandlers as unknown as Record<string, (...a: unknown[]) => unknown>;
-  const machine = fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe" });
-  const page = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000 });
+  const machine = fakeSocket({ role: "machine", machineId: "m1", machineName: "atlas", ownerPersonId: "joe", checkedAtMs: 0 });
+  const page = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000, checkedAtMs: Date.now() });
   handlers.open?.(machine);
   handlers.open?.(page);
   await Bun.sleep(30);
@@ -39,7 +39,7 @@ test("a table read overtaken by a newer one doesn't send its older list", async 
   const machinesTable = { listMachines: () => new Promise((resolve) => reads.push(resolve)) } as unknown as MachinesTable;
   const connections = createConnections(machinesTable, quietLog);
   const handlers = connections.websocketHandlers as unknown as Record<string, (...a: unknown[]) => unknown>;
-  const page = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000 });
+  const page = fakeSocket({ role: "page", personId: "joe", displayName: "joe", expiresAtMs: Date.now() + 60_000, checkedAtMs: Date.now() });
   handlers.open?.(page);
   await Bun.sleep(10);
   reads.shift()?.([]);

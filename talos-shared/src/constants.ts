@@ -41,6 +41,10 @@ export const LOCAL_STATUS_PORT = 7071;
 export const LOCAL_STATUS_ROUTE = "/status";
 
 export const RECONNECT_DELAY_MS = 2000;
+// The server writes to every socket at least every 30 s; one end that hears
+// nothing from the other for this long takes it as gone (asleep, off the
+// network) and closes the connection.
+export const KEEP_ALIVE_GONE_MS = 75_000;
 
 // WebSocket close codes 4000-4999 are free for apps. The server closes a
 // socket with one of these to say why it dropped.
@@ -49,4 +53,8 @@ export const WS_CLOSE_CODES = {
   machineRemoved: 4001,
   signedOut: 4002,
   sessionExpired: 4003,
+  // Heard nothing for KEEP_ALIVE_GONE_MS: taken as gone, and free to reconnect.
+  silent: 4004,
+  // A page so far behind on what was sent to it that its queue hit the cap.
+  tooFarBehind: 4005,
 } as const;

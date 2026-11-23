@@ -27,7 +27,7 @@ import {
 // every session made at or before it.
 
 const PEOPLE = [ADMIN_GITHUB_ID, 2, 3, 4];
-const fakeSignIns = (endedAtMs?: Map<string, number>) => fakeSignInsTable(PEOPLE, endedAtMs).table;
+const fakeSignIns = (signOutCounts?: Map<string, number>) => fakeSignInsTable(PEOPLE, signOutCounts).table;
 const config = testConfig;
 const ORIGIN = TEST_ORIGIN;
 
@@ -117,14 +117,13 @@ test("rule: only the admin reads or changes settings", async () => {
   );
 });
 
-test("rule: signing out ends every session made at or before it, and none made after", () => {
+test("rule: a session counts only under its sign-in's current sign-out count, whatever the times", () => {
   fc.assert(
-    // Real issue times are clock times, so never 0 or less (a time of 0 with no sign-out would count as ended).
-    fc.property(fc.integer({ min: 5001, max: 1e12 }), fc.integer({ min: -5000, max: 5000 }), fc.boolean(), (endedAtMs, offsetMs, hasEnded) => {
+    fc.property(fc.nat(5), fc.nat(5), fc.integer(), (cookieCount, recordCount, issuedAtMs) => {
       const signIn = signInOf(2);
-      const claim = { personId: signIn.personId, signInId: signIn.signInId, displayName: "u2", issuedAtMs: endedAtMs + offsetMs, expiresAtMs: Infinity };
-      const record = hasEnded ? { ...signIn, sessionsEndedAtMs: endedAtMs } : signIn;
-      expect(isClaimStillValid(claim, record)).toBe(!hasEnded || claim.issuedAtMs > endedAtMs);
+      const claim = { personId: signIn.personId, signInId: signIn.signInId, displayName: "u2", issuedAtMs, expiresAtMs: Infinity, signOutCount: cookieCount };
+      const record = recordCount === 0 ? signIn : { ...signIn, signOutCount: recordCount };
+      expect(isClaimStillValid(claim, record)).toBe(cookieCount === recordCount);
       expect(isClaimStillValid({ ...claim, personId: "someone-else" }, record)).toBe(false);
     }),
     { seed: 20261127, numRuns: 1000 },
@@ -134,12 +133,12 @@ test("rule: signing out ends every session made at or before it, and none made a
 test("rule: a signed-in request counts only while its sign-in hasn't been signed out since", async () => {
   await fc.assert(
     fc.asyncProperty(fc.constantFrom(...PEOPLE), fc.integer({ min: -5000, max: 5000 }), async (githubId, issuedOffsetMs) => {
-      const endedAtMs = Date.now() - 10_000;
-      const ended = new Map([[signInOf(githubId).signInId, endedAtMs]]);
-      const checks = createRequestChecks(config, fakeSignIns(ended));
-      const headers = { cookie: sessionCookieFor(githubId, endedAtMs + issuedOffsetMs), origin: ORIGIN };
+      const recordCount = Math.abs(issuedOffsetMs) % 3;
+      const cookieCount = (Math.abs(issuedOffsetMs) >> 2) % 3;
+      const checks = createRequestChecks(config, fakeSignIns(new Map([[signInOf(githubId).signInId, recordCount]])));
+      const headers = { cookie: sessionCookieFor(githubId, cookieCount), origin: ORIGIN };
       const person = await checks.readSignedInPerson(new Request(ORIGIN, { headers }));
-      expect(person?.personId ?? null).toBe(issuedOffsetMs > 0 ? personIdOf(githubId) : null);
+      expect(person?.personId ?? null).toBe(cookieCount === recordCount ? personIdOf(githubId) : null);
     }),
     { seed: 20261128, numRuns: 300 },
   );

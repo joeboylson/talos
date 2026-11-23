@@ -343,3 +343,12 @@ describe("edges the lane must hold", () => {
     expect(step(NO_LANE, { type: "person-typed", isTurnChanging: true })).toEqual(unchanged(NO_LANE));
   });
 });
+
+test.each([["a list", ["a"]], ["a string", "hi"], ["true", true], ["a number", 5]])(
+  "fields a program's check gives back as %s are turned down, never allowed and lost",
+  (_name, fields) => {
+    const odd = kindOf("note", { readFields: () => fields as never });
+    const catalog: Catalog = { kinds: [odd], proseTurn: { output: "prose", optional: ["note"] } };
+    expect(decisionOf(stepLane(NO_LANE, send(odd), NOW, catalog).hookReply)).toBe("deny");
+  },
+);

@@ -22,7 +22,8 @@ try {
   check("the answer has a chart", chart !== undefined);
   const fields = chart?.kind === "output" ? chart.fields : {};
   const values = ((fields.series as { values: number[] }[] | undefined)?.[0]?.values ?? []).map(Math.round);
-  const shop = new Database(join(live.work, "shop.db"), { readonly: true });
+  // The example's own data, not the session's copy, which it could change.
+  const shop = new Database(join(import.meta.dir, "data", "shop.db"), { readonly: true });
   const expected = shop
     .query(
       "SELECT substr(o.ordered_on, 1, 7) AS month, ROUND(SUM(i.quantity * p.price)) AS revenue FROM orders o JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id GROUP BY month ORDER BY month",

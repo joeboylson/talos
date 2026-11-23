@@ -1,4 +1,4 @@
-import { LoaderCircleIcon } from "lucide-react";
+import { LoaderCircleIcon, SquareTerminalIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { SessionEntry } from "talos-shared";
 import { DecisionCard } from "@/components/decision-card";
@@ -12,13 +12,15 @@ type SessionViewProps = {
   sessionRow: SessionRow | null;
   entries: SessionEntry[];
   waitingPrompts: WaitingPrompt[];
-  onSend: (text: string, images: PreparedImage[]) => void;
+  onSend: (text: string, images: PreparedImage[]) => boolean;
   onAnswer: (outputId: string, choice: number) => void;
+  // What the person tried here and couldn't do (a closed question, a refused send).
+  notice: string | null;
 };
 
 // One session's conversation as it happens: messages, Claude's text, and each
 // tool Claude runs, then a box to send it a message.
-export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend, onAnswer }: SessionViewProps) => {
+export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend, onAnswer, notice }: SessionViewProps) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastEntry = entries.at(-1);
   const scrollTrigger = `${entries.length}:${lastEntry?.entryId}:${lastEntry?.kind === "tool" ? lastEntry.outcome : ""}:${waitingPrompts.length}:${sessionRow?.decision !== undefined}`;
@@ -32,7 +34,8 @@ export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend, onAns
   const isWorking = sessionRow.state === "working";
   // Shown once the turn is over, so a click never lands mid-turn. While it's
   // shown, its question isn't shown again in the conversation.
-  const openDecision = sessionRow.state === "needs-you" ? sessionRow.decision : undefined;
+  // Not while Claude asks permission: a click then would only wait.
+  const openDecision = sessionRow.state === "needs-you" && !sessionRow.isPromptShowing ? sessionRow.decision : undefined;
 
   return (
     <div className="flex flex-1 flex-col gap-4 px-4 lg:px-6">
@@ -51,9 +54,16 @@ export const SessionView = ({ sessionRow, entries, waitingPrompts, onSend, onAns
         {isWorking && (
           <LoaderCircleIcon className="size-4 animate-spin text-muted-foreground" aria-label="Working" role="status" />
         )}
+        {sessionRow.isPromptShowing && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <SquareTerminalIcon className="size-4" aria-hidden />
+            Answer in the terminal
+          </p>
+        )}
         {openDecision && <DecisionCard key={openDecision.id} decision={openDecision} onChoose={(choice) => onAnswer(openDecision.id, choice)} />}
         <div ref={bottomRef} />
       </div>
+      {notice && <p className="text-sm text-destructive">{notice}</p>}
       <MessageComposer onSend={onSend} />
     </div>
   );

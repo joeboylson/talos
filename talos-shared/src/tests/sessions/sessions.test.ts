@@ -350,3 +350,21 @@ describe("mergeSessionEntries edge cases", () => {
     expect(merged.map((entry) => entry.entryId)).toEqual(["t1", "x"]);
   });
 });
+
+test("dropped markers the cap leaves out don't take real entries' places", () => {
+  const real = Array.from({ length: 500 }, (_, index) => ({ kind: "text" as const, entryId: `t${index}`, position: index, text: "x" }));
+  const markers = (batch: number) => Array.from({ length: 10 }, (_, index) => ({ kind: "dropped" as const, entryId: `dropped:${batch}-${index}`, droppedKind: "text", reason: "bad", position: 500 + batch * 10 + index }));
+  const merged = [0, 1, 2, 3, 4].reduce((kept, batch) => mergeSessionEntries(kept, markers(batch), 500), real as Parameters<typeof mergeSessionEntries>[0]);
+  expect(merged.filter(({ kind }) => kind === "dropped")).toHaveLength(20);
+  expect(merged.filter(({ kind }) => kind === "text")).toHaveLength(480);
+});
+
+test.each(["", "!!!!", "A", "data:image/png;base64,AAAA", "-_-_"])("image data that isn't base64 (%p) is turned down", (dataBase64) => {
+  expect(readSentImages([{ mediaType: "image/png", dataBase64 }])).toBeNull();
+});
+
+test("whether a session's turn is over is kept when sent, and left out when not", () => {
+  const session = { sessionName: "s", folderName: "f", state: "needs-you", asks: {}, openOutputs: [] };
+  expect(readSessionList([{ ...session, isTurnOver: false }])?.[0]?.isTurnOver).toBe(false);
+  expect(readSessionList([session])?.[0]).not.toHaveProperty("isTurnOver");
+});

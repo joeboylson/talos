@@ -9,21 +9,25 @@ export type Folder = { folderName: string; path: string };
 // rename-folder: the owner renamed one of its folders; the machine keeps its
 // folders, so it makes the change and sends its new list.
 // start-, send-to- and stop-session: the owner, from the page.
+// requestId: names the page's request a command came from, so what didn't
+// happen is shown on that page only. The server makes its own for the machine.
+type Request = { requestId?: string };
+
 export type ServerToMachine =
   | { type: "ping"; id: string }
   | { type: "machine-name"; machineName: string }
   | { type: "rename-folder"; folderName: string; newFolderName: string }
-  | { type: "start-session"; folderName: string; sessionName: string }
-  | { type: "send-to-session"; sessionName: string; text: string; images: SentImage[] }
-  | { type: "ask-for-output"; sessionName: string; kind: string }
-  | { type: "answer-output"; sessionName: string; outputId: string; choice: number }
-  | { type: "stop-session"; sessionName: string };
+  | ({ type: "start-session"; folderName: string; sessionName: string } & Request)
+  | ({ type: "send-to-session"; sessionName: string; text: string; images: SentImage[] } & Request)
+  | ({ type: "ask-for-output"; sessionName: string; kind: string } & Request)
+  | ({ type: "answer-output"; sessionName: string; outputId: string; choice: number } & Request)
+  | ({ type: "stop-session"; sessionName: string } & Request);
 
 // error: something the owner asked for didn't happen, like an answer to a
 // question that has closed. The server shows it on the owner's pages.
 export type MachineToServer =
   | { type: "pong"; id: string }
-  | { type: "error"; message: string }
+  | ({ type: "error"; message: string } & Request)
   | { type: "folders"; folders: Folder[] }
   | { type: "sessions"; sessions: SessionSummary[] }
   | { type: "session-entries"; sessionName: string; entries: SessionEntry[] };
@@ -47,17 +51,17 @@ export type MachineSummary = {
 // A new session's name is optional: the machine names it after its folder.
 export type PageToServer =
   | { type: "ping"; machineId?: string }
-  | { type: "start-session"; machineId: string; folderName: string; sessionName?: string }
-  | { type: "send-to-session"; machineId: string; sessionName: string; text: string; images?: SentImage[] }
-  | { type: "ask-for-output"; machineId: string; sessionName: string; kind: string }
-  | { type: "answer-output"; machineId: string; sessionName: string; outputId: string; choice: number }
-  | { type: "stop-session"; machineId: string; sessionName: string };
+  | ({ type: "start-session"; machineId: string; folderName: string; sessionName?: string } & Request)
+  | ({ type: "send-to-session"; machineId: string; sessionName: string; text: string; images?: SentImage[] } & Request)
+  | ({ type: "ask-for-output"; machineId: string; sessionName: string; kind: string } & Request)
+  | ({ type: "answer-output"; machineId: string; sessionName: string; outputId: string; choice: number } & Request)
+  | ({ type: "stop-session"; machineId: string; sessionName: string } & Request);
 
 export type ServerToPage =
   | { type: "machines"; machines: MachineSummary[] }
   | { type: "pong"; machineId: string; machineName: string; roundTripMs: number }
   | { type: "session-entries"; machineId: string; sessionName: string; entries: SessionEntry[] }
-  | { type: "error"; message: string };
+  | ({ type: "error"; message: string } & Request);
 
 export type Message = ServerToMachine | MachineToServer | PageToServer | ServerToPage;
 

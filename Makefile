@@ -51,9 +51,10 @@ example: node_modules
 # Runs every talos-sessions example's live check against real Claude (costs
 # Claude turns). LIVE_ONLY=<name> runs one; MODE=record saves each run.
 live-examples: node_modules
-	@for example in receipts recipes explorer; do \
-	  case "$$example" in *"$(LIVE_ONLY)"*) bun talos/src/talos-sessions/examples/$$example/live-check.ts || exit 1;; esac; \
-	done
+	@ran=0; for example in receipts recipes explorer; do \
+	  case "$$example" in *"$(LIVE_ONLY)"*) ran=1; bun talos/src/talos-sessions/examples/$$example/live-check.ts || exit 1;; esac; \
+	done; \
+	if [ $$ran = 0 ]; then echo "no example matches LIVE_ONLY=$(LIVE_ONLY)"; exit 1; fi
 
 # talos-sessions' own check: typecheck alone, its tests and its examples'.
 # make test runs it too.
@@ -83,8 +84,10 @@ install:
 typecheck: node_modules
 	bun run typecheck
 
+# CI=true makes a stray test.only fail here as it does in CI, instead of
+# quietly skipping the tests beside it.
 test: node_modules
-	bun run test
+	CI=true bun run test
 
 # Checks the tables against a throwaway AWS emulator on its own port (the real
 # dev setup is left alone): each table's key, save then find, and sign-out's

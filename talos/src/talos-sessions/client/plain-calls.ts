@@ -6,6 +6,7 @@ import type { SentImage, SessionSummary } from "../shapes";
 import { readSessionList } from "../shapes";
 import { parseJsonOrNull } from "../json";
 import { ensureRunnerRunning, followRunnerEvents, isRunnerRunning, postToRunner, runnerFetch } from "./runner-client";
+import { TERMINAL_RESET, isCtrlKey } from "../terminal";
 import { RUNNER_ROUTES, readRefusal, sessionRoute, type Refusal, type RunnerEvent } from "./runner-protocol";
 
 export type Result = { ok: true } | ({ ok: false } & Refusal);
@@ -55,13 +56,14 @@ export const connectToSessions = ({ home, runnerScript }: { home: string; runner
       const finish = (how: "detached" | "ended") => {
         input.off("data", onKeys);
         output.off("resize", matchSize);
+        output.write(TERMINAL_RESET);
         input.setRawMode(false);
         input.pause();
         void reader.cancel().catch(() => {});
         resolve({ ok: true, how });
       };
       const onKeys = (chunk: Buffer) => {
-        if (chunk.includes(detachKey)) return finish("detached");
+        if (isCtrlKey(chunk, detachKey)) return finish("detached");
         pendingKeys = pendingKeys.then(() => keys(sessionName, chunk)).catch(() => {});
       };
       input.setRawMode(true);
@@ -77,8 +79,8 @@ export const connectToSessions = ({ home, runnerScript }: { home: string; runner
     });
   };
 
-  // ended settles when the stream ends on its own (or after stop), and rejects
-  // when it breaks.
+  // ended settles when the stream ends (the session runner stopped, or after
+  // stop), and rejects only when it can't connect.
   const follow = (onEvent: (runnerEvent: RunnerEvent) => void) => {
     const controller = new AbortController();
     const ended = followRunnerEvents(home, onEvent, controller.signal).catch((error: unknown) => {

@@ -67,6 +67,10 @@ describe("removeAnsweredPrompt", () => {
   test("matches a saved message that ends in spaces or a new line", () => {
     expect(removeAnsweredPrompt([waiting("hi")], saved("hi \n"))).toEqual([]);
   });
+
+  test("matches a message with control characters the session runner strips (copied terminal colours)", () => {
+    expect(removeAnsweredPrompt([waiting("\x1b[31merror\x1b[0m\fhere")], saved("[31merror[0mhere"))).toEqual([]);
+  });
 });
 
 test("buildSessionRows carries a session's reported status", () => {

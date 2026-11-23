@@ -8,11 +8,11 @@ const NOW_MS = 1_000_000;
 const LATER_MS = NOW_MS + 60_000;
 const JOE = { personId: "person-1", signInId: "github-id:34290408", displayName: "joeboylson" };
 const ISSUED_MS = NOW_MS - 1000;
-const until = (expiresAtMs: number) => ({ issuedAtMs: ISSUED_MS, expiresAtMs });
+const until = (expiresAtMs: number) => ({ issuedAtMs: ISSUED_MS, expiresAtMs, signOutCount: 0 });
 
 test("reads back the person from a fresh token", () => {
   const sessionToken = createSessionToken(JOE, until(LATER_MS), SECRET);
-  expect(readSessionClaim(sessionToken, SECRET, NOW_MS)).toEqual({ ...JOE, issuedAtMs: ISSUED_MS, expiresAtMs: LATER_MS });
+  expect(readSessionClaim(sessionToken, SECRET, NOW_MS)).toEqual({ ...JOE, issuedAtMs: ISSUED_MS, expiresAtMs: LATER_MS, signOutCount: 0 });
 });
 
 test("rejects an expired token", () => {
@@ -63,16 +63,16 @@ test("a session made before the new identity, with no issue time, no longer work
 });
 
 describe("isClaimStillValid", () => {
-  const claim = { ...JOE, issuedAtMs: ISSUED_MS, expiresAtMs: LATER_MS };
+  const claim = { ...JOE, issuedAtMs: ISSUED_MS, expiresAtMs: LATER_MS, signOutCount: 0 };
   const signIn = { signInId: JOE.signInId, personId: JOE.personId, displayName: "joeboylson", linkedAtMs: 0 };
 
   test("a session for a sign-in that still exists counts", () => {
     expect(isClaimStillValid(claim, signIn)).toBe(true);
   });
 
-  test("signing out ends sessions made before it, even copied cookies", () => {
-    expect(isClaimStillValid(claim, { ...signIn, sessionsEndedAtMs: ISSUED_MS })).toBe(false);
-    expect(isClaimStillValid(claim, { ...signIn, sessionsEndedAtMs: ISSUED_MS - 1 })).toBe(true);
+  test("signing out ends sessions made before it, even copied cookies, whatever the clock says", () => {
+    expect(isClaimStillValid(claim, { ...signIn, signOutCount: 1 })).toBe(false);
+    expect(isClaimStillValid({ ...claim, signOutCount: 1, issuedAtMs: 0 }, { ...signIn, signOutCount: 1 })).toBe(true);
   });
 
   test("a removed sign-in, or one now pointing at someone else, ends the session", () => {

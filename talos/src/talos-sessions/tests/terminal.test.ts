@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isCtrlKey,
   appendOutput,
   buildMessageWithImages,
   buildPastedText,
@@ -18,6 +19,14 @@ test("buildMessageWithImages puts each image's path after the text", () => {
   expect(buildMessageWithImages("", ["/u/a.png"])).toBe("/u/a.png");
 });
 
+test("appendOutput cut mid escape code or character starts at the next whole one", () => {
+  const screen = new TextEncoder().encode("\x1b[31mred\x1b[0m café\x1b[2Jnext");
+  const cutMidCode = appendOutput(new Uint8Array(), screen, screen.length - 2);
+  expect(new TextDecoder().decode(cutMidCode).startsWith("\x1b")).toBe(true);
+  const accented = new TextEncoder().encode("ééééé");
+  const cutMidCharacter = appendOutput(new Uint8Array(), accented, accented.length - 1);
+  expect(new TextDecoder().decode(cutMidCharacter)).toBe("éééé");
+});
 test("appendOutput keeps only the most recent bytes", () => {
   const output = appendOutput(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]), 4);
   expect([...output]).toEqual([2, 3, 4, 5]);
@@ -45,6 +54,8 @@ describe("isTurnChangingKeys", () => {
     ["Ctrl-C in modifyOtherKeys encoding", "\x1b[27;5;99~", true],
     ["an arrow key", "\x1b[A", false],
     ["Page Up", "\x1b[5~", false],
+    ["a paste of several lines", "\x1b[200~line one\rline two\x1b[201~", false],
+    ["Option-Enter, which only adds a line", "\x1b\r", false],
     ["plain letters", "abc", false],
     ["nothing", "", false],
   ])("%s → %p", (_name, keys, expected) => {
@@ -56,7 +67,8 @@ describe("isDraftChangingKeys", () => {
   test.each([
     ["a letter", "a", true],
     ["a pasted line", "fix the build", true],
-    ["Backspace", "\x7f", true],
+    ["Backspace, which only takes text away", "\x7f", false],
+    ["an empty paste", "\x1b[200~\x1b[201~", false],
     ["Up, recalling an old message", "\x1b[A", true],
     ["Down in application mode", "\x1bOB", true],
     ["a pasted block", "\x1b[200~two\rlines\x1b[201~", true],
@@ -78,6 +90,8 @@ describe("isDraftClearingKeys", () => {
     ["a line and Enter", "fix it\r", true],
     ["Ctrl-C", "\x03", true],
     ["Ctrl-C in kitty key encoding", "\x1b[99;5u", true],
+    ["Ctrl-U, which deletes the line", "abc\x15", true],
+    ["Esc twice", "\x1b\x1b", true],
     ["Option-Enter, which only adds a line", "\x1b\r", false],
     ["a pasted block with a line break", "\x1b[200~two\rlines\x1b[201~", false],
     ["a letter", "a", false],
@@ -106,5 +120,21 @@ describe("key edges", () => {
   test("an encoded Ctrl-C clears only when it's the last key", () => {
     expect(isDraftClearingKeys(keysOf("fix it\x1b[27;5;99~"))).toBe(true);
     expect(isDraftClearingKeys(keysOf("\x1b[99;5ufix it"))).toBe(false);
+  });
+});
+
+describe("isCtrlKey", () => {
+  const ctrlBackslash = 0x1c;
+  test.each([
+    ["the byte itself", "\x1c", true],
+    ["kitty key encoding", "\x1b[92;5u", true],
+    ["modifyOtherKeys encoding", "\x1b[27;5;92~", true],
+    ["another key", "\x1b[99;5u", false],
+    ["plain text", "a\\b", false],
+  ])("Ctrl-\\ as %s → %p", (_name, keys, expected) => {
+    expect(isCtrlKey(new TextEncoder().encode(keys), ctrlBackslash)).toBe(expected);
+  });
+  test("a letter's encoding names its lower case", () => {
+    expect(isCtrlKey(new TextEncoder().encode("\x1b[97;5u"), 0x01)).toBe(true);
   });
 });

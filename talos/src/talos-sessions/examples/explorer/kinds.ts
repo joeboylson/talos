@@ -12,7 +12,10 @@ const MAX_TEXT = 80;
 type Fields = Record<string, unknown>;
 const field = (input: unknown, name: string): unknown => (typeof input === "object" && input !== null ? Reflect.get(input, name) : undefined);
 const shortText = (value: unknown): string | null => (typeof value === "string" && value.length <= MAX_TEXT ? cleanLine(value) : null);
-const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+// Past this a number can't be drawn: a chart's range overflows, and its text
+// runs off the screen.
+const MAX_NUMBER = 1e15;
+const isNumber = (value: unknown): value is number => typeof value === "number" && Math.abs(value) <= MAX_NUMBER;
 const textList = (value: unknown, most: number): string[] | null => {
   if (!Array.isArray(value) || value.length === 0 || value.length > most) return null;
   const texts = value.map(shortText);

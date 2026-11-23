@@ -17,6 +17,8 @@ export const saysSomething = (text: string): boolean => /[\p{L}\p{N}]/u.test(tex
 
 // Text typed into a session as the person's own message, which Claude Code acts
 // on: / runs a slash command or skill, ! a shell command, # a memory note (at
-// the start), and @ attaches a file, / a skill (anywhere after a space).
+// the start), / a skill (anywhere after a space), and @ attaches a file. Claude
+// Code also reads an @ right after some punctuation (like 。 or ！) and may add
+// more, so any @ counts, even in an email address.
 // Check it on cleaned text, which is what gets typed.
-export const hasCommandMarker = (text: string): boolean => /(^|\s)[@/!#]/.test(text);
+export const hasCommandMarker = (text: string): boolean => /(^|\s)[/!#]|@/.test(text);

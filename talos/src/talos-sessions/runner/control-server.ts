@@ -1,19 +1,20 @@
 // The control socket: the routes talos (and only talos) uses to start, drive,
 // watch and stop sessions. A session is told the hooks socket instead, so a
 // prompt-injected session can't reach these.
+import { steadyNow } from "../constants";
 import { rm } from "node:fs/promises";
 import type { BunRequest } from "bun";
 import { isIdentifierName, readSentImages } from "../shapes";
 import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runner-protocol";
-import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
-import { endSession, startSession } from "./lifecycle";
+import { isDraftChangingKeys, isDraftClearingKeys, isInterruptKeys, isTurnChangingKeys } from "../terminal";
+import { endSession, startSession, waitForStart } from "./lifecycle";
 import { noSuchSession, refuse } from "./refuse";
-import { claudeConfigFile, isAllowedFolder, log, paths, restoresTrust } from "./inputs";
-import { restoreTrust } from "../claude/claude-trust";
+import { claudeConfigFile, log, paths, restoresTrust } from "./inputs";
+import { restoreTrust, type TrustChange } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
-import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
+import { answerOutput, applyLaneEvent, askForOutput, setSessionState } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
-import { eventListeners, heldSessions, listSessions, trustChanges } from "./store";
+import { eventListeners, heldSessions, isPromptShowing, listSessions, runnerState, startingSessions, trustChanges, typeInTurn } from "./store";
 
 const streamOf = <T>(
   onStart: (controller: ReadableStreamDefaultController<T>) => void,
@@ -73,18 +74,45 @@ const heldSessionOf = (request: BunRequest) => {
 };
 
 // Answers once every session has exited, then leaves: the answer has to go out
-// before the process does.
-const stopRunner = async () => {
-  log.event("runner: stopping, with every session it holds");
-  await Promise.all([...heldSessions.values()].map(endSession));
-  // Only once every session has exited: Claude Code writes its settings as it
-  // closes, which would undo a change made sooner.
-  if (restoresTrust()) await restoreTrust(trustChanges, claudeConfigFile()).catch((error: unknown) => log.warn(`runner: couldn't put trust back: ${error}`));
-  const { runnerSocket, hooksSocket } = paths();
-  await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
-  setTimeout(() => process.exit(0), 50);
+// before the process does. No new session starts meanwhile, and one already
+// starting is waited for, so it's ended too.
+let stopping: Promise<void> | null = null;
+export const stopRunner = async (): Promise<Response> => {
+  runnerState.isStopping = true;
+  stopping ??= (async () => {
+    log.event("runner: stopping, with every session it holds");
+    await Promise.all([...startingSessions.keys()].map(waitForStart));
+    await Promise.all([...heldSessions.values()].map(endSession));
+    // Only once every session has exited: Claude Code writes its settings as it
+    // closes, which would undo a change made sooner.
+    const isPutBack = await putTrustBack(trustChanges);
+    // The sockets, lock and trust record go only if they're still this
+    // runner's: a home deleted and started again belongs to the new runner now.
+    const { runnerSocket, hooksSocket, runnerLock } = paths();
+    const isOurs = await Bun.file(runnerLock).text().then((pid) => Number(pid) === process.pid, () => false);
+    if (isOurs && isPutBack) await forgetTrustChanges();
+    if (isOurs) await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true }), rm(runnerLock, { force: true })]);
+    setTimeout(() => process.exit(0), 50);
+  })();
+  await stopping;
   return new Response(null, { status: 204 });
 };
+
+// Puts back the trust answers given; false if it couldn't, so they're kept.
+export const putTrustBack = async (changes: readonly TrustChange[]): Promise<boolean> => {
+  if (!restoresTrust() || changes.length === 0) return true;
+  try {
+    await restoreTrust(changes, claudeConfigFile());
+    return true;
+  } catch (error) {
+    log.warn(`runner: couldn't put trust back: ${error}`);
+    return false;
+  }
+};
+
+// The record on disk, once everything in it is put back. Only the runner
+// holding the home's lock may do this.
+export const forgetTrustChanges = (): Promise<void> => rm(paths().trustChanges, { force: true });
 
 // Event and output streams stay open for as long as someone listens, so the
 // session runner turns off Bun's limit on quiet requests (0 = none). Bun's types don't
@@ -92,6 +120,12 @@ const stopRunner = async () => {
 export const controlServeOptions = (runnerSocket: string) => ({
   unix: runnerSocket,
   idleTimeout: 0,
+  // A route that fails (a full disk) says why, and the log keeps it, instead of
+  // Bun's error page.
+  error: (error: Error) => {
+    log.warn(`runner: a request failed: ${error}`);
+    return new Response(`the session runner failed: ${error.message}`, { status: 500 });
+  },
   maxRequestBodySize: SESSION_LIMITS.maxControlBodyBytes,
   routes: {
     [RUNNER_ROUTES.health]: new Response("ok"),
@@ -103,9 +137,6 @@ export const controlServeOptions = (runnerSocket: string) => ({
         const { sessionName, folderName, path } = await readJson(request);
         const isRequest = isIdentifierName(sessionName) && isIdentifierName(folderName) && typeof path === "string";
         if (!isRequest) return new Response("expected plain sessionName and folderName, and a path", { status: 400 });
-        // The session runner checks the folder list itself, so nothing that reaches its
-        // socket can start Claude (and mark it trusted) in any other folder.
-        if (!(await isAllowedFolder(folderName, path))) return refuse("folder-not-allowed", `${path} isn't one of the allowed folders`, 403);
         return startSession({ sessionName, folderName, path });
       },
     },
@@ -122,6 +153,8 @@ export const controlServeOptions = (runnerSocket: string) => ({
     },
     [`${RUNNER_ROUTES.sessions}/:sessionName/stop`]: {
       POST: async (request: BunRequest) => {
+        // A session still starting is stopped once it has.
+        if (isIdentifierName(sessionNameOf(request))) await waitForStart(sessionNameOf(request));
         const session = heldSessionOf(request);
         if (!session) return noSuchSession(sessionNameOf(request));
         await endSession(session);
@@ -146,14 +179,22 @@ export const controlServeOptions = (runnerSocket: string) => ({
         const keys = new Uint8Array(await request.arrayBuffer());
         const session = heldSessionOf(request);
         if (!session) return noSuchSession(sessionNameOf(request));
+        const { sessionName } = session.summary;
+        // Keys at a permission prompt answer the prompt: they're neither a draft
+        // nor the person starting a turn, so what talos holds keeps waiting.
+        const isPrompt = isPromptShowing(session);
         // A terminal sends reports (like focus in or out) as input on its own, so
         // only keys that change the turn or the draft count as the person typing.
-        const isTurnChanging = isTurnChangingKeys(keys);
-        const isDraftChanging = isDraftChangingKeys(keys);
+        const isTurnChanging = !isPrompt && isTurnChangingKeys(keys);
+        const isDraftChanging = !isPrompt && isDraftChangingKeys(keys);
         const hasDraft = isDraftClearingKeys(keys) ? false : isDraftChanging || session.hasDraft;
-        heldSessions.set(session.summary.sessionName, { ...session, hasDraft });
-        if (isTurnChanging || isDraftChanging) applyLaneEvent(session.summary.sessionName, { type: "person-typed", isTurnChanging });
-        session.terminal.write(keys);
+        heldSessions.set(sessionName, { ...session, hasDraft, draftAtMs: isDraftChanging ? steadyNow() : session.draftAtMs });
+        if (isTurnChanging || isDraftChanging) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging });
+        // An interrupted turn gets no Stop, so the interrupt is its end. Until
+        // it's ready there's no turn yet: Esc then dismisses a startup screen.
+        if (isInterruptKeys(keys) && !session.isTurnOver && session.hasStarted && session.summary.state !== "starting") setSessionState(sessionName, session.summary.openOutputs.length > 0 ? "needs-you" : "idle", true);
+        // Written in its turn, so it can't land inside a paste talos is typing.
+        await typeInTurn(session.summary.sessionName, async () => session.terminal.write(keys));
         return new Response(null, { status: 204 });
       },
     },

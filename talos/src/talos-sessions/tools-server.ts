@@ -35,6 +35,9 @@ const fetchTools = async (waitMs = FIRST_RETRY_MS): Promise<ListedTool[]> => {
 const tools = sessionName && runnerSocket ? fetchTools() : Promise.resolve([]);
 
 const reply = (id: unknown, result: unknown) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+const METHOD_NOT_FOUND = -32601;
+const replyError = (id: unknown, code: number, message: string) =>
+  process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } })}\n`);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const failed = (text: string) => ({ content: [{ type: "text", text }], isError: true });
@@ -57,7 +60,12 @@ for await (const line of console) {
   } catch {
     continue;
   }
+  // Only a request object counts; anything else (null, a list) is skipped
+  // rather than ending the server and the session's tools with it.
+  if (typeof message !== "object" || message === null || Array.isArray(message)) continue;
   const { id, method, params } = message;
+  // A notification (no id) gets no answer.
+  if (id === undefined) continue;
   if (method === "initialize") {
     reply(id, { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: TALOS_MCP_SERVER_KEY, version: SERVER_VERSION } });
   } else if (method === "tools/list") {
@@ -66,7 +74,11 @@ for await (const line of console) {
     void tools.then((listed) => reply(id, answerToolCall(listed, params?.name, params?.arguments)));
   } else if (method === "ping") {
     reply(id, {});
-  } else if (id !== undefined) {
-    reply(id, {});
+  } else {
+    replyError(id, METHOD_NOT_FOUND, `no method ${String(method)}`);
   }
 }
+
+// Claude Code closed its end: the session is over, so this ends too, even
+// while it's still waiting on a session runner that never answered.
+process.exit(0);

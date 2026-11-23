@@ -11,7 +11,7 @@ import { cookieName, readCookie } from "./utils/cookies";
 // A signed cookie alone isn't enough: its sign-in must still exist, belong to
 // the same person, and not have been signed out since the cookie was made.
 export const isClaimStillValid = (claim: SessionClaim, signIn: SignInRecord | null): boolean =>
-  signIn !== null && signIn.personId === claim.personId && claim.issuedAtMs > (signIn.sessionsEndedAtMs ?? 0);
+  signIn !== null && signIn.personId === claim.personId && claim.signOutCount === (signIn.signOutCount ?? 0);
 
 export const createRequestChecks = (config: ServerConfig, signInsTable: SignInsTable) => {
   const adminSignInId = buildGithubSignInId(config.adminGithubId);

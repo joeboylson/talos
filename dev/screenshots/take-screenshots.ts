@@ -18,7 +18,7 @@ const SETTLE_MS = 800;
 // admin gets a sign-in there first (in the throwaway server's emulator).
 const ADMIN = { personId: "joe", signInId: "github-id:34290408", displayName: "joeboylson" };
 await createSignInsTable(createDocumentClient(true), "talos-sign-ins").saveSignIn({ ...ADMIN, linkedAtMs: Date.now() });
-const adminSession = createSessionToken(ADMIN, { issuedAtMs: Date.now(), expiresAtMs: Date.now() + 600_000 }, SESSION_SECRET);
+const adminSession = createSessionToken(ADMIN, { issuedAtMs: Date.now(), expiresAtMs: Date.now() + 600_000, signOutCount: 0 }, SESSION_SECRET);
 const pageHeaders = { Cookie: `talos_session=${adminSession}`, Origin: SERVER, "Content-Type": "application/json" };
 
 const postJson = async (path: string, body: unknown, headers: Record<string, string> = { "Content-Type": "application/json" }) =>

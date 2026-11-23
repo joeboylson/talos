@@ -54,14 +54,14 @@ describe("sign-ins", () => {
     expect(await signInsTable.findSignIn("github-id:1")).toBeNull();
   });
 
-  test("signing out records when, and keeps the rest of the sign-in", async () => {
-    await signInsTable.endSessions(signIn.signInId, 1000);
-    await signInsTable.endSessions(signIn.signInId, 2000);
-    expect(await signInsTable.findSignIn(signIn.signInId)).toEqual({ ...signIn, sessionsEndedAtMs: 2000 });
+  test("each sign out counts, and keeps the rest of the sign-in", async () => {
+    await signInsTable.endSessions(signIn.signInId);
+    await signInsTable.endSessions(signIn.signInId);
+    expect(await signInsTable.findSignIn(signIn.signInId)).toEqual({ ...signIn, signOutCount: 2 });
   });
 
   test("signing out a sign-in that doesn't exist fails and makes no row", async () => {
-    await expect(signInsTable.endSessions("github-id:404", 1000)).rejects.toBeInstanceOf(ConditionalCheckFailedException);
+    await expect(signInsTable.endSessions("github-id:404")).rejects.toBeInstanceOf(ConditionalCheckFailedException);
     expect(await signInsTable.findSignIn("github-id:404")).toBeNull();
   });
 });

@@ -2,7 +2,7 @@
 // build is the same, and the live check can trust its own queries against it.
 // Run: bun build.ts (from this folder).
 import { Database } from "bun:sqlite";
-import { rmSync } from "node:fs";
+import { renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 // A small seeded random number generator (mulberry32), so the data never changes.
@@ -35,8 +35,19 @@ const LAST = ["Shaw", "Patel", "Okoro", "Byrne", "Novak", "Reyes", "Kaur", "Lund
 // More sales towards the end of the year, most in December.
 const MONTH_WEIGHTS = [0.7, 0.6, 0.8, 0.8, 0.9, 0.85, 0.8, 0.75, 1.0, 1.1, 1.4, 2.0];
 
+// Built in a file of its own and swapped in whole, so a build that fails or
+// overlaps another never leaves a broken shop.db in place of the good one.
 export const buildShop = (file: string) => {
-  rmSync(file, { force: true });
+  const building = `${file}.${process.pid}-${crypto.randomUUID()}.building`;
+  try {
+    buildInto(building);
+    renameSync(building, file);
+  } finally {
+    rmSync(building, { force: true });
+  }
+};
+
+const buildInto = (file: string) => {
   const random = seeded(2025);
   const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
   const db = new Database(file);

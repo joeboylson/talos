@@ -24,6 +24,10 @@ export type SessionSummary = {
   state: SessionState;
   asks: Record<string, Ask>;
   openOutputs: OpenOutput[];
+  // Whether the turn is over: "needs-you" with it over is a question waiting
+  // for its answer; with it running, a permission prompt in the terminal.
+  // Missing (an older sender) counts as over.
+  isTurnOver?: boolean;
 };
 
 // A question the session asked the person while working, with the choices it
@@ -160,7 +164,15 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
   // Each session is checked on its own: a bad one is left out, not the whole list.
   return value.filter(isSession).map((item) => {
     const { sessionName, folderName, state } = item as SessionSummary;
-    return { sessionName, folderName, state, asks: readAsks(fieldOf(item as object, "asks")), openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")) };
+    const isTurnOver = fieldOf(item as object, "isTurnOver");
+    return {
+      sessionName,
+      folderName,
+      state,
+      asks: readAsks(fieldOf(item as object, "asks")),
+      openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")),
+      ...(typeof isTurnOver === "boolean" && { isTurnOver }),
+    };
   });
 };
 
@@ -259,6 +271,9 @@ export const readSessionEntries = (value: unknown): SessionEntry[] | null => {
   return capDroppedMarkers(entries, LIMITS.maxDroppedPerBatch);
 };
 
+// Real base64 only, so junk can't be saved and pasted as an image.
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const isBase64Data = (value: unknown): boolean => typeof value === "string" && value.length > 0 && BASE64.test(value);
 export const readSentImages = (value: unknown): SentImage[] | null => {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > LIMITS.maxImagesPerMessage) return null;
@@ -266,7 +281,8 @@ export const readSentImages = (value: unknown): SentImage[] | null => {
     typeof item === "object" &&
     item !== null &&
     isOneOf(IMAGE_MEDIA_TYPES, fieldOf(item, "mediaType")) &&
-    isTextUpTo(fieldOf(item, "dataBase64"), LIMITS.maxImageBase64Length);
+    isTextUpTo(fieldOf(item, "dataBase64"), LIMITS.maxImageBase64Length) &&
+    isBase64Data(fieldOf(item, "dataBase64"));
   if (!value.every(isImage)) return null;
   return value.map(({ mediaType, dataBase64 }) => ({ mediaType, dataBase64 }));
 };
@@ -298,6 +314,7 @@ export const mergeSessionEntries = (keptEntries: SessionEntry[], newEntries: Ses
   const entryById = new Map(keptEntries.map((entry) => [entry.entryId, entry]));
   newEntries.filter(hasEntryId).forEach((entry) => entryById.set(entry.entryId, entry));
   const inConversationOrder = [...entryById.values()].sort((first, second) => first.position - second.position);
-  return capDroppedMarkers(keepNewestWithinTextBudget(inConversationOrder.slice(-maxKept)), LIMITS.maxDroppedKept);
+  // Markers are capped first, so ones the cap drops don't take real entries' places.
+  return keepNewestWithinTextBudget(capDroppedMarkers(inConversationOrder, LIMITS.maxDroppedKept).slice(-maxKept));
 };
 

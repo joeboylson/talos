@@ -52,7 +52,7 @@ export type LaneStep = {
 };
 
 const RUNNER_UNREACHABLE_REASON = "talos can't record that right now.";
-const TOO_BIG_REASON = "This tool call is too big for talos to check.";
+const TOO_BIG_REASON = "talos couldn't check this tool call (too big, or no answer in time); try again.";
 type RunningLane = Extract<Lane, { stage: "asking" | "answered" }>;
 const isAskedTurnRunning = (lane: Lane): lane is RunningLane => lane.stage === "asking" || lane.stage === "answered";
 
@@ -117,7 +117,8 @@ export const hookReplyFromRunner = (hookDetails: unknown, reply: string): string
 };
 
 // What hook.ts prints when the session runner turned the hook down as too big to
-// read: a tool call talos couldn't check doesn't run, since in an asked-for turn it must not.
+// read, or didn't answer it: a tool call talos couldn't check doesn't run, since
+// in an asked-for turn it must not.
 export const hookReplyWhenTooBig = (hookDetails: unknown): string =>
   readLaneEvent(hookDetails)?.type === "pre-tool-use" ? denyToolDecision(TOO_BIG_REASON) : "";
 
@@ -151,6 +152,10 @@ const hasForbiddenCommand = (kind: OutputKind, fields: Record<string, unknown>):
   });
 const isTooBig = (fields: Record<string, unknown>): boolean => jsonByteLength(fields) > SESSION_LIMITS.maxOutputFieldsBytes;
 
+// Only a plain object of fields can be kept and shown; anything else a
+// program's check gives back is turned down, not lost after it's allowed.
+const isPlainFields = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
 // A turn may send what its shape allows. It's allowed with a fresh id and stays
 // pending; an asked-for turn is answered only once it goes through.
 const stepStructuredCall = (lane: Lane, kind: OutputKind, event: Extract<LaneEvent, { type: "pre-tool-use" }>, nowMs: number, catalog: Catalog): LaneStep => {
@@ -158,8 +163,8 @@ const stepStructuredCall = (lane: Lane, kind: OutputKind, event: Extract<LaneEve
   if (shape.output !== kind.kind && !shape.optional.includes(kind.kind)) {
     return stay(lane, denyToolDecision(isAskedTurnRunning(lane) ? onlyThisReason(askedToolName(lane, catalog)) : notNowReason(kind)));
   }
-  const fields = kind.readFields(event.toolInput);
-  if (!fields || hasForbiddenCommand(kind, fields) || isTooBig(fields)) return stay(lane, denyToolDecision(kind.badInputReason));
+  const fields: unknown = kind.readFields(event.toolInput);
+  if (!isPlainFields(fields) || hasForbiddenCommand(kind, fields) || isTooBig(fields)) return stay(lane, denyToolDecision(kind.badInputReason));
   const sent = { id: event.outputId, toolUseId: event.toolUseId, kind: kind.kind, fields, atMs: nowMs, waits: kind.waits };
   return { ...stay(lane, allowWithIdDecision(fields, event.outputId)), sent };
 };

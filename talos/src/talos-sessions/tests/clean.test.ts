@@ -17,6 +17,15 @@ describe("cleanLine", () => {
   });
 });
 
+describe("hasCommandMarker", () => {
+  test.each(["/clear", "ok !rm", "#note", "@file", "ok。@~/.ssh/id_rsa", "yes！@\"/a b.txt\"", "a、@x", "joe@example.com"])("%p could act in Claude Code", (text) => {
+    expect(hasCommandMarker(text)).toBe(true);
+  });
+  test.each(["Business", "Personal", "a/b", "50% off!", "＠full-width"])("%p is plain text", (text) => {
+    expect(hasCommandMarker(text)).toBe(false);
+  });
+});
+
 describe("saysSomething", () => {
   test.each([
     ["...", false],

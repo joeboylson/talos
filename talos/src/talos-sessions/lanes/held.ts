@@ -36,8 +36,10 @@ export const readAnswer = (
 };
 
 // Held answers and a queued ask go out one per settle, oldest first. A draft in
-// the input box keeps answers waiting (the queued ask ends on its own then).
+// the input box keeps answers waiting (the queued ask ends on its own then), and
+// so does a running asked-for turn, which only its own kind's tool may answer.
 export const nextToType = (lane: Lane, held: readonly HeldAnswer[], hasDraft: boolean): "ask" | HeldAnswer | null => {
+  if (lane.stage === "asking") return null;
   const oldest = held[0];
   const isAskFirst = lane.stage === "queued" && (!oldest || lane.askedAtMs <= oldest.heldAtMs);
   if (isAskFirst) return "ask";

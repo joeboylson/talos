@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 // The module's home: the folder it keeps its own files in, handed to it by the
 // program using it (talos's is ~/.talos; an example's is its run/ folder). Only
@@ -49,9 +49,12 @@ export const TOOL_SUMMARY_SHOWN_LENGTH = 300;
 export const UPLOAD_FILE_MODE = 0o600;
 
 // Everything the module keeps in its home. Images sent with a message go in
-// uploads/, one folder per session, deleted when the session ends; Claude Code
-// reads them from their path.
-export const homePaths = (home: string) => ({
+// uploads/, one folder per session, which keeps the newest 20 and goes when
+// the session ends; Claude Code reads them from their path. A relative home is made whole first: sessions
+// run in their own folders, where it would point somewhere else.
+export const homePaths = (givenHome: string) => {
+  const home = resolve(givenHome);
+  return {
   home,
   runnerSocket: join(home, "runner.sock"),
   hooksSocket: join(home, "runner-hooks.sock"),
@@ -59,9 +62,24 @@ export const homePaths = (home: string) => ({
   mcpConfig: join(home, "mcp-config.json"),
   uploads: join(home, "uploads"),
   quarantine: join(home, "quarantine.log"),
-});
+  // The trust answers to put back, kept on disk so a runner that crashed or was
+  // killed puts them back when the next one starts.
+  trustChanges: join(home, "trust-changes.json"),
+  // The process group of each session's Claude, so a runner that dies outright
+  // leaves the next one able to end what its sessions started.
+  sessionGroups: join(home, "session-groups.json"),
+  // The live runner's process id: only one runner may hold a home.
+  runnerLock: join(home, "runner.lock"),
+  };
+};
 export type HomePaths = ReturnType<typeof homePaths>;
 
 // Claude Code takes a moment to load a pasted image; Enter pressed before
 // that is lost, and the message with it.
 export const IMAGE_PASTE_SETTLE_MS = 1000;
+
+// The time for every wait and order the runner keeps in memory (times saved to
+// disk use the wall clock, since another process reads them): like Date.now() when the
+// runner starts, but it only moves forward, so the system clock jumping back
+// (or a person changing it) can't stretch a wait or reorder what was asked.
+export const steadyNow = (): number => performance.timeOrigin + performance.now();

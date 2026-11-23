@@ -28,7 +28,7 @@ const readAnswer = (message: object): { outputId: string; choice: number } | nul
 const typeOf = (value: unknown): { message: object; type: unknown } | null =>
   typeof value === "object" && value !== null ? { message: value, type: fieldOf(value, "type") } : null;
 
-export const readPageToServer = (value: unknown): PageToServer | null => {
+const readPageCommand = (value: unknown): PageToServer | null => {
   const read = typeOf(value);
   if (!read) return null;
   const { message, type } = read;
@@ -66,7 +66,7 @@ export const readPageToServer = (value: unknown): PageToServer | null => {
   return text !== null && images ? { type, machineId, sessionName, text, images } : null;
 };
 
-export const readServerToMachine = (value: unknown): ServerToMachine | null => {
+const readMachineCommand = (value: unknown): ServerToMachine | null => {
   const read = typeOf(value);
   if (!read) return null;
   const { message, type } = read;
@@ -107,6 +107,23 @@ export const readServerToMachine = (value: unknown): ServerToMachine | null => {
   return text !== null && images ? { type, sessionName, text, images } : null;
 };
 
+// A request's id goes along when it's a short text; anything else is left off.
+const withRequestId = <T extends object>(message: object, read: T): T => {
+  const requestId = fieldOf(message, "requestId");
+  return isShortText(requestId, LIMITS.maxIdTextLength) ? { ...read, requestId } : read;
+};
+const isSessionCommand = (read: { type: string }) => ["start-session", "send-to-session", "ask-for-output", "answer-output", "stop-session"].includes(read.type);
+
+export const readPageToServer = (value: unknown): PageToServer | null => {
+  const read = readPageCommand(value);
+  return read && isSessionCommand(read) ? withRequestId(value as object, read) : read;
+};
+
+export const readServerToMachine = (value: unknown): ServerToMachine | null => {
+  const read = readMachineCommand(value);
+  return read && isSessionCommand(read) ? withRequestId(value as object, read) : read;
+};
+
 export const readMachineToServer = (value: unknown): MachineToServer | null => {
   const read = typeOf(value);
   if (!read) return null;
@@ -118,7 +135,7 @@ export const readMachineToServer = (value: unknown): MachineToServer | null => {
   }
   if (type === "error") {
     const text = fieldOf(message, "message");
-    return isShortText(text, LIMITS.maxMachineErrorLength) ? { type, message: text } : null;
+    return isShortText(text, LIMITS.maxMachineErrorLength) ? withRequestId(message, { type: "error" as const, message: text }) : null;
   }
   if (type === "folders") {
     const folders = readFolderList(fieldOf(message, "folders"));

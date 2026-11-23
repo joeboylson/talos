@@ -1,6 +1,6 @@
 // A session's state and its lane: every change to either goes through here.
 import { mergeSessionEntries, type SessionEntry, type SessionState, type SessionSummary } from "../shapes";
-import { READY_CHECK_MS, READY_QUIET_MS } from "../constants";
+import { READY_CHECK_MS, READY_QUIET_MS, steadyNow } from "../constants";
 import { findKind } from "../kinds";
 import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
 import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
@@ -9,7 +9,8 @@ import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held
 import { ENTER_KEY, ESC_KEY, ESC_PAUSE_MS, buildPastedText } from "../terminal";
 import { catalog, log } from "./inputs";
 import { noSuchSession, refuse } from "./refuse";
-import { broadcast, broadcastSessions, heldSessions, updateHeldSession, type HeldSession } from "./store";
+import { broadcast, broadcastSessions, heldSessions, typeInTurn, updateHeldSession, type HeldSession } from "./store";
+import { typeIntoSession } from "./messages";
 
 // The summary shows each ask's state and latest answer, and the open outputs.
 const withAsk = (summary: SessionSummary, change: LaneStep["askChange"]): SessionSummary => {
@@ -55,16 +56,27 @@ const saveSession = (sessionName: string, session: HeldSession, changes: Partial
 
 // What talos itself types (a request, an answer) only goes in once the turn is
 // over, and Esc first, so even a forged "turn over" can at worst refuse a
-// permission prompt, never approve one.
-const typeTalosText = async (session: HeldSession, text: string): Promise<void> => {
-  session.terminal.write(ESC_KEY);
-  await Bun.sleep(ESC_PAUSE_MS);
-  session.terminal.write(buildPastedText(text));
-  session.terminal.write(ENTER_KEY);
-};
+// permission prompt, never approve one. Typing starts a turn, so nothing else
+// talos holds goes in until that turn is over too.
+// shortcut: if what's typed never starts a turn, the session shows working until
+// its next hook; upgrade when Claude Code gives a real end-of-turn signal.
+// It waits its turn with whatever else types into the session (typeInTurn), and
+// gives way (false) if the person has started typing by then.
+const typeTalosText = (sessionName: string, session: HeldSession, text: string): Promise<boolean> =>
+  typeInTurn(sessionName, async () => {
+    const current = heldSessions.get(sessionName);
+    if (current?.hookToken !== session.hookToken || current.hasDraft) return false;
+    setSessionState(sessionName, "working", false);
+    updateHeldSession(sessionName, session.hookToken, { isTalosTypedNext: true });
+    session.terminal.write(ESC_KEY);
+    await Bun.sleep(ESC_PAUSE_MS);
+    session.terminal.write(buildPastedText(text));
+    session.terminal.write(ENTER_KEY);
+    return true;
+  });
 
 const notify = (sessionName: string, dropped: readonly HeldAnswer[]): void => {
-  if (dropped.length > 0) broadcast({ type: "notice", sessionName, message: "An answer was dropped: its question closed first" });
+  if (dropped.length > 0) broadcast({ type: "notice", sessionName, message: "An answer was dropped: its question closed, or the session never settled" });
 };
 
 // Every lane change goes through here: step the lane, then apply what the step
@@ -72,13 +84,20 @@ const notify = (sessionName: string, dropped: readonly HeldAnswer[]): void => {
 export const applyLaneEvent = (sessionName: string, event: LaneEvent): string => {
   const session = heldSessions.get(sessionName);
   if (!session) return "";
-  const nowMs = Date.now();
+  const nowMs = steadyNow();
   const step = stepLane(session.lane, event, nowMs, catalog());
   const outputs = step.sent ? stepOutputs(session.outputs, { type: "sent", output: step.sent }).outputs : session.outputs;
   const heldAnswers = event.type === "tick" ? keptHeld(session.heldAnswers, [], nowMs) : session.heldAnswers;
-  saveSession(sessionName, session, { lane: step.lane, outputs, heldAnswers, summary: withAsk(session.summary, step.askChange) });
+  const isPersonTurn = event.type === "person-typed" && event.isTurnChanging;
+  const isTalosTypedNext = session.isTalosTypedNext && !isPersonTurn;
+  saveSession(sessionName, session, { lane: step.lane, outputs, heldAnswers, isTalosTypedNext, summary: withAsk(session.summary, step.askChange) });
   notify(sessionName, session.heldAnswers.filter((answer) => !heldAnswers.includes(answer)));
-  if (step.requestToType) void typeTalosText(session, step.requestToType);
+  // A request that gave way to the person's typing ends its ask, as their typing would.
+  if (step.requestToType) {
+    void typeTalosText(sessionName, session, step.requestToType).then(
+      (isTyped) => isTyped || void applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true }),
+    );
+  }
   // A lane or answer left waiting to settle while the turn is already over gets
   // its wait now, not only when the session's state next changes.
   if (isWaitingToSettle(heldSessions.get(sessionName)) && session.isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);
@@ -93,7 +112,7 @@ export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): voi
   const step = stepOutputs(session.outputs, event);
   if (step.outputs === session.outputs) return;
   const summary = step.outputs.open === session.outputs.open ? session.summary : withOpenOutputs(session.summary, step.outputs);
-  const heldAnswers = keptHeld(session.heldAnswers, step.closedIds, Date.now());
+  const heldAnswers = keptHeld(session.heldAnswers, step.closedIds, steadyNow());
   saveSession(sessionName, session, { outputs: step.outputs, summary, heldAnswers });
   // An output sent in a normal turn shows in the conversation too. An asked-for
   // kind's answer shows in the summary only.
@@ -107,31 +126,50 @@ export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): voi
 export const setSessionState = (sessionName: string, state: SessionState, isTurnOver = state === "idle") => {
   const session = heldSessions.get(sessionName);
   if (!session || (session.summary.state === state && session.isTurnOver === isTurnOver)) return;
-  heldSessions.set(sessionName, { ...session, isTurnOver, summary: { ...session.summary, state } });
+  heldSessions.set(sessionName, { ...session, isTurnOver, summary: { ...session.summary, state, isTurnOver } });
   log.detail(`runner: ${sessionName} is ${state}`);
   broadcastSessions();
   if (isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);
 };
 
+// Messages sent while it started wait only if something else came up as it
+// became ready (see becomeReadyWhenQuiet).
+const hasWaitingMessages = (session: HeldSession): boolean => session.queuedMessages.length > 0 && session.summary.state !== "starting";
 const isWaitingToSettle = (session: HeldSession | undefined): boolean =>
-  session !== undefined && (session.lane.stage === "queued" || session.lane.stage === "answered" || session.heldAnswers.length > 0);
+  session !== undefined && (session.lane.stage === "queued" || session.lane.stage === "answered" || session.heldAnswers.length > 0 || hasWaitingMessages(session));
 
 // Once the screen has settled: a finished asked-for turn ends, then the oldest
 // of a queued ask and the held answers goes in. One per settle: what's typed
 // starts a turn, and the next goes in once that one is over.
-const typeNextWhenSettled = (sessionName: string): void => {
+// The person's own messages go first, as if just sent: they end any ask, and
+// the session works on them. One a prompt stopped again goes on waiting.
+const typeWaitingMessages = async (sessionName: string, session: HeldSession): Promise<void> => {
+  updateHeldSession(sessionName, session.hookToken, { queuedMessages: [] });
+  applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
+  setSessionState(sessionName, "working");
+  const typed = await Promise.all(session.queuedMessages.map((message) => typeIntoSession(session, message)));
+  const notTyped = session.queuedMessages.filter((_message, index) => !typed[index]);
+  const current = heldSessions.get(sessionName);
+  if (notTyped.length > 0 && current) updateHeldSession(sessionName, session.hookToken, { queuedMessages: [...notTyped, ...current.queuedMessages] });
+};
+
+const typeNextWhenSettled = async (sessionName: string): Promise<void> => {
   const session = heldSessions.get(sessionName);
   if (!session) return;
+  if (hasWaitingMessages(session)) return typeWaitingMessages(sessionName, session);
   if (session.lane.stage === "answered") applyLaneEvent(sessionName, { type: "settled", hasDraft: session.hasDraft });
   const current = heldSessions.get(sessionName);
   if (!current) return;
   const next = nextToType(current.lane, current.heldAnswers, current.hasDraft);
   if (next === "ask") return void applyLaneEvent(sessionName, { type: "settled", hasDraft: current.hasDraft });
   if (!next) return;
-  // Typed answers close their question, so a second click can't answer it again.
-  saveSession(sessionName, current, { heldAnswers: current.heldAnswers.slice(1) });
+  // Held until it's typed, so a second click is refused meanwhile; then it
+  // closes its question. One that gave way to the person's typing stays held.
+  if (!(await typeTalosText(sessionName, current, next.text))) return;
+  const typed = heldSessions.get(sessionName);
+  if (!typed) return;
+  saveSession(sessionName, typed, { heldAnswers: typed.heldAnswers.filter((answer) => answer !== next) });
   applyOutputsEvent(sessionName, { type: "answered", id: next.outputId });
-  void typeTalosText(current, next.text);
 };
 
 // A queued request is typed, and a finished asked-for turn ends, only once
@@ -153,8 +191,9 @@ const stepLaneWhenSettled = async (sessionName: string, token: string): Promise<
       const session = heldSessions.get(sessionName);
       const isStillWaiting = session?.hookToken === token && isWaitingToSettle(session) && session.isTurnOver;
       if (!isStillWaiting) return;
-      const quietForMs = Date.now() - session.lastOutputAtMs;
-      if (quietForMs >= READY_QUIET_MS) return typeNextWhenSettled(sessionName);
+      const quietForMs = steadyNow() - session.lastOutputAtMs;
+      // Awaited, so no second settle loop starts while this one types.
+      if (quietForMs >= READY_QUIET_MS) return await typeNextWhenSettled(sessionName);
       await Bun.sleep(READY_CHECK_MS);
     }
   } catch (error) {
@@ -167,19 +206,21 @@ const stepLaneWhenSettled = async (sessionName: string, token: string): Promise<
 };
 
 export const askForOutput = (sessionName: string, kind: unknown): Response => {
+  // A malformed request is turned down before anything is looked up, so it
+  // always throws for the caller, whatever session it names.
+  if (typeof kind !== "string" || !findKind(catalog(), kind)?.requestText) return new Response("expected a kind that can be asked for", { status: 400 });
   const session = heldSessions.get(sessionName);
   if (!session) return noSuchSession(sessionName);
-  if (typeof kind !== "string" || !findKind(catalog(), kind)?.requestText) return new Response("expected a kind that can be asked for", { status: 400 });
   if (session.lane.stage !== "none") return refuse("already-asking", "It's already being asked for something");
   applyLaneEvent(sessionName, { type: "ask", kind });
   return new Response(null, { status: 204 });
 };
 
 export const answerOutput = (sessionName: string, outputId: unknown, choice: unknown): Response => {
+  if (typeof outputId !== "string" || !Number.isInteger(choice)) return new Response("expected an output id and a choice", { status: 400 });
   const session = heldSessions.get(sessionName);
   if (!session) return noSuchSession(sessionName);
-  if (typeof outputId !== "string" || !Number.isInteger(choice)) return new Response("expected an output id and a choice", { status: 400 });
-  const answer = readAnswer(session.outputs, session.heldAnswers, catalog(), outputId, Number(choice), Date.now());
+  const answer = readAnswer(session.outputs, session.heldAnswers, catalog(), outputId, Number(choice), steadyNow());
   if ("code" in answer) return refuse(answer.code, answer.reason);
   saveSession(sessionName, session, { heldAnswers: [...session.heldAnswers, answer] });
   if (session.isTurnOver) void stepLaneWhenSettled(sessionName, session.hookToken);

@@ -1,5 +1,7 @@
-// The main-path test's session runner: a made-up note kind (sent on its own,
-// doesn't wait) and question kind (waits, with choices), and the fake Claude.
+// The fake-runner tests' session runner: a made-up note kind (sent on its own,
+// doesn't wait), question kind (waits, with choices) and status kind (asked
+// for), and the fake Claude.
+import { basename } from "node:path";
 import { runSessionRunner, type OutputKind } from "../../index";
 
 const home = process.argv[2];
@@ -13,7 +15,8 @@ const textField = (field: string) => (input: unknown) => {
 const NOTE: OutputKind = {
   kind: "note",
   toolName: "send_note",
-  description: "send a note",
+  // Padded on request, for a tools listing bigger than a socket takes at once.
+  description: `send a note${"!".repeat(Number(process.env.FAKE_NOTE_DESCRIPTION_PAD ?? 0))}`,
   inputSchema: { type: "object", properties: { text: { type: "string" } } },
   readFields: (input) => {
     const text = textField("text")(input);
@@ -41,12 +44,35 @@ const QUESTION: OutputKind = {
   waits: true,
 };
 
+// Asked for, never sent on its own.
+const STATUS: OutputKind = {
+  kind: "status",
+  toolName: "send_status",
+  description: "send a status",
+  inputSchema: { type: "object", properties: { text: { type: "string" } } },
+  readFields: (input) => {
+    const text = textField("text")(input);
+    return text === null ? null : { text };
+  },
+  badInputReason: "send_status needs text",
+  typedFields: {},
+  waits: false,
+  requestText: "please send status",
+};
+
 await runSessionRunner({
   home,
   log: { event: () => {}, detail: () => {}, warn: console.warn },
-  isAllowedFolder: async () => true,
-  kinds: [NOTE, QUESTION],
+  // A folder named slow… takes a moment to check, so a start can be caught mid-way.
+  isAllowedFolder: async (_folderName, path) => {
+    if (basename(path).startsWith("slow")) await Bun.sleep(500);
+    return true;
+  },
+  restoreTrustOnStop: true,
+  kinds: [NOTE, QUESTION, STATUS],
   proseTurn: { output: "prose", optional: ["note", "question"] },
   claudeCommand: [process.execPath, new URL("./fake-claude.ts", import.meta.url).pathname],
   claudeConfigFile: `${home}/claude.json`,
+  // Shortened on request, so a test can see a start that never comes.
+  ...(process.env.FAKE_START_WAIT_MS && { startLongestWaitMs: Number(process.env.FAKE_START_WAIT_MS) }),
 });

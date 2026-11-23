@@ -126,7 +126,7 @@ describe("who a socket belongs to", () => {
     const request = socketRequest(SERVER_ROUTES.machineSocket, { authorization: `Bearer ${formatMachineKey(joeKey)}`, "x-owner": "eve" });
     const decision = await decideSocket(request, checks, machineRoutes, quietLog);
     expect(decision && "data" in decision ? decision.data : null).toEqual({
-      role: "machine", machineId: joesMachine.machineId, machineName: "work-mac", ownerPersonId: personIdOf(JOE),
+      role: "machine", machineId: joesMachine.machineId, machineName: "work-mac", ownerPersonId: personIdOf(JOE), checkedAtMs: expect.any(Number),
     });
   });
 

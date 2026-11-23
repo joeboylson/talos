@@ -14,7 +14,7 @@ export type Terminal = { write: (data: string | Uint8Array) => void; resize: (co
 
 export type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
 
-export type TypedMessage = { text: string; hasImages: boolean };
+export type TypedMessage = { text: string; hasImages: boolean; imagePaths?: readonly string[] };
 
 // Where a session's conversation is saved, how much of it has been read, and
 // the tools seen there that haven't ended yet.
@@ -27,7 +27,10 @@ export type HeldSession = {
   terminal: Terminal;
   // Messages sent before Claude Code finished starting; typed once it's ready.
   queuedMessages: TypedMessage[];
-  transcript: Transcript | null;
+  // The conversation files read so far, the one Claude Code writes now last.
+  // Older ones are still read to their end, and one it comes back to carries on
+  // where it stopped.
+  transcripts: Transcript[];
   entries: SessionEntry[];
   lane: Lane;
   outputs: Outputs;
@@ -37,13 +40,24 @@ export type HeldSession = {
   heldAnswers: HeldAnswer[];
   // Proves a hook POST on the shared hooks socket came from this session.
   hookToken: string;
+  // Claude Code reported its start (its first SessionStart).
+  hasStarted: boolean;
+  // When it started, on the wall clock: saved with its process group, so a
+  // later runner can tell a recent group from a number reused since.
+  startedAtMs: number;
   // Unsent text the person left in Claude Code's input box from an attached
   // terminal. A request talos types mustn't be pasted onto it.
   hasDraft: boolean;
+  // When a key last changed the draft, so one the key checks lost track of
+  // stops counting after a while.
+  draftAtMs: number;
   // The session's last turn has ended (talos's Stop came, or it just started),
   // as opposed to "needs you" for a permission prompt mid-turn. Only then may a
   // request be typed: Enter in a permission prompt would approve it.
   isTurnOver: boolean;
+  // talos typed the next turn (an answer, an asked-for request), until it
+  // starts or the person types over it.
+  isTalosTypedNext: boolean;
   // The most recent terminal output, so someone attaching sees the screen, and
   // when it last changed, to tell when the screen has settled.
   output: Uint8Array;
@@ -63,6 +77,10 @@ export const heldSessions = new Map<string, HeldSession>();
 export const eventListeners = new Set<ReadableStreamDefaultController<string>>();
 // The trust settings this session runner changed, to put back when it stops.
 export const trustChanges: TrustChange[] = [];
+// Sessions whose start is under way, by name, so a stop can wait for one; and
+// whether the runner is stopping, when it takes no new sessions.
+export const startingSessions = new Map<string, Promise<Response>>();
+export const runnerState = { isStopping: false };
 
 // Changes a held session only while it's the same instance (same hook token),
 // so a loop or read left over from a session that ended never touches a new
@@ -93,3 +111,18 @@ export const broadcastSessions = createCoalescer(
   () => broadcast({ type: "sessions", sessions: listSessions() }),
   SESSION_LIMITS.sessionsBroadcastCoalesceMs,
 );
+
+// One thing types into a session at a time (a message, talos's answer or
+// request, the person's keys): one typed during another's pauses would join
+// it, and glue its text onto the other's.
+const typing = new Map<string, Promise<unknown>>();
+export const typeInTurn = <T>(sessionName: string, type: () => Promise<T>): Promise<T> => {
+  const typed = (typing.get(sessionName) ?? Promise.resolve()).then(type);
+  const settled = typed.catch(() => {});
+  typing.set(sessionName, settled);
+  void settled.then(() => typing.get(sessionName) === settled && typing.delete(sessionName));
+  return typed;
+};
+
+// A permission prompt shows: Claude Code waits on the person mid-turn.
+export const isPromptShowing = (session: HeldSession): boolean => session.summary.state === "needs-you" && !session.isTurnOver;

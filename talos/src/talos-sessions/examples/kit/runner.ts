@@ -3,7 +3,7 @@
 // put back when it stops. Its watchdog stops it once the example is gone, even
 // if the example was killed outright and couldn't stop it itself.
 import { join } from "node:path";
-import { connectToSessions, runSessionRunner, type OutputKind, type TurnShape } from "../../index";
+import { runSessionRunner, type OutputKind, type TurnShape } from "../../index";
 
 const WATCH_EVERY_MS = 2000;
 
@@ -32,6 +32,8 @@ export const startExampleRunner = async ({ kinds, proseTurn }: { kinds: readonly
   const watchdog = setInterval(() => {
     if (isRunning(exampleProcessId)) return;
     clearInterval(watchdog);
-    void connectToSessions({ home, runnerScript: "" }).stopRunner().catch(() => process.exit(1));
+    // Stopped from inside, the same as a system stop: it ends this runner's own
+    // sessions and puts trust back, whatever is on the socket.
+    process.kill(process.pid, "SIGTERM");
   }, WATCH_EVERY_MS);
 };

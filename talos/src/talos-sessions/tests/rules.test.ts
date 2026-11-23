@@ -72,7 +72,7 @@ describe("a choice typed into the session never holds a command", () => {
         const event: LaneEvent = { type: "pre-tool-use", toolName: PICK_TOOL, toolInput: { choices: picked }, isSubagent: false, toolUseId: "tu", outputId: "out-1" };
         const step = stepLane(NO_LANE, event, 0, CATALOG);
         if (!step.sent) return true;
-        const outputs: Outputs = { turn: 1, pending: [], open: [{ id: "out-1", kind: "pick", fields: step.sent.fields, atMs: 0, askedInTurn: 1 }] };
+        const outputs: Outputs = { turn: 1, isTalosTurn: false, pending: [], open: [{ id: "out-1", kind: "pick", fields: step.sent.fields, atMs: 0, askedInTurn: 1 }] };
         const answer = readAnswer(outputs, [], CATALOG, "out-1", index, 0);
         if ("code" in answer) return true;
         const typedChoice = answer.text.slice("Answer to out-1: ".length);
@@ -154,13 +154,13 @@ const outputsEvent: fc.Arbitrary<OutputsEvent> = fc.oneof(
   }),
   fc.record({ type: fc.constant("went-through" as const), toolUseId: fc.constantFrom(...IDS).map((id) => `tu-${id}`), toolInput: fc.constantFrom(...IDS, "x").map((id) => ({ id })) }),
   fc.record({ type: fc.constant("failed" as const), toolUseId: fc.constantFrom(...IDS).map((id) => `tu-${id}`) }),
-  fc.constant({ type: "turn-started" as const }),
+  fc.record({ type: fc.constant("turn-started" as const), isTalosTurn: fc.boolean() }),
   fc.constant({ type: "turn-ended" as const }),
   fc.record({ type: fc.constant("answered" as const), id: fc.constantFrom(...IDS) }),
 );
 
 describe("outputs", () => {
-  test("an output opens only with its own id, stays its own turn, and closes when the next turn ends", () => {
+  test("an output opens only with its own id, stays its own turn, and closes when the person's next turn ends", () => {
     fc.assert(
       fc.property(fc.array(outputsEvent, { minLength: 10, maxLength: 60, size: "max" }), (events) => {
         let outputs: Outputs = NO_OUTPUTS;
@@ -177,11 +177,15 @@ describe("outputs", () => {
           // A failed call drops only its own pending output.
           if (event.type === "failed" && outputs.pending.length !== before.pending.filter(({ toolUseId }) => toolUseId !== event.toolUseId).length) return false;
           if (step.closedIds.some((id) => !before.open.some((output) => output.id === id))) return false;
-          if (event.type === "turn-ended") {
-            if (outputs.open.some(({ askedInTurn }) => askedInTurn < outputs.turn)) return false;
+          if (event.type === "turn-ended" && outputs.pending.length > 0) return false;
+          if (event.type === "turn-ended" && before.isTalosTurn && outputs.open !== before.open) return false;
+          if (event.type === "turn-ended" && !before.isTalosTurn) {
+            if (outputs.open.some(({ askedInTurn }) => askedInTurn < before.turn)) return false;
             if (before.open.some((output) => output.askedInTurn === before.turn && !outputs.open.includes(output))) return false;
           }
-          if (outputs.open.length > SESSION_LIMITS.maxOpenOutputs || outputs.pending.length > SESSION_LIMITS.maxOpenOutputs) return false;
+          // A start mid-turn never closes or drops anything.
+          if (event.type === "turn-started" && (outputs.open !== before.open || outputs.pending !== before.pending)) return false;
+          if (outputs.open.length > SESSION_LIMITS.maxOpenOutputs || outputs.pending.length > SESSION_LIMITS.maxOutputsInFlight) return false;
         }
         return true;
       }),

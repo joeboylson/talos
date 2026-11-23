@@ -5,21 +5,29 @@
 // open: it went through with its id (PostToolUse), and waits for an answer.
 // An output opens only if the session saw its id: another PreToolUse hook can
 // replace the call's input, and then the id is gone. A question lasts one turn:
-// it closes when the turn after the one that asked it ends.
+// it closes when the person's turn after the one that asked it ends. Only a
+// turn's end counts: Claude Code also reports a message the person typed mid-turn
+// as a start, inside the turn that's running. Turns
+// talos types (answers, asked-for requests) don't count, so answering one
+// question doesn't close the next.
+import { isMainStopFailure } from "../claude/session-hooks";
 import { OUTPUT_ID_FIELD } from "../kinds";
 import { SESSION_LIMITS } from "../limits";
 
 export type PendingOutput = { id: string; toolUseId: string; kind: string; fields: Record<string, unknown>; atMs: number; waits: boolean };
 export type OpenOutput = { id: string; kind: string; fields: Record<string, unknown>; atMs: number; askedInTurn: number };
-export type Outputs = { turn: number; pending: PendingOutput[]; open: OpenOutput[] };
+// turn counts the person's turns that have ended; isTalosTurn says the running one is talos's.
+export type Outputs = { turn: number; isTalosTurn: boolean; pending: PendingOutput[]; open: OpenOutput[] };
 
-export const NO_OUTPUTS: Outputs = { turn: 0, pending: [], open: [] };
+export const NO_OUTPUTS: Outputs = { turn: 0, isTalosTurn: false, pending: [], open: [] };
 
 export type OutputsEvent =
   | { type: "sent"; output: PendingOutput }
   | { type: "went-through"; toolUseId: string; toolInput: unknown }
   | { type: "failed"; toolUseId: string }
-  | { type: "turn-started" }
+  // isTalosTurn: a turn talos typed (an answer, an asked-for request), which
+  // doesn't count toward a question's one turn.
+  | { type: "turn-started"; isTalosTurn: boolean }
   | { type: "turn-ended" }
   | { type: "answered"; id: string };
 
@@ -59,31 +67,36 @@ const fieldOf = (value: unknown, field: string): unknown =>
 
 // The outputs event a hook carries, if any. A Stop the lane blocked isn't the
 // end of the turn.
-export const readOutputsEvent = (hookDetails: unknown, isBlockedStop: boolean): OutputsEvent | null => {
+export const readOutputsEvent = (hookDetails: unknown, isBlockedStop: boolean, isTalosTurn: boolean): OutputsEvent | null => {
   const hookEvent = fieldOf(hookDetails, "hook_event_name");
   const toolUseId = String(fieldOf(hookDetails, "tool_use_id") ?? "");
   if (hookEvent === "PostToolUse") return { type: "went-through", toolUseId, toolInput: fieldOf(hookDetails, "tool_input") };
   if (hookEvent === "PostToolUseFailure") return { type: "failed", toolUseId };
-  if (hookEvent === "UserPromptSubmit") return { type: "turn-started" };
-  if (hookEvent === "Stop" && !isBlockedStop) return { type: "turn-ended" };
+  if (hookEvent === "UserPromptSubmit") return { type: "turn-started", isTalosTurn };
+  if ((hookEvent === "Stop" && !isBlockedStop) || isMainStopFailure(hookEvent, hookDetails)) return { type: "turn-ended" };
   return null;
 };
 
 export const stepOutputs = (outputs: Outputs, event: OutputsEvent): OutputsStep => {
-  if (event.type === "sent") return step({ ...outputs, pending: [...outputs.pending, event.output].slice(-SESSION_LIMITS.maxOpenOutputs) });
+  if (event.type === "sent") return step({ ...outputs, pending: [...outputs.pending, event.output].slice(-SESSION_LIMITS.maxOutputsInFlight) });
   if (event.type === "went-through") return stepWentThrough(outputs, event.toolUseId, event.toolInput);
   if (event.type === "failed") return step({ ...outputs, pending: outputs.pending.filter((output) => output.toolUseId !== event.toolUseId) });
-  // A call with no PostToolUse by the next turn never went through: the
+  if (event.type === "turn-started") return step({ ...outputs, isTalosTurn: event.isTalosTurn });
+  // A call with no PostToolUse by its turn's end never went through: the
   // person's own rule denied it, or the turn was interrupted.
-  if (event.type === "turn-started") return step({ ...outputs, turn: outputs.turn + 1, pending: [] });
-  if (event.type === "turn-ended") return closeWhere(outputs, (output) => output.askedInTurn < outputs.turn);
+  if (event.type === "turn-ended") {
+    const ended = { ...outputs, pending: [] };
+    if (outputs.isTalosTurn) return step(ended);
+    const closed = closeWhere(ended, (output) => output.askedInTurn < outputs.turn);
+    return { ...closed, outputs: { ...closed.outputs, turn: outputs.turn + 1 } };
+  }
   return closeWhere(outputs, (output) => output.id === event.id);
 };
 
 // An output sent in a normal turn shows in the conversation in its call's place.
 // Its two halves arrive apart: the output goes through (a hook), and the call is
-// read from the conversation. Whichever comes first waits for the other, at
-// most as many of each as a session keeps open.
+// read from the conversation. Whichever comes first waits for the other, each
+// list capped on its own (see limits.ts).
 export type CallPlace = { toolUseId: string; position: number };
 export type OutputPlacing = { waitingOutputs: PendingOutput[]; waitingPlaces: CallPlace[] };
 export const NO_PLACING: OutputPlacing = { waitingOutputs: [], waitingPlaces: [] };
@@ -102,8 +115,8 @@ export const placeOutputs = (
   const placedIds = new Set(placed.map(({ output }) => output.toolUseId));
   return {
     placing: {
-      waitingOutputs: outputs.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxOpenOutputs),
-      waitingPlaces: places.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxOpenOutputs),
+      waitingOutputs: outputs.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxOutputsInFlight),
+      waitingPlaces: places.filter(({ toolUseId }) => !placedIds.has(toolUseId)).slice(-SESSION_LIMITS.maxWaitingPlaces),
     },
     placed,
   };

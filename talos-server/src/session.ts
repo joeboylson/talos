@@ -3,16 +3,16 @@ import { isSameSecret, signText } from "./utils/crypto";
 
 export type SessionPerson = { personId: string; signInId: string; displayName: string };
 
-// What a session cookie says: who, and when it was made. The server checks
-// "when" against the person's last sign-out, so signing out ends every
-// session, even a copied cookie.
-export type SessionClaim = SessionPerson & { issuedAtMs: number; expiresAtMs: number };
+// What a session cookie says: who, when it was made, and the sign-in's
+// sign-out count then. Signing out everywhere bumps the count, which ends every
+// older session, even a copied cookie, whatever any clock says.
+export type SessionClaim = SessionPerson & SessionStamp;
 
-type SessionTimes = { issuedAtMs: number; expiresAtMs: number };
+type SessionStamp = { issuedAtMs: number; expiresAtMs: number; signOutCount: number };
 
 // A session is "<payload>.<signature>". Only the server knows the signing
 // secret, so a browser can't make or change one.
-export const createSessionToken = (person: SessionPerson, times: SessionTimes, sessionSecret: string): string => {
+export const createSessionToken = (person: SessionPerson, times: SessionStamp, sessionSecret: string): string => {
   const payloadText = Buffer.from(JSON.stringify({ ...person, ...times })).toString("base64url");
   return `${payloadText}.${signText(payloadText, sessionSecret)}`;
 };
@@ -29,8 +29,8 @@ export const readSessionClaim = (
   const payload = parseJsonOrNull(Buffer.from(payloadText, "base64url").toString());
   if (!isSessionPayload(payload)) return null;
   if (payload.expiresAtMs <= nowMs) return null;
-  const { personId, signInId, displayName, issuedAtMs, expiresAtMs } = payload;
-  return { personId, signInId, displayName, issuedAtMs, expiresAtMs };
+  const { personId, signInId, displayName, signOutCount, issuedAtMs, expiresAtMs } = payload;
+  return { personId, signInId, displayName, signOutCount, issuedAtMs, expiresAtMs };
 };
 
 type SessionPayload = SessionClaim;
@@ -43,6 +43,7 @@ const isSessionPayload = (value: unknown): value is SessionPayload => {
     typeof Reflect.get(value, "signInId") === "string" &&
     typeof Reflect.get(value, "displayName") === "string" &&
     typeof Reflect.get(value, "expiresAtMs") === "number" &&
-    typeof Reflect.get(value, "issuedAtMs") === "number"
+    typeof Reflect.get(value, "issuedAtMs") === "number" &&
+    Number.isSafeInteger(Reflect.get(value, "signOutCount"))
   );
 };

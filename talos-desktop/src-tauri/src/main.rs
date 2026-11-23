@@ -9,11 +9,20 @@ const WINDOW_TITLE: &str = "Talos";
 const WINDOW_WIDTH: f64 = 900.0;
 const WINDOW_HEIGHT: f64 = 700.0;
 
-// The page is at the server's address over http(s): ws://host:7070 → http://host:7070.
+// The page is at the server's origin over http(s): ws://host:7070/x → http://host:7070.
+// Any spelling talos accepts (WSS://, a space first) gives the same page, as
+// talos-shared's httpOriginFromServerUrl does.
 fn page_url_from_server_url(server_url: &str) -> String {
-    match server_url.strip_prefix("ws") {
-        Some(rest_of_url) => format!("http{rest_of_url}"),
-        None => server_url.to_string(),
+    let trimmed = server_url.trim();
+    let scheme_end = trimmed.find(':').unwrap_or(0);
+    let rest = &trimmed[scheme_end..];
+    let host_start = if rest.starts_with("://") { 3 } else { 0 };
+    let origin_end = rest[host_start..].find(['/', '?', '#']).map_or(rest.len(), |at| at + host_start);
+    let origin_rest = &rest[..origin_end];
+    match trimmed[..scheme_end].to_ascii_lowercase().as_str() {
+        "wss" => format!("https{origin_rest}"),
+        "ws" => format!("http{origin_rest}"),
+        _ => format!("{}{origin_rest}", &trimmed[..scheme_end]),
     }
 }
 
@@ -54,8 +63,22 @@ mod tests {
     }
 
     #[test]
+    fn reads_any_spelling_talos_accepts() {
+        assert_eq!(page_url_from_server_url("WSS://talos.example.com"), "https://talos.example.com");
+        assert_eq!(page_url_from_server_url(" wss://talos.example.com"), "https://talos.example.com");
+        assert_eq!(page_url_from_server_url("Ws://localhost:7070"), "http://localhost:7070");
+    }
+
+    #[test]
     fn leaves_page_addresses_alone() {
         assert_eq!(page_url_from_server_url("http://localhost:7070"), "http://localhost:7070");
         assert_eq!(page_url_from_server_url("https://talos.example.com"), "https://talos.example.com");
+    }
+
+    #[test]
+    fn keeps_only_the_origin() {
+        assert_eq!(page_url_from_server_url("wss://talos.example.com/socket"), "https://talos.example.com");
+        assert_eq!(page_url_from_server_url("ws://localhost:7070/?x=1"), "http://localhost:7070");
+        assert_eq!(page_url_from_server_url("wss://talos.example.com#a"), "https://talos.example.com");
     }
 }

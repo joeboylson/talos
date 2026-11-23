@@ -89,6 +89,18 @@ describe("another person's page", () => {
     expect(joePage.record.closedWith).toBe(CLOSE_CODES.signedOut);
     expect(evePage.record.closedWith).toBeNull();
   });
+
+  test("a page whose sign-in check began before a sign-out is closed too, and gets nothing", async () => {
+    const { connections, open, send, machine } = await setUp();
+    const checkedBefore = { ...pageData("joe"), checkedAtMs: Date.now() - 1000 } as SocketData;
+    connections.disconnectPersonPages("joe");
+    const latePage = await open(checkedBefore);
+    send(machine, entryFor("fix"));
+    expect(latePage.record.closedWith).toBe(CLOSE_CODES.signedOut);
+    expect(latePage.record.sent).toEqual([]);
+    const afterSignIn = await open({ ...pageData("joe"), checkedAtMs: Date.now() + 1 } as SocketData);
+    expect(afterSignIn.record.closedWith).toBeNull();
+  });
 });
 
 describe("commands from the owner", () => {
@@ -195,5 +207,37 @@ describe("per-socket budgets", () => {
     const overBudgetInBytes = threeByteCharacter.repeat(Math.floor(LIMITS.maxSocketIngressBytes / 3) + 1);
     handlers.message?.(joePage, overBudgetInBytes);
     expect(repliesFrom(joePage)).toBe(0);
+  });
+});
+
+describe("a refusal goes back to the page that asked", () => {
+  test("only that page sees it, under its own id, and the machine never sees the page's id", async () => {
+    const { open, send, machine } = await setUp();
+    const laptop = await open(pageData("joe"));
+    const phone = await open(pageData("joe"));
+    send(laptop, { type: "answer-output", machineId: JOE_MACHINE, sessionName: "fix", outputId: "o1", choice: 0, requestId: "laptop-1" });
+    const forwarded = parsedMessages(machine.record.sent).find((message) => message.type === "answer-output");
+    expect(forwarded?.requestId).toBeString();
+    expect(forwarded?.requestId).not.toBe("laptop-1");
+    send(machine, { type: "error", message: "That question has closed", requestId: forwarded?.requestId });
+    expect(parsedMessages(laptop.record.sent).filter((message) => message.type === "error")).toEqual([{ type: "error", message: `${JOE_MACHINE}: That question has closed`, requestId: "laptop-1" }]);
+    expect(lastError(phone)).toBeUndefined();
+  });
+  test("another person's flood of requests can't push out this page's", async () => {
+    const { open, send, machine } = await setUp();
+    const laptop = await open(pageData("joe"));
+    const stranger = await open(pageData("sam"));
+    send(laptop, { type: "answer-output", machineId: JOE_MACHINE, sessionName: "fix", outputId: "o1", choice: 0, requestId: "laptop-1" });
+    const forwarded = parsedMessages(machine.record.sent).find((message) => message.type === "answer-output");
+    for (let at = 0; at < 1500; at += 1) send(stranger, { type: "stop-session", machineId: "nowhere", sessionName: "x", requestId: `flood-${at}` });
+    send(machine, { type: "error", message: "That question has closed", requestId: forwarded?.requestId });
+    expect(parsedMessages(laptop.record.sent).filter((message) => message.type === "error")).toEqual([{ type: "error", message: `${JOE_MACHINE}: That question has closed`, requestId: "laptop-1" }]);
+  });
+  test("an error that names no request goes to all the owner's pages", async () => {
+    const { open, send, machine } = await setUp();
+    const laptop = await open(pageData("joe"));
+    const phone = await open(pageData("joe"));
+    send(machine, { type: "error", message: "The session runner stopped" });
+    expect([lastError(laptop), lastError(phone)]).toEqual([`${JOE_MACHINE}: The session runner stopped`, `${JOE_MACHINE}: The session runner stopped`]);
   });
 });

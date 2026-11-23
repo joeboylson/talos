@@ -4,6 +4,7 @@ import { SESSION_LIMITS } from "../limits";
 import { STRUCTURED_TOOL_PREFIX } from "../kinds";
 import { capDroppedMarkers, readSessionEntry, toDroppedMarker, type SessionEntry, type UnnumberedEntry } from "../shapes";
 import { TOOL_SUMMARY_SHOWN_LENGTH, NEWLINE_BYTE } from "../constants";
+import { removeControlCharacters } from "../terminal";
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
 // only the fields talos reads.
@@ -30,7 +31,13 @@ const COMMAND_OUTPUT = /^<local-command-stdout>([\s\S]*)<\/local-command-stdout>
 // Claude Code's own notes, saved as messages, that nobody typed.
 const NOTE_PREFIXES = ["<local-command-caveat>", "<system-reminder>", "<bash-stdout>", "<bash-stderr>"];
 
-const truncate = (text: string, maxLength: number): string => (text.length > maxLength ? text.slice(0, maxLength) : text);
+// Everything shown from the conversation goes through here. A session writes
+// this text, so its control characters go: an escape sequence drawn in a
+// terminal could clear it, retitle it or set the clipboard.
+const truncate = (text: string, maxLength: number): string => {
+  const shown = removeControlCharacters(text);
+  return shown.length > maxLength ? shown.slice(0, maxLength) : shown;
+};
 
 const contentBlocksOf = (content: unknown): ContentBlock[] => {
   if (typeof content === "string") return [{ type: "text", text: content }];
@@ -109,6 +116,15 @@ const readAssistantLine = (lineId: string, blocks: ContentBlock[]): TranscriptIt
 
 // Skips Claude's thinking, notes Claude Code adds itself (like a skill's
 // instructions), and sub-agents' own conversations.
+// A message the person typed while Claude was working is saved as a queued
+// command inside the running turn, not as a prompt line of its own.
+const readQueuedPrompt = (entryId: string, attachment: unknown): UnnumberedEntry[] => {
+  const field = (name: string) => (typeof attachment === "object" && attachment !== null ? Reflect.get(attachment, name) : undefined);
+  const prompt = field("prompt");
+  const isTypedPrompt = field("type") === "queued_command" && field("commandMode") === "prompt" && typeof prompt === "string";
+  return isTypedPrompt ? readPromptLine(entryId, [{ type: "text", text: prompt }]) : [];
+};
+
 export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
   const line: unknown = parseJsonOrNull(lineText);
   if (typeof line !== "object" || line === null) return [];
@@ -116,6 +132,7 @@ export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
   if (typeof uuid !== "string" || isMeta === true || isSidechain === true) return [];
   const blocks = contentBlocksOf(message?.content);
   if (type === "assistant") return readAssistantLine(uuid, blocks);
+  if (type === "attachment") return readQueuedPrompt(uuid, Reflect.get(line, "attachment"));
   if (type !== "user") return [];
   const toolEnds = readToolEnds(blocks);
   return toolEnds.length > 0 ? toolEnds : readPromptLine(uuid, blocks);

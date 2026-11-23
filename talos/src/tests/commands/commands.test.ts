@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { HELP_TEXT, isFolderCommand, isSessionCommand, parseCommand } from "../../commands";
-import { resolveFolderPath } from "../../folder-commands";
+import { realFolderPath, resolveFolderPath } from "../../folder-commands";
 
 test("no command connects", () => {
   expect(parseCommand([])).toEqual({ name: "connect" });
@@ -71,4 +71,26 @@ test.each([
 ])("%p: a folder command %p, a session command %p", (args, isFolder, isSession) => {
   const command = parseCommand(args);
   expect([isFolderCommand(command), isSessionCommand(command)]).toEqual([isFolder, isSession]);
+});
+
+// Where the disk treats two spellings as one folder (macOS: case, and the two
+// ways to write an accent), they're one real path; where it doesn't (Linux),
+// the other spelling is no folder at all.
+test("one folder typed two ways is one real path where the disk says they're one; a file isn't a folder", async () => {
+  const { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const folder = mkdtempSync(join(tmpdir(), "talos-folders-"));
+  try {
+    mkdirSync(join(folder, "Proj"));
+    mkdirSync(join(folder, "caf\u00e9"));
+    writeFileSync(join(folder, "file"), "");
+    const sameAs = async (typed: string, real: string) =>
+      expect(await realFolderPath(join(folder, typed))).toBe(existsSync(join(folder, typed)) ? await realFolderPath(join(folder, real)) : null);
+    await sameAs("proj", "Proj");
+    await sameAs("cafe\u0301", "caf\u00e9");
+    expect(await realFolderPath(join(folder, "file"))).toBeNull();
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });

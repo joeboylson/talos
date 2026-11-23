@@ -126,3 +126,12 @@ describe("every reader turns down empty or out-of-range values", () => {
     expect(readMachineToServer(message) as unknown).toEqual(message);
   });
 });
+
+test("a request's id travels with its command and its error, and anything else is left off", () => {
+  const answer = { type: "answer-output", machineId: "m1", sessionName: "fix", outputId: "o1", choice: 0 };
+  expect(readPageToServer({ ...answer, requestId: "r1" })).toMatchObject({ requestId: "r1" });
+  expect(readPageToServer({ ...answer, requestId: 5 })).not.toHaveProperty("requestId");
+  expect(readServerToMachine({ type: "stop-session", sessionName: "fix", requestId: "r2" })).toMatchObject({ requestId: "r2" });
+  expect(readMachineToServer({ type: "error", message: "closed", requestId: "r3" })).toEqual({ type: "error", message: "closed", requestId: "r3" });
+  expect(readServerToMachine({ type: "machine-name", machineName: "atlas", requestId: "r4" })).not.toHaveProperty("requestId");
+});

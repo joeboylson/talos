@@ -125,3 +125,23 @@ describe("mergeSessionEntries", () => {
     expect(mergeSessionEntries([], markers, SESSION_LIMITS.maxEntriesKept).length).toBe(SESSION_LIMITS.maxDroppedKept);
   });
 });
+
+test("dropped markers the cap leaves out don't take real entries' places", () => {
+  const real = Array.from({ length: 500 }, (_, index) => ({ kind: "text" as const, entryId: `t${index}`, position: index, text: "x" }));
+  const markers = (batch: number) => Array.from({ length: 10 }, (_, index) => ({ kind: "dropped" as const, entryId: `dropped:${batch}-${index}`, droppedKind: "text", reason: "bad", position: 500 + batch * 10 + index }));
+  const merged = [0, 1, 2, 3, 4].reduce((kept, batch) => mergeSessionEntries(kept, markers(batch), 500), real as Parameters<typeof mergeSessionEntries>[0]);
+  expect(merged.filter(({ kind }) => kind === "dropped")).toHaveLength(20);
+  expect(merged.filter(({ kind }) => kind === "text")).toHaveLength(480);
+});
+
+test("an output or answer as big as the lane allows is read, not dropped for its wrapper", () => {
+  const fields = { text: "x".repeat(SESSION_LIMITS.maxOutputFieldsBytes - 20) };
+  const summary = { sessionName: "s", folderName: "f", state: "needs-you", asks: { status: { state: "answered", atMs: 1, latest: fields }, other: { state: "answered", atMs: 1, latest: fields } }, openOutputs: [{ id: "o1", kind: "decision", fields, atMs: 1 }] };
+  const [read] = readSessionList([summary]) ?? [];
+  expect(read?.openOutputs.map(({ id }) => id)).toEqual(["o1"]);
+  expect(Object.keys(read?.asks ?? {})).toEqual(["status", "other"]);
+});
+
+test.each(["", "!!!!", "A", "data:image/png;base64,AAAA", "-_-_"])("image data that isn't base64 (%p) is turned down", (dataBase64) => {
+  expect(readSentImages([{ mediaType: "image/png", dataBase64 }])).toBeNull();
+});

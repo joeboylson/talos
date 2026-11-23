@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { LIMITS } from "talos-shared";
 import { DECISION_KIND, OUTPUT_KINDS, PROSE_TURN, STATUS_KIND, readDecision, readStatusReport } from "../../session-outputs";
-import { PROSE } from "../../talos-sessions";
+import { PROSE, catalogProblems } from "../../talos-sessions";
 
 describe("status", () => {
   test.each([
@@ -81,4 +81,8 @@ describe("talos's kinds, as the session runner gets them", () => {
   test("both kinds are passed in, each with its own tool", () => {
     expect(OUTPUT_KINDS.map(({ kind, toolName }) => [kind, toolName])).toEqual([["status", "report_status"], ["decision", "ask_decision"]]);
   });
+});
+
+test("talos's own kinds pass the session runner's start check", () => {
+  expect(catalogProblems({ kinds: OUTPUT_KINDS, proseTurn: PROSE_TURN })).toEqual([]);
 });

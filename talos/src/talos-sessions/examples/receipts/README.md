@@ -8,8 +8,8 @@ It shows three things the module does:
 
 - outputs sent on their own, with no prose shown at all (`expense`, `skipped`)
 - a question you answer by its id (`question`, which waits)
-- an output the program asks for (`tally`, asked once the session is idle with
-  no question open)
+- an output the program asks for (`tally`, asked when the session is idle with
+  no question open, and again when new expenses come in or an ask failed)
 
 ```
 make example EXAMPLE=receipts              # live: real Claude
@@ -29,6 +29,7 @@ come back) · `^C` quit.
 - `run/`: the last run, kept so you can look.
 - `kinds.ts`, `runner.ts`, `view.ts`, `main.ts`: the example. `view.ts` is pure.
 - `tests/`: free tests, in `make test`. `live-check.ts`: a real run, by hand.
+- `recordings/run.jsonl`: a recorded run, which `MODE=replay` plays back.
 
 ## What it can't keep to itself
 

@@ -1,10 +1,11 @@
 # Shop sales explorer
 
 You answer questions about a small coffee-gear shop's sales in 2025. The data is
-in `shop.db`, a SQLite database. Query it with the `sqlite3` command, for example:
+in `shop.db`, a SQLite database. Query it with the `sqlite3` command, always
+started exactly this way (only this form is allowed):
 
 ```
-sqlite3 -header -column shop.db "SELECT COUNT(*) FROM orders;"
+sqlite3 -safe -readonly -header -column shop.db "SELECT COUNT(*) FROM orders;"
 ```
 
 Tables:

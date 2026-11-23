@@ -20,7 +20,7 @@ docs. Use these and no others.
 - **folder**: a folder on a machine that its owner allows sessions in. Only
   `talos` on that machine can add or remove one; the page just shows them.
 - **session**: a Claude Code conversation that `talos` runs in a folder. Its
-  state is **starting**, **ready** (`idle` in code), **working**, **needs
+  state, as its mod reports it, is **starting**, **ready** (`idle` in code), **working**, **needs
   you** (a permission prompt in its terminal, or an open question waiting for
   its answer), or **stopped** (the person pressed Esc in its terminal; only
   something entered in that terminal continues it, and talos sends nothing
@@ -120,10 +120,9 @@ something.
 - **ask** and **asks list**: asking a session for a kind. The asks list holds,
   per kind, where the latest ask stands (asking, answered, no response) and its
   latest answer.
-- **settled**: a session's turn is over, as its mod reports it. Until the
-  mod reports turns, talos guesses it from the screen going still. Talos
-  types its own text into a session only then, after an Esc, and only if no
-  draft is waiting. One thing types into a session at a time: a message,
+- **settled**: a session's turn is over, as its mod reports it, and the
+  session isn't stopped. Talos types its own text into a session only then,
+  after an Esc, and only if no draft is waiting. One thing types into a session at a time: a message,
   talos's text, or the person's keys.
 - **framed**: how talos sends text it wrote itself (an ask, an answer, a
   loop step): marked as coming from the talos mod, not as the person. Only

@@ -4,7 +4,7 @@ export { REFUSAL_CODES, encodeRunnerEvent, parseRunnerEvent, type RefusalCode, t
 export { DETACH_KEY, connectToSessions, type Result, type SessionsConnection } from "./client/plain-calls";
 export { runSessionRunner } from "./runner/run";
 export { COPIED_LIMITS } from "./limits";
-export { isIdentifierName, mergeSessionEntries, readSessionEntries, type SentImage, type SessionEntry, type SessionSummary } from "./shapes";
+export { isIdentifierName, mergeSessionEntries, readSessionEntries, readSessionList, type SentImage, type SessionEntry, type SessionSummary } from "./shapes";
 export type { RunnerInputs } from "./runner/inputs";
 export { cleanLine, saysSomething } from "./clean";
 export { PROSE, catalogProblems, type OutputKind, type TurnShape } from "./kinds";

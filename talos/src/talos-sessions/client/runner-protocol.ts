@@ -24,6 +24,9 @@ export const REFUSAL_CODES = [
   "not-sendable",
   "still-starting",
   "prompt-showing",
+  "stopped",
+  "link-lost",
+  "no-claude-code",
 ] as const;
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
 export type Refusal = { code: RefusalCode; reason: string };

@@ -6,13 +6,13 @@ import { rm } from "node:fs/promises";
 import type { BunRequest } from "bun";
 import { isIdentifierName, readSentImages } from "../shapes";
 import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runner-protocol";
-import { isDraftChangingKeys, isDraftClearingKeys, isInterruptKeys, isTurnChangingKeys } from "../terminal";
+import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
 import { endSession, startSession, waitForStart } from "./lifecycle";
 import { noSuchSession, refuse } from "./refuse";
 import { claudeConfigFile, log, paths, restoresTrust } from "./inputs";
 import { restoreTrust, type TrustChange } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
-import { answerOutput, applyLaneEvent, askForOutput, setSessionState } from "./session-state";
+import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
 import { eventListeners, heldSessions, isPromptShowing, listSessions, runnerState, startingSessions, trustChanges, typeInTurn } from "./store";
 
@@ -190,9 +190,6 @@ export const controlServeOptions = (runnerSocket: string) => ({
         const hasDraft = isDraftClearingKeys(keys) ? false : isDraftChanging || session.hasDraft;
         heldSessions.set(sessionName, { ...session, hasDraft, draftAtMs: isDraftChanging ? steadyNow() : session.draftAtMs });
         if (isTurnChanging || isDraftChanging) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging });
-        // An interrupted turn gets no Stop, so the interrupt is its end. Until
-        // it's ready there's no turn yet: Esc then dismisses a startup screen.
-        if (isInterruptKeys(keys) && !session.isTurnOver && session.hasStarted && session.summary.state !== "starting") setSessionState(sessionName, session.summary.openOutputs.length > 0 ? "needs-you" : "idle", true);
         // Written in its turn, so it can't land inside a paste talos is typing.
         await typeInTurn(session.summary.sessionName, async () => session.terminal.write(keys));
         return new Response(null, { status: 204 });

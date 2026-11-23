@@ -4,7 +4,7 @@ import { COPIED_LIMITS as LIMITS } from "./limits";
 // starting: Claude Code is loading. idle: waiting for a message.
 // working: answering. needs-you: waiting on a question in its terminal
 // (like a permission prompt), so someone has to attach and answer it.
-export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
+export const SESSION_STATES = ["starting", "idle", "working", "needs-you", "stopped"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
 // Where a session's mod stands: checked in, or gone since. Missing means it
 // hasn't checked in (or the sender is older).
@@ -30,6 +30,8 @@ export type SessionSummary = {
   // Missing (an older sender) counts as over.
   isTurnOver?: boolean;
   link?: LinkState;
+  // The turn running now was started by Claude Code on its own, not a message.
+  isSelfStarted?: true;
 };
 
 // One thing in a session's conversation, read from Claude Code's saved
@@ -122,6 +124,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
     const { sessionName, folderName, state } = item as SessionSummary;
     const isTurnOver = fieldOf(item as object, "isTurnOver");
     const link = fieldOf(item as object, "link");
+    const isSelfStarted = fieldOf(item as object, "isSelfStarted");
     return {
       sessionName,
       folderName,
@@ -130,6 +133,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
       openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")),
       ...(typeof isTurnOver === "boolean" && { isTurnOver }),
       ...(isOneOf(LINK_STATES, link) && { link }),
+      ...(isSelfStarted === true && { isSelfStarted }),
     };
   });
 };

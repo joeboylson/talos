@@ -35,8 +35,11 @@ export const stepFactView = (view: FactView, fact: Fact): FactView => {
   switch (fact.type) {
     case "session-start":
       return view.activity === "starting" ? { ...view, activity: "idle" } : view;
+    // Continuing a stopped session starts the person's turn: it counts as
+    // under way from here, so nothing talos holds is typed in ahead of it.
     case "prompt-submit":
-      return isFromPerson(fact) ? { ...view, isStopped: false } : view;
+      if (!isFromPerson(fact)) return view;
+      return view.isStopped ? { ...view, isStopped: false, activity: "working", isTurnOver: false } : view;
     // A stop with no turn running (Remote Control's Stop at idle) stops
     // nothing that was under way; only Esc mid-turn was seen to refuse sends.
     case "session-stop":

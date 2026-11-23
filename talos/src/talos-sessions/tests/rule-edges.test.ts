@@ -5,7 +5,7 @@ import { NO_OUTPUTS, NO_PLACING, placeOutputs, stepOutputs, type Outputs, type P
 import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
 import { NO_LANE, stepLane, type Lane } from "../lanes/lane";
 import { SESSION_LIMITS } from "../limits";
-import { isDraftChangingKeys, isDraftClearingKeys, isInterruptKeys, isTurnChangingKeys } from "../terminal";
+import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
 import { cleanLine, hasCommandMarker } from "../clean";
 import { capDroppedMarkers, mergeSessionEntries, readSessionList, type SessionEntry } from "../shapes";
 import { mcpToolName, type Catalog, type OutputKind } from "../kinds";
@@ -109,8 +109,6 @@ describe("terminal", () => {
   test("Option-Enter isn't Enter", () => expect(isTurnChangingKeys(keys("\x1b\r"))).toBe(false));
   test("a Ctrl-C byte inside a paste isn't an interrupt", () => {
     expect(isTurnChangingKeys(keys("\x1b[200~a\x03b\x1b[201~"))).toBe(false);
-    expect(isInterruptKeys(keys("\x1b[200~a\x03b\x1b[201~"))).toBe(false);
-    expect(isInterruptKeys(keys("\x03"))).toBe(true);
   });
   test("Backspace doesn't make a draft", () => expect(isDraftChangingKeys(keys("\x7f"))).toBe(false));
   test("an empty paste doesn't make a draft", () => expect(isDraftChangingKeys(keys("\x1b[200~\x1b[201~"))).toBe(false));

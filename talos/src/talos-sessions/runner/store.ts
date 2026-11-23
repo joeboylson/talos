@@ -56,8 +56,6 @@ export type HeldSession = {
   // Proves a hook POST on the shared hooks socket came from this session.
   hookToken: string;
   link: SessionLink;
-  // Claude Code reported its start (its first SessionStart).
-  hasStarted: boolean;
   // When it started, on the wall clock: saved with its process group, so a
   // later runner can tell a recent group from a number reused since.
   startedAtMs: number;
@@ -67,25 +65,22 @@ export type HeldSession = {
   // When a key last changed the draft, so one the key checks lost track of
   // stops counting after a while.
   draftAtMs: number;
-  // The session's last turn has ended (talos's Stop came, or it just started),
-  // as opposed to "needs you" for a permission prompt mid-turn. Only then may a
-  // request be typed: Enter in a permission prompt would approve it.
+  // The session's last turn has ended, by its mod's facts, as opposed to "needs
+  // you" for a permission prompt mid-turn. Only then may a request be typed:
+  // Enter in a permission prompt would approve it. talos clears it as it types,
+  // before the turn's own start arrives, so nothing else types over it.
   isTurnOver: boolean;
   // talos typed the next turn (an answer, an asked-for request), until it
   // starts or the person types over it.
   isTalosTypedNext: boolean;
-  // The most recent terminal output, so someone attaching sees the screen, and
-  // when it last changed, to tell when the screen has settled.
+  // The most recent terminal output, so someone attaching sees the screen.
   output: Uint8Array;
-  lastOutputAtMs: number;
   // Attached terminals. A Set kept by reference: streams add and remove
   // themselves as they open and close.
   outputListeners: Set<ReadableStreamDefaultController<Uint8Array>>;
-  // One of each loop at a time: a transcript read, so lines aren't read twice; a
-  // ready wait, so a forged flood of SessionStart events can't pile up loops; and
-  // a settle wait for a queued ask.
+  // One of each at a time: a transcript read, so lines aren't read twice, and
+  // typing what waits for the turn to be over.
   isBeingRead: boolean;
-  isBecomingReady: boolean;
   isWaitingToAsk: boolean;
 };
 
@@ -97,7 +92,8 @@ export const trustChanges: TrustChange[] = [];
 // whether the runner is stopping, when it takes no new sessions.
 export const startingSessions = new Map<string, Promise<Response>>();
 // The mod snapshot sessions load (see mod-snapshot.ts), made at the runner's start.
-export const runnerState = { isStopping: false, modSnapshotFolder: "" };
+// Why no session can start, if none can: no tested Claude Code to run.
+export const runnerState = { isStopping: false, modSnapshotFolder: "", cannotStartWhy: null as string | null };
 
 // Changes a held session only while it's the same instance (same hook token),
 // so a loop or read left over from a session that ended never touches a new

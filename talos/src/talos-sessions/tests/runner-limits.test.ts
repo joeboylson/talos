@@ -100,20 +100,17 @@ test(
 );
 
 test(
-  "Esc after a session reports its start but before it's ready leaves it starting",
+  "a session whose screen never goes still is ready once its mod reports the start",
   async () => {
-    expect(await calls.start("noisy-esc", "noisy-esc", folder("noisy-esc"))).toEqual({ ok: true });
-    await Bun.sleep(1500);
-    expect(await calls.keys("noisy-esc", "\x1b")).toEqual({ ok: true });
-    const session = (await calls.sessions()).find(({ sessionName }) => sessionName === "noisy-esc");
-    expect(session?.state).toBe("starting");
-    await calls.stop("noisy-esc");
+    expect(await calls.start("noisy", "noisy", folder("noisy"))).toEqual({ ok: true });
+    await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "noisy")?.state === "idle", "the session to be ready");
+    await calls.stop("noisy");
   },
   20_000,
 );
 
 test(
-  "a permission prompt while a session's screen settles stands, and what was sent goes in once it's answered",
+  "a permission prompt up as a session starts stands, and what was sent goes in once it's answered",
   async () => {
     expect(await calls.start("prompting", "prompting", folder("prompting"))).toEqual({ ok: true });
     expect(await calls.send("prompting", "queued")).toEqual({ ok: true });
@@ -125,18 +122,6 @@ test(
     expect(await calls.keys("prompting", "1")).toEqual({ ok: true });
     await waitUntil(() => userLines(join(home, "prompting")).includes("queued"), "the waiting message", 10_000);
     await calls.stop("prompting");
-  },
-  20_000,
-);
-
-test(
-  "a session that reports its start before drawing anything still waits for its screen to settle",
-  async () => {
-    const startedAtMs = Date.now();
-    expect(await calls.start("drawn-late", "drawn-late", folder("drawn-late"))).toEqual({ ok: true });
-    await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "drawn-late")?.state === "idle", "the session to be ready");
-    expect(Date.now() - startedAtMs).toBeGreaterThanOrEqual(900);
-    await calls.stop("drawn-late");
   },
   20_000,
 );

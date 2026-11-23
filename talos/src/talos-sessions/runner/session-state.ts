@@ -1,6 +1,6 @@
 // A session's state and its lane: every change to either goes through here.
 import { mergeSessionEntries, type SessionEntry, type SessionState, type SessionSummary } from "../shapes";
-import { READY_CHECK_MS, READY_QUIET_MS, steadyNow } from "../constants";
+import { steadyNow } from "../constants";
 import { findKind } from "../kinds";
 import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
 import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
@@ -10,7 +10,7 @@ import { ENTER_KEY, ESC_KEY, ESC_PAUSE_MS, buildPastedText } from "../terminal";
 import { catalog, log } from "./inputs";
 import { noSuchSession, refuse } from "./refuse";
 import { broadcast, broadcastSessions, heldSessions, typeInTurn, updateHeldSession, type HeldSession } from "./store";
-import { typeIntoSession } from "./messages";
+import { refuseLinkLost, typeIntoSession } from "./messages";
 
 // The summary shows each ask's state and latest answer, and the open outputs.
 const withAsk = (summary: SessionSummary, change: LaneStep["askChange"]): SessionSummary => {
@@ -58,16 +58,15 @@ const saveSession = (sessionName: string, session: HeldSession, changes: Partial
 // over, and Esc first, so even a forged "turn over" can at worst refuse a
 // permission prompt, never approve one. Typing starts a turn, so nothing else
 // talos holds goes in until that turn is over too.
-// shortcut: if what's typed never starts a turn, the session shows working until
-// its next hook; upgrade when Claude Code gives a real end-of-turn signal.
+// shortcut: if what's typed never starts a turn, nothing else talos holds goes
+// in until the next turn ends; sending through the mod, not typing, ends this.
 // It waits its turn with whatever else types into the session (typeInTurn), and
 // gives way (false) if the person has started typing by then.
 const typeTalosText = (sessionName: string, session: HeldSession, text: string): Promise<boolean> =>
   typeInTurn(sessionName, async () => {
     const current = heldSessions.get(sessionName);
     if (current?.hookToken !== session.hookToken || current.hasDraft) return false;
-    setSessionState(sessionName, "working", false);
-    updateHeldSession(sessionName, session.hookToken, { isTalosTypedNext: true });
+    updateHeldSession(sessionName, session.hookToken, { isTalosTypedNext: true, isTurnOver: false });
     session.terminal.write(ESC_KEY);
     await Bun.sleep(ESC_PAUSE_MS);
     session.terminal.write(buildPastedText(text));
@@ -133,7 +132,7 @@ export const setSessionState = (sessionName: string, state: SessionState, isTurn
 };
 
 // Messages sent while it started wait only if something else came up as it
-// became ready (see becomeReadyWhenQuiet).
+// became ready (see typeStartupMessages).
 const hasWaitingMessages = (session: HeldSession): boolean => session.queuedMessages.length > 0 && session.summary.state !== "starting";
 const isWaitingToSettle = (session: HeldSession | undefined): boolean =>
   session !== undefined && (session.lane.stage === "queued" || session.lane.stage === "answered" || session.heldAnswers.length > 0 || hasWaitingMessages(session));
@@ -144,9 +143,8 @@ const isWaitingToSettle = (session: HeldSession | undefined): boolean =>
 // The person's own messages go first, as if just sent: they end any ask, and
 // the session works on them. One a prompt stopped again goes on waiting.
 const typeWaitingMessages = async (sessionName: string, session: HeldSession): Promise<void> => {
-  updateHeldSession(sessionName, session.hookToken, { queuedMessages: [] });
+  updateHeldSession(sessionName, session.hookToken, { queuedMessages: [], isTurnOver: false });
   applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
-  setSessionState(sessionName, "working");
   const typed = await Promise.all(session.queuedMessages.map((message) => typeIntoSession(session, message)));
   const notTyped = session.queuedMessages.filter((_message, index) => !typed[index]);
   const current = heldSessions.get(sessionName);
@@ -172,30 +170,18 @@ const typeNextWhenSettled = async (sessionName: string): Promise<void> => {
   applyOutputsEvent(sessionName, { type: "answered", id: next.outputId });
 };
 
-// A queued request is typed, and a finished asked-for turn ends, only once
-// the session's turn is over and its screen has been still for a moment. talos counts a session idle on its own Stop
-// decision, but Claude Code also runs the person's own Stop hooks, and one can
-// block the Stop and keep the turn going. A request typed then is folded into
-// that running turn, which would then lose its tools. Claude Code animates a
-// spinner while Stop hooks and the turn run, so the screen doesn't settle.
-// shortcut: with reduced motion there's no spinner, so a slow, silent Stop hook
-// can still let the request fold in; and a status line that repaints every
-// second keeps the screen from ever settling, so the ask ends at its timeout.
-// Upgrade when Claude Code gives a real end-of-turn signal.
+// A queued request is typed, and a finished asked-for turn ends, only once the
+// session's turn is over, as its mod reports it: Claude Code's turn.complete
+// comes once, at the real end, even when a person's own Stop hook keeps the
+// turn going. Nothing goes into a stopped session: only the person continues
+// it, at the terminal.
 const stepLaneWhenSettled = async (sessionName: string, token: string): Promise<void> => {
-  const waitingSession = heldSessions.get(sessionName);
-  if (waitingSession?.hookToken !== token || waitingSession.isWaitingToAsk) return;
+  const session = heldSessions.get(sessionName);
+  const isReady = session?.hookToken === token && !session.isWaitingToAsk && session.isTurnOver && session.summary.state !== "stopped";
+  if (!isReady || !isWaitingToSettle(session)) return;
   updateHeldSession(sessionName, token, { isWaitingToAsk: true });
   try {
-    while (true) {
-      const session = heldSessions.get(sessionName);
-      const isStillWaiting = session?.hookToken === token && isWaitingToSettle(session) && session.isTurnOver;
-      if (!isStillWaiting) return;
-      const quietForMs = steadyNow() - session.lastOutputAtMs;
-      // Awaited, so no second settle loop starts while this one types.
-      if (quietForMs >= READY_QUIET_MS) return await typeNextWhenSettled(sessionName);
-      await Bun.sleep(READY_CHECK_MS);
-    }
+    await typeNextWhenSettled(sessionName);
   } catch (error) {
     // Logged, not thrown: Bun quits on an unhandled rejection, which would end
     // every session the session runner holds.
@@ -212,6 +198,7 @@ export const askForOutput = (sessionName: string, kind: unknown): Response => {
   const session = heldSessions.get(sessionName);
   if (!session) return noSuchSession(sessionName);
   if (session.lane.stage !== "none") return refuse("already-asking", "It's already being asked for something");
+  if (session.summary.link === "lost") return refuseLinkLost();
   applyLaneEvent(sessionName, { type: "ask", kind });
   return new Response(null, { status: 204 });
 };

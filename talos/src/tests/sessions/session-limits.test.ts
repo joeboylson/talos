@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { LIMITS, isIdentifierName as sharedIsIdentifierName, readSessionEntries as sharedReadSessionEntries } from "talos-shared";
-import { COPIED_LIMITS, isIdentifierName, readSessionEntries } from "../../talos-sessions";
+import { LIMITS, SESSION_STATES, isIdentifierName as sharedIsIdentifierName, readSessionEntries as sharedReadSessionEntries, readSessionList as sharedReadSessionList } from "talos-shared";
+import { COPIED_LIMITS, isIdentifierName, readSessionEntries, readSessionList } from "../../talos-sessions";
 
 // talos-sessions can't import talos-shared, so it keeps copies of what both
 // check. These fail if a copy drifts from talos-shared's.
@@ -25,5 +25,15 @@ describe("talos-sessions' copies of talos-shared's rules", () => {
   ];
   test.each(entryLists.map((entries) => [entries]))("the entry check agrees on %#", (entries) => {
     expect(readSessionEntries(entries) as unknown).toEqual(sharedReadSessionEntries(entries));
+  });
+
+  const summaryOf = (fields: object) => ({ sessionName: "s", folderName: "f", asks: {}, openOutputs: [], ...fields });
+  const sessionLists = [
+    [...SESSION_STATES, "made-up"].map((state) => summaryOf({ state })),
+    [summaryOf({ state: "idle", link: "linked" }), summaryOf({ state: "idle", link: "lost" }), summaryOf({ state: "idle", link: "made-up" })],
+    [summaryOf({ state: "working", isSelfStarted: true }), summaryOf({ state: "working", isSelfStarted: "yes" }), summaryOf({ state: "idle", isTurnOver: false })],
+  ];
+  test.each(sessionLists.map((list) => [list]))("the session list check agrees on %#", (list) => {
+    expect(readSessionList(list) as unknown).toEqual(sharedReadSessionList(list));
   });
 });

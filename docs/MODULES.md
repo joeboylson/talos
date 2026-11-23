@@ -59,8 +59,9 @@ Each block below is listed as what goes in → what comes out.
     it, see its screen, ask it for a kind of output, answer an open output by
     its id, attach a terminal, list the sessions, follow events, and start,
     check or stop the session runner itself.
-  - Out: results and refusals for each call; each session's state, whether
-    its mod's link is up or lost, its asks
+  - Out: results and refusals for each call; each session's state (from its
+    mod's facts), whether its mod's link is up or lost, whether its running
+    turn was started by Claude Code on its own, its asks
     (state and latest answer per kind), its open outputs, its conversation as
     entries in conversation order (outputs and dropped markers included),
     notices like a dropped answer, and its raw terminal output.
@@ -70,7 +71,10 @@ Each block below is listed as what goes in → what comes out.
     choice that would act as a command), and `still-starting` (a starting
     session already has as many messages waiting as it takes), and
     `prompt-showing` (a message can't go in while Claude Code asks permission:
-    it would answer the prompt). A malformed
+    it would answer the prompt), `stopped` (Esc in its terminal stopped
+    it; only the person continues it, there), `link-lost` (its mod is gone,
+    so talos sends it nothing) and `no-claude-code` (the machine hasn't the
+    one Claude Code version talos runs). A malformed
     request, or a session runner that can't be reached, throws instead.
   - Its home holds: `runner.sock` (the plain calls), `runner-hooks.sock`
     (the sessions' hooks) and `runner-link.sock` (the sessions' mods),

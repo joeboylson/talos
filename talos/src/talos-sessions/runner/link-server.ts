@@ -1,14 +1,14 @@
 // The link socket: where each session's mod checks in, sends its facts, and
-// keeps its helper's stream open. Observe-only for now: the facts build a
-// state of their own (fact-state.ts), logged where it differs from the one
-// hooks give, and the session's summary says whether its link is up.
-import { shownFactState, stepFactView, type ShownState } from "../link/fact-state";
+// keeps its helper's stream open. The facts are the session's state (see
+// fact-state.ts), and the summary says whether the link is up.
+import { shownFactState, stepFactView, type FactView } from "../link/fact-state";
 import { steadyNow } from "../constants";
 import { encodeLinkCommand, LINK_ROUTES, readCheckIn, readFacts, takeNextFacts, type CheckInAnswer, type FactsAnswer } from "../link/link-protocol";
 import { parseJsonOrNull } from "../json";
 import { SESSION_LIMITS } from "../limits";
 import type { LinkState } from "../shapes";
 import { linkSilenceMs, log } from "./inputs";
+import { setSessionState } from "./session-state";
 import { broadcastSessions, heldSessions, updateHeldSession, type HeldSession, type SessionLink } from "./store";
 
 const FORBIDDEN = () => new Response(null, { status: 403 });
@@ -57,19 +57,25 @@ const answerCheckIn = async (request: Request): Promise<Response> => {
   return Response.json({ secret } satisfies CheckInAnswer);
 };
 
-// What the hooks' state comes to in the facts' terms: a turn that ended on an
-// open question shows "needs you", which the facts leave to the outputs.
-const hookStateOf = (session: HeldSession): ShownState =>
-  session.summary.state === "needs-you" && session.isTurnOver ? "idle" : session.summary.state;
-
-// Logged, not acted on: it shows where the facts and the hooks disagree,
-// before the facts take over.
-const compareStates = (sessionName: string, token: string): void => {
+// A turn that ended on an open question waits for the person, not idle. Only
+// a change in what the facts say is applied: a fact that changes nothing (the
+// prompt, just before its turn) mustn't count a turn talos just typed as over.
+const showFactState = (sessionName: string, token: string, before: FactView, after: FactView): void => {
   const session = heldSessions.get(sessionName);
   if (session?.hookToken !== token) return;
-  const fromFacts = shownFactState(session.link.factView);
-  const fromHooks = hookStateOf(session);
-  if (fromFacts !== fromHooks) log.event(`runner: ${sessionName}'s state differs: hooks say ${fromHooks}, its mod says ${fromFacts}`);
+  const isSelfStarted = after.activity === "working" && after.turnStarter === "self";
+  const isSameSelfStart = isSelfStarted === (session.summary.isSelfStarted === true);
+  if (!isSameSelfStart) {
+    const { isSelfStarted: _dropped, ...rest } = session.summary;
+    updateHeldSession(sessionName, token, { summary: isSelfStarted ? { ...rest, isSelfStarted } : rest });
+    broadcastSessions();
+  }
+  const isSameState = shownFactState(before) === shownFactState(after) && before.isTurnOver === after.isTurnOver;
+  if (isSameState) return;
+  const shown = shownFactState(after);
+  const hasOpenOutput = session.summary.openOutputs.length > 0;
+  // Its turn over, what waited goes in (messages sent while it started first).
+  setSessionState(sessionName, shown === "idle" && hasOpenOutput ? "needs-you" : shown, after.isTurnOver);
 };
 
 const answerFacts = async (session: HeldSession, request: Request): Promise<Response> => {
@@ -79,9 +85,10 @@ const answerFacts = async (session: HeldSession, request: Request): Promise<Resp
   // meanwhile, and a stale one would undo it.
   const current = heldSessions.get(session.summary.sessionName)?.link ?? session.link;
   const { taken, lastSeq } = takeNextFacts(current.lastSeq, facts);
-  changeLink(session, { lastSeq, lastHeardAtMs: steadyNow(), factView: taken.reduce(stepFactView, current.factView) });
+  const factView = taken.reduce(stepFactView, current.factView);
+  changeLink(session, { lastSeq, lastHeardAtMs: steadyNow(), factView });
   taken.forEach((fact) => log.detail(`runner: ${session.summary.sessionName} fact ${fact.seq} ${fact.type} ${JSON.stringify(fact.details)}`));
-  if (taken.length > 0) setTimeout(() => compareStates(session.summary.sessionName, session.hookToken), SESSION_LIMITS.stateCompareDelayMs).unref();
+  showFactState(session.summary.sessionName, session.hookToken, current.factView, factView);
   return Response.json({ acked: lastSeq } satisfies FactsAnswer);
 };
 

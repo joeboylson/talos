@@ -38,6 +38,8 @@ type MadeUpSession = {
   state: string;
   asks: Record<string, { state: string; atMs: number; latest?: Record<string, unknown> }>;
   openOutputs: { id: string; kind: string; fields: Record<string, unknown>; atMs: number }[];
+  link?: string;
+  isSelfStarted?: true;
 };
 type MadeUpEntries = { sessionName: string; entries: unknown[] };
 
@@ -123,6 +125,16 @@ const atlas = await connectMachine(
       state: "working",
       asks: { status: { state: "answered", atMs: 1, latest: { state: "working", note: "Laying out the hero section." } } },
       openOutputs: [],
+      link: "linked",
+      isSelfStarted: true,
+    },
+    {
+      sessionName: "cleanup",
+      folderName: "talos",
+      state: "stopped",
+      asks: {},
+      openOutputs: [],
+      link: "lost",
     },
     {
       sessionName: "deploy",

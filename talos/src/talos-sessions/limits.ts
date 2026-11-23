@@ -84,8 +84,6 @@ export const SESSION_LIMITS = {
   maxSummaryOutputsBytes: 32 * 1024,
   // The file that keeps items dropped for failing their check.
   maxQuarantineBytes: 1024 * 1024,
-  // Past this, a starting session is typed into even if its screen hasn't settled.
-  readyLongestWaitMs: 15_000,
   // A session whose Claude Code hasn't reported its start by this long after it
   // was spawned is shown as needing the person (a screen before its hooks run,
   // like a dialog to approve a folder's MCP servers).
@@ -107,7 +105,4 @@ export const SESSION_LIMITS = {
   // A mod that sends nothing for this long counts as gone. It sends word every
   // 5 s, so this allows for a few missed.
   linkSilenceMs: 20_000,
-  // Facts and hooks arrive apart, so the two states are compared a moment
-  // after each fact.
-  stateCompareDelayMs: 1_500,
 } as const;

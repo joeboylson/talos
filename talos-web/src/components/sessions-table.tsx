@@ -55,7 +55,7 @@ export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop, onAsk
                 <TableCell>{sessionRow.machineName}</TableCell>
                 <TableCell>{sessionRow.folderName}</TableCell>
                 <TableCell>
-                  <SessionStateBadge state={sessionRow.state} />
+                  <SessionStateBadge state={sessionRow.state} link={sessionRow.link} isSelfStarted={sessionRow.isSelfStarted} />
                 </TableCell>
                 <TableCell className="max-w-xs">
                   {sessionRow.status && <SessionStatusBadge status={sessionRow.status} />}

@@ -44,10 +44,6 @@ export const CLAUDE_COMMAND = "claude";
 export const CLAUDE_CONFIG_FILE = join(homedir(), ".claude.json");
 export const TERMINAL_SIZE = { cols: 120, rows: 40 } as const;
 
-// Claude Code is ready for typing once its screen has been still this long
-// after it starts (see SESSION_LIMITS.readyLongestWaitMs for the longest wait).
-export const READY_QUIET_MS = 1000;
-export const READY_CHECK_MS = 200;
 
 // How often the session runner looks for newly saved lines in each session's
 // conversation, so the page sees Claude's work as it happens.

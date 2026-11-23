@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { trustFolder, type TrustChange } from "../claude/claude-trust";
 import { LINK_ENV_KEYS } from "../link/link-protocol";
 import { NO_FACTS } from "../link/fact-state";
-import { HOOK_SCRIPT, READY_CHECK_MS, READY_QUIET_MS, SESSION_ENV_KEYS, steadyNow, TERMINAL_SIZE } from "../constants";
+import { HOOK_SCRIPT, SESSION_ENV_KEYS, TERMINAL_SIZE } from "../constants";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
 import { buildHookSettings } from "../claude/session-hooks";
@@ -25,7 +25,7 @@ import { SESSION_LIMITS } from "../limits";
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
   const session = heldSessions.get(sessionName);
   if (session?.hookToken !== token) return;
-  updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, SESSION_LIMITS.maxOutputBytes), lastOutputAtMs: steadyNow() });
+  updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, SESSION_LIMITS.maxOutputBytes) });
   sendToListeners(session.outputListeners, chunk);
 };
 
@@ -60,6 +60,7 @@ const STOPPING = () => new Response("the session runner is stopping", { status: 
 
 const refuseNewSession = (sessionName: string): Response | null => {
   if (runnerState.isStopping) return STOPPING();
+  if (runnerState.cannotStartWhy) return refuse("no-claude-code", runnerState.cannotStartWhy, 503);
   if (heldSessions.has(sessionName) || startingSessions.has(sessionName)) return refuse("already-running", `${sessionName} is already running`);
   if (heldSessions.size + startingSessions.size >= SESSION_LIMITS.maxSessions) return refuse("too-many-sessions", "too many sessions", 429);
   return null;
@@ -155,16 +156,13 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     hookToken,
     link: { token: linkToken, isCheckedIn: false, secret: null, lastSeq: 0, commands: null, factView: NO_FACTS, lastHeardAtMs: 0 },
     startedAtMs: Date.now(),
-    hasStarted: false,
     hasDraft: false,
     draftAtMs: 0,
     isTurnOver: false,
     isTalosTypedNext: false,
     output: new Uint8Array(),
-    lastOutputAtMs: 0,
     outputListeners: new Set(),
     isBeingRead: false,
-    isBecomingReady: false,
     isWaitingToAsk: false,
   });
   saveSessionGroups();
@@ -175,44 +173,15 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   return new Response(null, { status: 201 });
 };
 
-// A session whose start never came is on a screen only the person can get past:
-// it needs them, mid-turn, so nothing is typed into it (what was sent waits, and
+// A session whose mod never reported its start is on a screen only the person
+// can get past (a dialog before its hooks run), or its mod didn't load: it
+// needs them, mid-turn, so nothing is typed into it (what was sent waits, and
 // goes in once it starts) and the page says to answer in the terminal.
 const showStuckStart = (sessionName: string, token: string): void => {
   const session = heldSessions.get(sessionName);
-  if (session?.hookToken !== token || session.hasStarted) return;
+  if (session?.hookToken !== token || session.link.factView.activity !== "starting") return;
   log.warn(`runner: ${sessionName} hasn't started; it may be showing a screen only its terminal can answer`);
   setSessionState(sessionName, "needs-you", false);
-};
-
-// Once Claude Code's screen settles after it starts, the session is ready:
-// type anything sent while it was starting. Quiet counts from the wait's start
-// too, since a screen that hasn't drawn yet isn't settled.
-export const becomeReadyWhenQuiet = async (sessionName: string, token: string, giveUpAtMs: number, waitedFromMs = steadyNow()): Promise<void> => {
-  // Bail if the session is gone, or was replaced by a new instance with the same
-  // name, so a stale loop never drives the replacement.
-  const startingSession = heldSessions.get(sessionName);
-  if (startingSession?.hookToken !== token) return;
-  const quietForMs = steadyNow() - Math.max(startingSession.lastOutputAtMs, waitedFromMs);
-  if (quietForMs < READY_QUIET_MS && steadyNow() < giveUpAtMs) {
-    await Bun.sleep(READY_CHECK_MS);
-    return becomeReadyWhenQuiet(sessionName, token, giveUpAtMs, waitedFromMs);
-  }
-  const session = heldSessions.get(sessionName);
-  if (!session || session.hookToken !== token) return;
-  // Something happened while it settled (a permission prompt, the person
-  // typing in its terminal): that state stands. What was sent waits for the
-  // turn to be over (a prompt's Enter would answer it), and then goes in.
-  if (session.summary.state !== "starting") return;
-  heldSessions.set(sessionName, { ...session, queuedMessages: [] });
-  // Messages sent during startup are the person typing, so they end any ask.
-  // The session is then working, not idle, so a new ask waits for their Stop
-  // instead of landing on top of them.
-  const hasQueuedMessages = session.queuedMessages.length > 0;
-  if (hasQueuedMessages) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
-  setSessionState(sessionName, hasQueuedMessages ? "working" : "idle");
-  // All queued for typing at once, so a message sent meanwhile goes after them.
-  await Promise.all(session.queuedMessages.map((message) => typeIntoSession(session, message)));
 };
 
 // Claude leads its own process group (its terminal's), so signalling the group

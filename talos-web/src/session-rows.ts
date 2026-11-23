@@ -1,4 +1,4 @@
-import { LIMITS, openDecisionOf, statusOf, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
+import { LIMITS, openDecisionOf, statusOf, type LinkState, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
 
 export type SessionRow = {
   machineId: string;
@@ -11,6 +11,8 @@ export type SessionRow = {
   // Claude Code asks permission in its terminal (needs you, mid-turn): only
   // the terminal can answer it.
   isPromptShowing: boolean;
+  link?: LinkState;
+  isSelfStarted?: true;
 };
 
 export const sessionKey = (machineId: string, sessionName: string): string => `${machineId}:${sessionName}`;
@@ -22,9 +24,20 @@ export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
       (sessions ?? []).map((session) => {
         const status = statusOf(session);
         const decision = openDecisionOf(session);
-        const { sessionName, folderName, state } = session;
+        const { sessionName, folderName, state, link, isSelfStarted } = session;
         const isPromptShowing = state === "needs-you" && session.isTurnOver === false;
-        return { machineId, machineName, sessionName, folderName, state, isPromptShowing, ...(status && { status }), ...(decision && { decision }) };
+        return {
+          machineId,
+          machineName,
+          sessionName,
+          folderName,
+          state,
+          isPromptShowing,
+          ...(status && { status }),
+          ...(decision && { decision }),
+          ...(link && { link }),
+          ...(isSelfStarted && { isSelfStarted }),
+        };
       }),
     )
     .sort(

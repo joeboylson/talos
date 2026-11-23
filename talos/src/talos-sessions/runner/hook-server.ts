@@ -2,14 +2,13 @@
 import type { Socket } from "bun";
 import { NEWLINE_BYTE, steadyNow } from "../constants";
 import { encodeHookLine, readHookRequest, type HookAnswer, type ListedTool } from "../client/runner-protocol";
-import { hookTokenAuthorized, nextSessionState } from "../claude/session-hooks";
+import { hookTokenAuthorized } from "../claude/session-hooks";
 import { readLaneEvent } from "../lanes/lane";
 import { readOutputsEvent } from "../lanes/outputs";
 import { allowTranscriptSwitch } from "../transcript/transcript-lines";
-import { becomeReadyWhenQuiet } from "./lifecycle";
 import { switchTranscript } from "./transcript";
 import { catalog, log } from "./inputs";
-import { applyLaneEvent, applyOutputsEvent, setSessionState } from "./session-state";
+import { applyLaneEvent, applyOutputsEvent } from "./session-state";
 import { heldSessions, updateHeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";
 import { listedSchema, replyWording } from "../kinds";
@@ -30,32 +29,12 @@ const handleHook = (sessionName: string, token: string, hookDetailsText: string)
   if (outputsEvent?.type === "turn-started") updateHeldSession(sessionName, token, { isTalosTypedNext: false });
   if (outputsEvent) applyOutputsEvent(sessionName, outputsEvent);
 
-  // Only one ready-loop per session instance, so a forged flood of SessionStart
-  // events can't pile up uncancelled loops and exhaust the session runner's memory.
-  // Only the first: Claude Code also sends one mid-session (a compaction,
-  // /clear), which mustn't count the turn over or hide an open question.
-  if (hookEvent === "SessionStart" && !session.hasStarted && !session.isBecomingReady) {
-    updateHeldSession(sessionName, session.hookToken, { isBecomingReady: true, hasStarted: true });
-    // One shown as stuck (its start was late) is only starting after all, so
-    // what was sent meanwhile goes in once it's ready.
-    if (session.summary.state !== "starting") setSessionState(sessionName, "starting", false);
-    void becomeReadyWhenQuiet(sessionName, session.hookToken, steadyNow() + SESSION_LIMITS.readyLongestWaitMs)
-      .catch((error: unknown) => log.warn(`runner: couldn't finish starting ${sessionName}: ${error}`))
-      .finally(() => updateHeldSession(sessionName, session.hookToken, { isBecomingReady: false }));
-  }
-
   // Claude Code can move to another conversation file (like after /clear or /resume).
   const transcriptPath = Reflect.get(hookDetails as object, "transcript_path");
   const current = heldSessions.get(sessionName);
   const currentPath = current?.transcripts.at(-1)?.path ?? null;
   const isSwitch = typeof transcriptPath === "string" && transcriptPath !== currentPath && allowTranscriptSwitch(transcriptPath, currentPath);
   if (isSwitch && current) heldSessions.set(sessionName, { ...current, transcripts: switchTranscript(current.transcripts, transcriptPath) });
-  // A turn that ends on an open output is waiting for the person, not idle.
-  const nextState = nextSessionState(hookEvent, hookDetails);
-  const hasOpenOutput = (heldSessions.get(sessionName)?.summary.openOutputs.length ?? 0) > 0;
-  const isTurnOver = nextState === "idle";
-  const shownState = isTurnOver && hasOpenOutput ? "needs-you" : nextState;
-  if (shownState && !blockedStop) setSessionState(sessionName, shownState, isTurnOver);
   return decision;
 };
 

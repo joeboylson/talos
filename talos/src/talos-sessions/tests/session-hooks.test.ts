@@ -1,37 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { buildHookSettings, hookTokenAuthorized, nextSessionState } from "../claude/session-hooks";
-
-describe("nextSessionState", () => {
-  test.each([
-    ["SessionStart", {}, null],
-    ["Stop", {}, "idle"],
-    ["UserPromptSubmit", {}, "working"],
-    ["PostToolUse", {}, "working"],
-    ["PostToolUse", { agent_id: "a1" }, null],
-    ["PostToolUseFailure", {}, "working"],
-    ["PreToolUse", { tool_name: "Bash" }, "working"],
-    ["PostToolUseFailure", { agent_id: "a1" }, null],
-    ["PermissionRequest", { agent_id: "a1", tool_name: "Bash" }, "needs-you"],
-    ["Notification", { message: "Claude needs your permission to use Bash" }, "needs-you"],
-    ["Notification", { notification_type: "permission_prompt" }, "needs-you"],
-    ["Notification", { notification_type: "idle_prompt" }, null],
-    ["Notification", { message: "Claude is waiting for your input" }, null],
-    ["Notification", { notification_type: "auth_success", message: "Signed in" }, null],
-    ["Notification", { notification_type: "quota_auto_resume_fired" }, null],
-    ["Notification", { notification_type: "elicitation_dialog" }, "needs-you"],
-    ["PermissionRequest", { tool_name: "Bash", tool_input: { command: "ls" } }, "needs-you"],
-    ["SessionEnd", {}, null],
-  ] as const)("%s %p → %p", (hookEvent, payload, expected) => {
-    expect(nextSessionState(hookEvent, payload)).toBe(expected);
-  });
-});
+import { buildHookSettings, hookTokenAuthorized, isMainStopFailure } from "../claude/session-hooks";
 
 test("buildHookSettings runs the hook command on every event", () => {
   const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"', { TALOS_RUNNER_SOCKET: "/sock", TALOS_HOOK_TOKEN: "tok" }));
-  expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "PermissionRequest", "Stop", "StopFailure"]);
+  expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure"]);
   expect(settings.hooks.Stop).toEqual([{ hooks: [{ type: "command", command: '"/bin/bun" "/talos/hook.ts"' }] }]);
-  // Pinned so a project's own disableAllHooks:true can't switch off enforcement.
+  // Pinned so a project's own disableAllHooks:true can't switch off enforcement,
+  // nor its enabledPlugins turn talos's mod off.
   expect(settings.disableAllHooks).toBe(false);
+  expect(settings.enabledPlugins).toEqual({ "talos@inline": true });
   // Pinned so a project's own `env` can't blank the socket/token the hook reads.
   expect(settings.env.TALOS_RUNNER_SOCKET).toBe("/sock");
   expect(settings.env.TALOS_HOOK_TOKEN).toBe("tok");
@@ -62,12 +39,9 @@ describe("hook edges", () => {
   test("an empty token never authorizes, even against an empty one", () => {
     expect(hookTokenAuthorized("", "")).toBe(false);
   });
-  test("a Notification with no body needs the person", () => {
-    expect(nextSessionState("Notification", null)).toBe("needs-you");
-  });
 });
 
-test("a turn ended by an API error is idle, unless the failure was a sub-agent's", () => {
-  expect(nextSessionState("StopFailure", { error: "rate_limit" })).toBe("idle");
-  expect(nextSessionState("StopFailure", { error: "rate_limit", agent_id: "a1" })).toBeNull();
+test("a turn ended by an API error ends the session's turn, unless the failure was a sub-agent's", () => {
+  expect(isMainStopFailure("StopFailure", { error: "rate_limit" })).toBe(true);
+  expect(isMainStopFailure("StopFailure", { error: "rate_limit", agent_id: "a1" })).toBe(false);
 });

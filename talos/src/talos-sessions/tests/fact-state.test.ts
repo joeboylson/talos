@@ -36,7 +36,7 @@ test("Esc stops a session once its turn ends, until the person enters something"
   expect(shownAfter(...stopped)).toBe("stopped");
   expect(shownAfter(...stopped, fact("turn-start"), fact("turn-complete"))).toBe("stopped");
   expect(shownAfter(...stopped, fact("prompt-submit", { origin: { kind: "plugin", name: "talos" } }))).toBe("stopped");
-  expect(shownAfter(...stopped, fact("prompt-submit", TYPED))).toBe("idle");
+  expect(viewAfter(...stopped, fact("prompt-submit", TYPED))).toMatchObject({ activity: "working", isTurnOver: false, isStopped: false });
   expect(shownAfter(...stopped, fact("prompt-submit", { origin: { kind: "bridge" } }), fact("turn-start"))).toBe("working");
 });
 
@@ -54,4 +54,9 @@ test("a /clear or /resume changes nothing on its own", () => {
 test("a stop with no turn running stops nothing", () => {
   expect(shownAfter(fact("session-start"), fact("session-stop", { isTurnRunning: false }))).toBe("idle");
   expect(shownAfter(fact("session-start"), fact("session-stop"))).toBe("idle");
+});
+
+test("a person's prompt while ready changes nothing until its turn starts", () => {
+  const ready = viewAfter(fact("session-start"));
+  expect(stepFactView(ready, fact("prompt-submit", TYPED))).toBe(ready);
 });

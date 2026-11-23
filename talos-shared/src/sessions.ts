@@ -1,12 +1,17 @@
 import { isIdentifierName } from "./identifiers";
 import { LIMITS } from "./limits";
 
-// A session's state, as Claude Code's hooks report it.
+// A session's state, as its mod reports it.
 // starting: Claude Code is loading. idle: waiting for a message.
 // working: answering. needs-you: waiting on a question in its terminal
 // (like a permission prompt), so someone has to attach and answer it.
-export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
+// stopped: Esc in its terminal; only something entered there continues it.
+export const SESSION_STATES = ["starting", "idle", "working", "needs-you", "stopped"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
+// Whether a session's mod is checked in, or gone since (the session runs on,
+// but talos can't reach it). Missing: it hasn't checked in.
+export const LINK_STATES = ["linked", "lost"] as const;
+export type LinkState = (typeof LINK_STATES)[number];
 
 // For each kind talos asks for (like status): where the latest ask stands, and
 // its latest answer. Open outputs are questions waiting for the person, each
@@ -28,6 +33,9 @@ export type SessionSummary = {
   // for its answer; with it running, a permission prompt in the terminal.
   // Missing (an older sender) counts as over.
   isTurnOver?: boolean;
+  link?: LinkState;
+  // The turn running now was started by Claude Code on its own, not a message.
+  isSelfStarted?: true;
 };
 
 // A question the session asked the person while working, with the choices it
@@ -165,6 +173,8 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
   return value.filter(isSession).map((item) => {
     const { sessionName, folderName, state } = item as SessionSummary;
     const isTurnOver = fieldOf(item as object, "isTurnOver");
+    const link = fieldOf(item as object, "link");
+    const isSelfStarted = fieldOf(item as object, "isSelfStarted");
     return {
       sessionName,
       folderName,
@@ -172,6 +182,8 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
       asks: readAsks(fieldOf(item as object, "asks")),
       openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")),
       ...(typeof isTurnOver === "boolean" && { isTurnOver }),
+      ...(isOneOf(LINK_STATES, link) && { link }),
+      ...(isSelfStarted === true && { isSelfStarted }),
     };
   });
 };

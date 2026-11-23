@@ -136,14 +136,16 @@ const endLeftSessionGroups = async (file: string): Promise<void> => {
 };
 
 // The Claude Code every session runs: the pinned copy, made from `claude` on
-// the path or the installer's folder for that version. Without one (neither is
-// that version), `claude` on the path, with a warning. Refusing such a
-// session comes later, with the version check.
-const pinnedClaudeCommand = (pinnedFolder: string): readonly string[] => {
+// the path or the installer's folder for that version. Without one, sessions
+// are refused: the mod loads only in that version, and a session without it
+// would never report its start.
+const pinClaudeCodeOrRefuse = (pinnedFolder: string): readonly string[] => {
   const candidates = [Bun.which(CLAUDE_COMMAND), join(CLAUDE_VERSIONS_FOLDER, PINNED_CLAUDE_CODE_VERSION)];
   const pinned = pinClaudeCode(pinnedFolder, PINNED_CLAUDE_CODE_VERSION, candidates);
-  if (!pinned) log.warn(`runner: no Claude Code ${PINNED_CLAUDE_CODE_VERSION} to pin; sessions run \`${CLAUDE_COMMAND}\` from the path`);
-  return [pinned ?? CLAUDE_COMMAND];
+  if (pinned) return [pinned];
+  runnerState.cannotStartWhy = `talos needs Claude Code ${PINNED_CLAUDE_CODE_VERSION}, and this machine doesn't have it`;
+  log.warn(`runner: ${runnerState.cannotStartWhy}`);
+  return [CLAUDE_COMMAND];
 };
 
 export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
@@ -157,7 +159,7 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   }
   await endLeftSessionGroups(paths().sessionGroups);
   // Tests pass their own Claude Code (a stand-in), which isn't pinned.
-  if (!inputs.claudeCommand) useRunnerInputs({ ...inputs, claudeCommand: pinnedClaudeCommand(pinnedClaudeCode) });
+  if (!inputs.claudeCommand) useRunnerInputs({ ...inputs, claudeCommand: pinClaudeCodeOrRefuse(pinnedClaudeCode) });
   runnerState.modSnapshotFolder = snapshotMod(MOD_FOLDER, modSnapshots, PINNED_CLAUDE_CODE_VERSION).folder;
   // Kept to put back at the next stop if they can't be put back now, so the
   // record this runner writes still holds them.

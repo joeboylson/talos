@@ -82,6 +82,9 @@ export const sendToSession = async (sessionName: string, text: string, images: S
   // Typed into a permission prompt, the message would answer it (its Enter
   // approves) and be lost, so it waits for the person to answer the prompt.
   if (isPromptShowing(waiting)) return refusePromptShowing();
+  // Esc in the terminal stopped it: only the person continues it, there.
+  if (waiting.summary.state === "stopped") return refuse("stopped", "It was stopped in its terminal; continue it there");
+  if (waiting.summary.link === "lost") return refuseLinkLost();
   // A session that ends while its images are saved takes its uploads folder with it.
   const imagePaths = await saveImages(sessionName, images).catch((error: unknown) => {
     if (heldSessions.has(sessionName)) throw error;
@@ -98,5 +101,9 @@ export const sendToSession = async (sessionName: string, text: string, images: S
   }
   return new Response(null, { status: 204 });
 };
+
+// Its mod is gone, so talos can't see where it is: what's sent could land
+// anywhere. It runs on, and its terminal still works.
+export const refuseLinkLost = (): Response => refuse("link-lost", "talos lost touch with it; use its terminal");
 
 const refusePromptShowing = (): Response => refuse("prompt-showing", "Claude is asking permission; answer it first");

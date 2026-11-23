@@ -25,8 +25,9 @@ export const reportFact = async (type: Fact["type"], details: Record<string, unk
   await postJson(LINK_ROUTES.facts, { facts: [fact] }, { authorization: `Bearer ${secret}` });
 };
 
-// The helper's process id goes in helper.pid, so a test can end it.
-export const linkLikeTheMod = async (): Promise<void> => {
+// The helper's process id goes in helper.pid, so a test can end it. Facts
+// given go before the start's, as a turn Claude Code starts on its own would.
+export const linkLikeTheMod = async (firstFacts: readonly [Fact["type"], Record<string, unknown>][] = []): Promise<void> => {
   if (!socket || !token) return;
   const answer = await checkIn();
   if (!answer.ok) return;
@@ -36,6 +37,7 @@ export const linkLikeTheMod = async (): Promise<void> => {
     stdout: "ignore",
   });
   writeFileSync(join(process.cwd(), "helper.pid"), String(helper.pid));
+  for (const [type, details] of firstFacts) await reportFact(type, details);
   await reportFact("session-start");
   if (!basename(process.cwd()).startsWith("quiet")) setInterval(() => void postJson(LINK_ROUTES.facts, { facts: [] }, { authorization: `Bearer ${secret}` }), HEARTBEAT_MS);
   if (basename(process.cwd()).startsWith("relink")) await checkIn();

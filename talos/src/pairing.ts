@@ -9,6 +9,7 @@ import {
   type PairPollResponse,
   type PairStartResponse,
 } from "talos-shared";
+import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
 
 const postJson = async <T>(url: URL, body: unknown): Promise<T> => {
   const response = await fetch(url, {
@@ -87,4 +88,20 @@ export const pairMachine = async (serverOrigin: string, machineName: string, log
   const collected = await postJson<PairCollectResponse>(new URL(SERVER_ROUTES.pairCollect, serverOrigin), { pairingId });
   log.event(`talos: paired as ${collected.machineName} for ${approvedBy}; saving this machine's key`);
   return collected;
+};
+
+// This machine's key and the server's name for it: the saved key if the
+// server still knows it, else a new one from pairing. A saved key the server
+// no longer knows (the machine was removed from the page) is thrown away.
+export const acceptMachine = async (serverUrl: string, serverOrigin: string, wantedMachineName: string, log: Logger): Promise<PairedMachine> => {
+  const savedCredentials = await readCredentials(serverUrl);
+  const knownMachineName = savedCredentials && (await fetchMachineName(serverOrigin, savedCredentials.machineKey, log));
+  if (savedCredentials && knownMachineName) {
+    if (savedCredentials.machineName !== knownMachineName) await saveCredentials({ ...savedCredentials, machineName: knownMachineName });
+    return { machineKey: savedCredentials.machineKey, machineName: knownMachineName };
+  }
+  if (savedCredentials) await forgetCredentials();
+  const pairedMachine = await pairMachine(serverOrigin, wantedMachineName, log);
+  await saveCredentials({ serverUrl, ...pairedMachine });
+  return pairedMachine;
 };

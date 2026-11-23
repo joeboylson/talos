@@ -20,12 +20,12 @@ import {
   type SessionSummary,
 } from "talos-shared";
 import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
-import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
+import { readCredentials, saveCredentials } from "./credentials";
 import { changeFolders, readFolders, renameFolder } from "./folders";
 import { connectToSessions, type Result } from "./talos-sessions";
 import { toSharedEvent, type SharedRunnerEvent } from "./session-bridge";
 import { startLocalStatusServer } from "./local-status-server";
-import { fetchMachineName, pairMachine } from "./pairing";
+import { acceptMachine } from "./pairing";
 import { connectToServer, type SendToServer } from "./server-connection";
 import { TALOS_LIMITS } from "./limits";
 
@@ -206,26 +206,11 @@ export const runConnect = async (): Promise<void> => {
     log.event(`talos: folder ${message.folderName} is now called ${change.folder.folderName}`);
   };
 
-  // A saved key the server no longer knows (the machine was removed from the
-  // page) is thrown away, and the machine pairs again. The server's name for
-  // the machine is saved too, for folder identifiers.
+  // The server's name for the machine is kept too, for folder identifiers.
   const getAcceptedMachineKey = async (): Promise<string> => {
-    const savedCredentials = await readCredentials(serverUrl);
-    const knownMachineName =
-      savedCredentials && (await fetchMachineName(serverOrigin, savedCredentials.machineKey, log));
-    if (savedCredentials && knownMachineName) {
-      machineName = knownMachineName;
-      if (savedCredentials.machineName !== knownMachineName) {
-        await saveCredentials({ ...savedCredentials, machineName: knownMachineName });
-      }
-      return savedCredentials.machineKey;
-    }
-    if (savedCredentials) await forgetCredentials();
-
-    const pairedMachine = await pairMachine(serverOrigin, wantedMachineName, log);
-    machineName = pairedMachine.machineName;
-    await saveCredentials({ serverUrl, ...pairedMachine });
-    return pairedMachine.machineKey;
+    const accepted = await acceptMachine(serverUrl, serverOrigin, wantedMachineName, log);
+    machineName = accepted.machineName;
+    return accepted.machineKey;
   };
 
   // Each connection, and each retry after it drops, starts by checking the key.

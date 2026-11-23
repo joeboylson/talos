@@ -24,7 +24,15 @@ test("session commands", () => {
   expect(parseCommand(["runner", "stop"])).toEqual({ name: "runner-stop" });
 });
 
+test("service commands", () => {
+  expect(parseCommand(["install"])).toEqual({ name: "install" });
+  expect(parseCommand(["uninstall"])).toEqual({ name: "uninstall" });
+  expect(parseCommand(["update"])).toEqual({ name: "update" });
+});
+
 test.each([
+  [["install", "now"]],
+  [["update", "talos"]],
   [["sessions", "fix-login"]],
   [["sessions", "fix-login", "attach", "now"]],
   [["runner"]],

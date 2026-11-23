@@ -13,6 +13,9 @@ export type Command =
   | { name: "sessions-attach"; sessionName: string }
   | { name: "sessions-stop"; sessionName: string }
   | { name: "runner-stop" }
+  | { name: "install" }
+  | { name: "uninstall" }
+  | { name: "update" }
   | { name: "unknown"; typed: string };
 
 export type FolderCommand = Extract<Command, { name: `folders-${string}` }>;
@@ -33,6 +36,9 @@ export const HELP_TEXT =`talos: connects this machine to the Talos server
   talos sessions <session> attach           watch and type in a session (Ctrl-\\ leaves it running)
   talos sessions <session> stop             end a session
   talos runner stop                         end the session runner and every session in it
+  talos install                             pair this machine if needed, then run talos at login (macOS)
+  talos uninstall                           stop running talos at login
+  talos update                              update this copy to the latest talos, and restart it
   talos help                                show this list
 `;
 
@@ -64,5 +70,6 @@ export const parseCommand = (args: string[]): Command => {
   if (firstWord === "folders") return parseFoldersCommand(otherWords, typed);
   if (firstWord === "sessions") return parseSessionsCommand(otherWords, typed);
   if (typed === "runner stop") return { name: "runner-stop" };
+  if (typed === "install" || typed === "uninstall" || typed === "update") return { name: typed };
   return { name: "unknown", typed };
 };

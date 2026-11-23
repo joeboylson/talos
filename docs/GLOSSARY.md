@@ -20,9 +20,16 @@ docs. Use these and no others.
 - **folder**: a folder on a machine that its owner allows sessions in. Only
   `talos` on that machine can add or remove one; the page just shows them.
 - **session**: a Claude Code conversation that `talos` runs in a folder. Its
-  state is **starting**, **ready** (`idle` in code), **working**, or **needs
+  state is **starting**, **ready** (`idle` in code), **working**, **needs
   you** (a permission prompt in its terminal, or an open question waiting for
-  its answer).
+  its answer), or **stopped** (the person pressed Esc in its terminal; only
+  something entered in that terminal continues it, and talos sends nothing
+  until then).
+- **link lost**: a session whose mod is gone. It keeps running and its
+  terminal still works, but talos sends it nothing.
+- **self-started turn**: a turn Claude Code starts on its own, not from a
+  message: a sub-agent's, a background task's notice, a scheduled wake-up.
+  It's shown as such and never taken for the person's.
 - **entry**: one thing in a session's conversation: a message someone sent
   (with any images), text Claude wrote, a tool Claude ran, an output the
   session sent in a prose turn, or a dropped marker.
@@ -61,6 +68,21 @@ something.
 - **hook**: a check Claude Code makes with the session runner at set moments,
   such as before each tool runs and when a turn stops. The session runner's
   answer can allow or deny the tool, or keep the turn going.
+- **mod**: talos's plugin with code that runs inside every session's Claude
+  Code. It tells the session runner what Claude Code is doing and sends the
+  session its messages. Its code lives in `talos-sessions/mod/`.
+- **link**: the connection between a session's mod and the session runner.
+  The mod sends facts over it; the runner sends messages back.
+- **helper**: the small program the mod starts so the session runner can
+  reach it. It ends with the session.
+- **check-in**: the mod's first word over the link when a session starts:
+  which session, which Claude Code version, which snapshot.
+- **snapshot**: a read-only copy of the mod the session runner makes when it
+  starts. Sessions load the mod from it, so editing the mod's code never
+  changes a running session.
+- **pinned Claude Code**: the one tested copy of `claude` talos keeps in its
+  home and runs every session with. It never updates itself; it's changed by
+  hand.
 
 ## How talos is built
 
@@ -98,10 +120,14 @@ something.
 - **ask** and **asks list**: asking a session for a kind. The asks list holds,
   per kind, where the latest ask stands (asking, answered, no response) and its
   latest answer.
-- **settled**: a session's turn is over and its screen has been still for a
-  moment. Talos types its own text into a session only then, after an Esc,
-  and only if no draft is waiting. One thing types into a session at a time:
-  a message, talos's text, or the person's keys.
+- **settled**: a session's turn is over, as its mod reports it. Until the
+  mod reports turns, talos guesses it from the screen going still. Talos
+  types its own text into a session only then, after an Esc, and only if no
+  draft is waiting. One thing types into a session at a time: a message,
+  talos's text, or the person's keys.
+- **framed**: how talos sends text it wrote itself (an ask, an answer, a
+  loop step): marked as coming from the talos mod, not as the person. Only
+  what the person types on the page is sent as them.
 - **draft**: text the person has in a session's input box. It keeps talos's
   typing waiting and ends a queued ask; one no key has touched for a minute
   stops counting.

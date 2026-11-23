@@ -142,7 +142,10 @@ const endLeftSessionGroups = async (file: string): Promise<void> => {
 const pinClaudeCodeOrRefuse = (pinnedFolder: string): readonly string[] => {
   const candidates = [Bun.which(CLAUDE_COMMAND), join(CLAUDE_VERSIONS_FOLDER, PINNED_CLAUDE_CODE_VERSION)];
   const pinned = pinClaudeCode(pinnedFolder, PINNED_CLAUDE_CODE_VERSION, candidates);
-  if (pinned) return [pinned];
+  if (pinned) {
+    runnerState.expectedClaudeVersion = PINNED_CLAUDE_CODE_VERSION;
+    return [pinned];
+  }
   runnerState.cannotStartWhy = `talos needs Claude Code ${PINNED_CLAUDE_CODE_VERSION}, and this machine doesn't have it`;
   log.warn(`runner: ${runnerState.cannotStartWhy}`);
   return [CLAUDE_COMMAND];

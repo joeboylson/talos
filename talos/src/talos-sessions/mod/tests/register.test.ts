@@ -187,3 +187,12 @@ test('a fact that comes before the one ahead of it is resent after a pause, not 
   await clock.advance(2000)
   expect(lastTaken).toBe(3)
 })
+
+test('/fork is refused with a reason, and other commands run', async ($, on) => {
+  on('command.run', (_, e) => ({ text: `ran ${e.command}` }))
+  expect(await $.command.run({ command: 'fork' })).toMatchObject({ text: "talos sessions can't fork; start a new session instead" })
+  expect(await $.command.run({ command: 'compact' })).toMatchObject({ text: 'ran compact' })
+})
+
+// Refusing other mods (plugin.register) can't be raised from the kit; it was
+// checked in a session (ref/mod-test-results.md, "Before step 5").

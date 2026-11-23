@@ -202,4 +202,15 @@ export const register: Register = on => {
     }
     return called
   })
+  // No other mod's code runs in a talos session: any hook of another mod hears
+  // every call talos makes, and could read or rewrite its link and its
+  // submits. Other plugins keep their skills and commands; only their hooks
+  // modules are refused. A judge that fails refuses too.
+  on('plugin.register', ($, e, next) => (e.name === 'talos' ? next(e) : { refuse: 'talos sessions run no other mods' })).catch(
+    () => ({ refuse: "talos couldn't check this mod" }),
+  )
+  // A fork runs in a background process that outlives the session talos ends.
+  on('command.run', { command: 'fork' }, () => ({ text: "talos sessions can't fork; start a new session instead" })).catch(() => ({
+    text: "talos sessions can't fork",
+  }))
 }

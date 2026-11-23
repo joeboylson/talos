@@ -9,7 +9,7 @@ import { SESSION_LIMITS } from "../limits";
 import type { LinkState } from "../shapes";
 import { linkSilenceMs, log } from "./inputs";
 import { setSessionState } from "./session-state";
-import { broadcastSessions, heldSessions, updateHeldSession, type HeldSession, type SessionLink } from "./store";
+import { broadcastSessions, heldSessions, runnerState, updateHeldSession, type HeldSession, type SessionLink } from "./store";
 
 const FORBIDDEN = () => new Response(null, { status: 403 });
 const BAD_REQUEST = () => new Response(null, { status: 400 });
@@ -49,6 +49,13 @@ const answerCheckIn = async (request: Request): Promise<Response> => {
   if (!session) return FORBIDDEN();
   if (session.link.isCheckedIn) {
     loseLink(session, "its mod checked in again");
+    return FORBIDDEN();
+  }
+  // Claude Code leaves the mod off outside its engines range, so this holds
+  // unless something swapped the binary under the runner.
+  const { expectedClaudeVersion } = runnerState;
+  if (expectedClaudeVersion && checkIn.version !== expectedClaudeVersion) {
+    loseLink(session, `it runs Claude Code ${checkIn.version}, not ${expectedClaudeVersion}`);
     return FORBIDDEN();
   }
   const secret = crypto.randomUUID();

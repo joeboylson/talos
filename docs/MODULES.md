@@ -86,7 +86,9 @@ Each block below is listed as what goes in → what comes out.
     `trust-changes.json` (trust to put back, even after a crash) and
     `session-groups.json` (what a runner that dies outright leaves to end).
   - Holds: the session runner, the mod (`mod/`, run inside every session's
-    Claude Code, with its helper and its own tests under Claude Code's kit),
+    Claude Code, with its helper and its own tests under Claude Code's kit;
+    it refuses every other mod's hooks and the `/fork` command in its
+    session),
     the link server, the hook script, the MCP server, the lane and output
     rules, held answers, the transcript reader, and its own copies of the
     shapes and limits it shares with `talos-shared`.

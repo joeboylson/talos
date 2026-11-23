@@ -93,7 +93,9 @@ export const trustChanges: TrustChange[] = [];
 export const startingSessions = new Map<string, Promise<Response>>();
 // The mod snapshot sessions load (see mod-snapshot.ts), made at the runner's start.
 // Why no session can start, if none can: no tested Claude Code to run.
-export const runnerState = { isStopping: false, modSnapshotFolder: "", cannotStartWhy: null as string | null };
+// The Claude Code version a session's mod must report, when the runner runs
+// the pinned copy (a test's stand-in reports its own).
+export const runnerState = { isStopping: false, modSnapshotFolder: "", cannotStartWhy: null as string | null, expectedClaudeVersion: null as string | null };
 
 // Changes a held session only while it's the same instance (same hook token),
 // so a loop or read left over from a session that ended never touches a new

@@ -1,3 +1,4 @@
+import { MOD_PLUGIN_ID } from "../constants";
 import type { SessionState } from "../shapes";
 
 // Claude Code's hook events that move a session between states. They also
@@ -73,8 +74,10 @@ export const buildHookSettings = (hookCommand: string, hookEnv: Record<string, s
   // can't write .claude/settings.local.json with an `env` block that blanks the
   // socket/token the hook reads, or hijacks its interpreter — either of which
   // would make the hook self-disable and the enforcement fail open.
+  // enabledPlugins too: a project's settings can't turn talos's mod off.
   return JSON.stringify({
     disableAllHooks: false,
+    enabledPlugins: { [MOD_PLUGIN_ID]: true },
     env: { ...PINNED_EMPTY_HOOK_ENV, ...hookEnv },
     hooks: Object.fromEntries(HOOK_EVENTS.map((hookEvent) => [hookEvent, commandHook])),
   });

@@ -3,8 +3,12 @@
     "target": "ESNext",
     "module": "Preserve",
     "moduleResolution": "bundler",
-    "lib": ["ESNext"],
-    "types": ["bun"],
+    "lib": [
+      "ESNext"
+    ],
+    "types": [
+      "bun"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -13,5 +17,10 @@
     "resolveJsonModule": true,
     "rootDir": "."
   },
-  "include": ["."]
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "mod"
+  ]
 }

@@ -1,0 +1,6 @@
+{
+  "name": "talos",
+  "version": "0.1.0",
+  "description": "Tells talos's session runner what this session's Claude Code is doing.",
+  "network": { "hosts": [] }
+}

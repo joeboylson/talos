@@ -52,13 +52,15 @@ Each block below is listed as what goes in → what comes out.
     files in), a folder check, a logger, the kinds of output the program
     defines, what a prose turn may send, and whether to put folder trust back
     when it stops (`restoreTrustOnStop`). Tests can also set the command it
-    runs as Claude and the settings file it trusts folders in.
+    runs as Claude and the settings file it trusts folders in; otherwise it
+    runs the pinned Claude Code.
   - In, through its plain calls (`connectToSessions({ home, runnerScript })`):
     start a session in a folder, send it a message or keys, stop it, resize
     it, see its screen, ask it for a kind of output, answer an open output by
     its id, attach a terminal, list the sessions, follow events, and start,
     check or stop the session runner itself.
-  - Out: results and refusals for each call; each session's state, its asks
+  - Out: results and refusals for each call; each session's state, whether
+    its mod's link is up or lost, its asks
     (state and latest answer per kind), its open outputs, its conversation as
     entries in conversation order (outputs and dropped markers included),
     notices like a dropped answer, and its raw terminal output.
@@ -70,24 +72,29 @@ Each block below is listed as what goes in → what comes out.
     `prompt-showing` (a message can't go in while Claude Code asks permission:
     it would answer the prompt). A malformed
     request, or a session runner that can't be reached, throws instead.
-  - Its home holds: `runner.sock` (the plain calls) and `runner-hooks.sock`
-    (the sessions' hooks), `runner.lock` (the one runner holding the home),
+  - Its home holds: `runner.sock` (the plain calls), `runner-hooks.sock`
+    (the sessions' hooks) and `runner-link.sock` (the sessions' mods),
+    `mod/<hash>/` (the mod's snapshot), `claude-code/<version>/claude` (the
+    pinned Claude Code, a hard link to the installer's copy), `runner.lock` (the one runner holding the home),
     `runner.log` (moved to `runner.log.1` past 10 MB when a runner starts),
     `mcp-config.json` (the sessions' structured tools), `uploads/<session>/`
     (a session's newest 20 images), `quarantine.log` (dropped items' data),
     `trust-changes.json` (trust to put back, even after a crash) and
     `session-groups.json` (what a runner that dies outright leaves to end).
-  - Holds: the session runner, the hook script, the MCP server, the lane and
-    output rules, held answers, the transcript reader, and its own copies of
-    the shapes and limits it shares with `talos-shared`.
+  - Holds: the session runner, the mod (`mod/`, run inside every session's
+    Claude Code, with its helper and its own tests under Claude Code's kit),
+    the link server, the hook script, the MCP server, the lane and output
+    rules, held answers, the transcript reader, and its own copies of the
+    shapes and limits it shares with `talos-shared`.
   - Known limit: it trusts everything that runs as the same user. A session's
     hook token is in its environment, so anything with Bash in that session (a
     sub-agent, a prompt-injected command) can send hooks as the session: put
     up questions with buttons, answer an asked-for turn, or flood the shared
     hooks socket so other sessions' hooks go unanswered (then denied, so
-    talos's tools stop working). It can't reach another session's token or
-    the control socket's calls. The fix is running sessions as a separate OS
-    user, left until talos runs for more than its one owner.
+    talos's tools stop working). It can't read another session's token, but
+    it can open the control socket, which is this user's like the rest, and
+    drive every session through it. The fix is running sessions as a separate
+    OS user, left until talos runs for more than its one owner.
   - Shown by: `examples/receipts`, `examples/recipes`, `examples/explorer`.
   - Lives in: `talos/src/talos-sessions/`, tests in its own `tests/` and each
     example's `tests/`, all run by its `check.sh`.

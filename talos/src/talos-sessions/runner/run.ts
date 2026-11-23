@@ -8,12 +8,28 @@ import { chmod, lstat, mkdir, rm } from "node:fs/promises";
 import type { TrustChange } from "../claude/claude-trust";
 import { checkCatalog } from "../kinds";
 import { parseJsonOrNull } from "../json";
-import { ASK_CHECK_MS, HOME_MODE, RUNNER_SOCKET_MODE, steadyNow, TALOS_MCP_SERVER_KEY, TOOLS_SERVER_SCRIPT, TRANSCRIPT_CHECK_MS } from "../constants";
+import { join } from "node:path";
+import {
+  ASK_CHECK_MS,
+  CLAUDE_COMMAND,
+  CLAUDE_VERSIONS_FOLDER,
+  HOME_MODE,
+  MOD_FOLDER,
+  PINNED_CLAUDE_CODE_VERSION,
+  RUNNER_SOCKET_MODE,
+  steadyNow,
+  TALOS_MCP_SERVER_KEY,
+  TOOLS_SERVER_SCRIPT,
+  TRANSCRIPT_CHECK_MS,
+} from "../constants";
+import { pinClaudeCode } from "../claude/pinned-claude";
+import { linkServeOptions, sendHeartbeats } from "./link-server";
+import { snapshotMod } from "./mod-snapshot";
 import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } from "./control-server";
 import { startHookServer } from "./hook-server";
 import { log, paths, useRunnerInputs, type RunnerInputs } from "./inputs";
 import { applyLaneEvent } from "./session-state";
-import { heldSessions, trustChanges as keptTrustChanges, updateHeldSession } from "./store";
+import { heldSessions, runnerState, trustChanges as keptTrustChanges, updateHeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";
 import { readAllNewEntries } from "./transcript";
 
@@ -119,16 +135,30 @@ const endLeftSessionGroups = async (file: string): Promise<void> => {
   await rm(file, { force: true });
 };
 
+// The Claude Code every session runs: the pinned copy, made from `claude` on
+// the path or the installer's folder for that version. Without one (neither is
+// that version), `claude` on the path, with a warning. Refusing such a
+// session comes later, with the version check.
+const pinnedClaudeCommand = (pinnedFolder: string): readonly string[] => {
+  const candidates = [Bun.which(CLAUDE_COMMAND), join(CLAUDE_VERSIONS_FOLDER, PINNED_CLAUDE_CODE_VERSION)];
+  const pinned = pinClaudeCode(pinnedFolder, PINNED_CLAUDE_CODE_VERSION, candidates);
+  if (!pinned) log.warn(`runner: no Claude Code ${PINNED_CLAUDE_CODE_VERSION} to pin; sessions run \`${CLAUDE_COMMAND}\` from the path`);
+  return [pinned ?? CLAUDE_COMMAND];
+};
+
 export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   checkCatalog({ kinds: inputs.kinds, proseTurn: inputs.proseTurn });
   useRunnerInputs(inputs);
-  const { home, runnerSocket, hooksSocket, mcpConfig, runnerLock, trustChanges } = paths();
+  const { home, runnerSocket, hooksSocket, linkSocket, mcpConfig, runnerLock, trustChanges, modSnapshots, pinnedClaudeCode } = paths();
   await claimHome(home);
   if (!takeRunnerLock(runnerLock)) {
     log.event("runner: another session runner holds this home; leaving it be");
     process.exit(0);
   }
   await endLeftSessionGroups(paths().sessionGroups);
+  // Tests pass their own Claude Code (a stand-in), which isn't pinned.
+  if (!inputs.claudeCommand) useRunnerInputs({ ...inputs, claudeCommand: pinnedClaudeCommand(pinnedClaudeCode) });
+  runnerState.modSnapshotFolder = snapshotMod(MOD_FOLDER, modSnapshots, PINNED_CLAUDE_CODE_VERSION).folder;
   // Kept to put back at the next stop if they can't be put back now, so the
   // record this runner writes still holds them.
   const left = await leftTrustChanges(trustChanges);
@@ -137,10 +167,7 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   // A stop from the system (logout, kill) ends the sessions and puts trust back,
   // the same as stopRunner.
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(signal, () => void stopRunner());
-  await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true })]);
-  // talos (and only talos) connects to the control socket. A session is told the
-  // hook socket instead, so a prompt-injected session can't reach the routes that
-  // drive other sessions.
+  await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true }), rm(linkSocket, { force: true })]);
   // The MCP config that gives every session talos's structured tools.
   await Bun.write(
     mcpConfig,
@@ -149,8 +176,11 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   
   Bun.serve(controlServeOptions(runnerSocket) as unknown as Parameters<typeof Bun.serve>[0]);
   startHookServer(hooksSocket);
+  Bun.serve(linkServeOptions(linkSocket) as unknown as Parameters<typeof Bun.serve>[0]);
   await chmod(runnerSocket, RUNNER_SOCKET_MODE);
   await chmod(hooksSocket, RUNNER_SOCKET_MODE);
+  await chmod(linkSocket, RUNNER_SOCKET_MODE);
+  setInterval(sendHeartbeats, SESSION_LIMITS.linkHeartbeatMs);
   setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
   setInterval(() => {
     if (!holdsLock(runnerLock)) return void stopRunner();

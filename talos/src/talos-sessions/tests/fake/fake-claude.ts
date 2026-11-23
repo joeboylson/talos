@@ -14,6 +14,7 @@
 // - "clear" / "resume": a last line in the current conversation file, then a
 //   switch to a second file / back to the first, as /clear and /resume do.
 // Anything else is a prompt it just answers by ending its turn.
+// It links to the runner as talos's mod does (fake-mod.ts).
 // It saves its process id in claude.pid. In a folder named stubborn… it ignores
 // being told to stop; in one named spawner… it starts a process that ignores
 // the terminal closing, and saves that one's id in child.pid. Text typed while
@@ -23,6 +24,7 @@ import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { askRunner } from "../../client/hook-client";
 import { SESSION_ENV_KEYS } from "../../constants";
+import { linkLikeTheMod } from "./fake-mod";
 
 // fake-runner.ts gives the status kind this request.
 const STATUS_REQUEST = "please send status";
@@ -130,6 +132,7 @@ if (basename(process.cwd()).startsWith("late")) await Bun.sleep(1500);
 // In a folder named mute… it never reports its start, like a Claude Code stuck
 // on a screen before its hooks run.
 if (!basename(process.cwd()).startsWith("mute")) await hook({ hook_event_name: "SessionStart" });
+if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod();
 process.stdin.setRawMode?.(true);
 process.stdout.write("ready\n");
 

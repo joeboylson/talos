@@ -9,3 +9,6 @@ ref/
 
 # Each talos-sessions example keeps its last run here, to look at.
 talos/src/talos-sessions/examples/*/run/
+
+# Claude Code writes its types into a mod folder it loads for editing.
+talos/src/talos-sessions/mod/.claude-plugin/types/

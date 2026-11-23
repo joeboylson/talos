@@ -6,6 +6,10 @@ import { COPIED_LIMITS as LIMITS } from "./limits";
 // (like a permission prompt), so someone has to attach and answer it.
 export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
+// Where a session's mod stands: checked in, or gone since. Missing means it
+// hasn't checked in (or the sender is older).
+export const LINK_STATES = ["linked", "lost"] as const;
+export type LinkState = (typeof LINK_STATES)[number];
 
 // For each kind asked for: where the latest ask stands, and its latest answer.
 export const ASK_STATES = ["asking", "answered", "no-response"] as const;
@@ -25,6 +29,7 @@ export type SessionSummary = {
   // for its answer; with it running, a permission prompt in the terminal.
   // Missing (an older sender) counts as over.
   isTurnOver?: boolean;
+  link?: LinkState;
 };
 
 // One thing in a session's conversation, read from Claude Code's saved
@@ -116,6 +121,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
   return value.filter(isSession).map((item) => {
     const { sessionName, folderName, state } = item as SessionSummary;
     const isTurnOver = fieldOf(item as object, "isTurnOver");
+    const link = fieldOf(item as object, "link");
     return {
       sessionName,
       folderName,
@@ -123,6 +129,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
       asks: readAsks(fieldOf(item as object, "asks")),
       openOutputs: readOpenOutputs(fieldOf(item as object, "openOutputs")),
       ...(typeof isTurnOver === "boolean" && { isTurnOver }),
+      ...(isOneOf(LINK_STATES, link) && { link }),
     };
   });
 };

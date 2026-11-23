@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { trustFolder, type TrustChange } from "../claude/claude-trust";
+import { LINK_ENV_KEYS } from "../link/link-protocol";
 import { HOOK_SCRIPT, READY_CHECK_MS, READY_QUIET_MS, SESSION_ENV_KEYS, steadyNow, TERMINAL_SIZE } from "../constants";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
@@ -101,15 +102,36 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     [SESSION_ENV_KEYS.sessionName]: sessionName,
     [SESSION_ENV_KEYS.runnerSocket]: paths().hooksSocket,
     [SESSION_ENV_KEYS.hookToken]: hookToken,
+    [LINK_ENV_KEYS.socket]: paths().linkSocket,
+    [LINK_ENV_KEYS.bun]: process.execPath,
+    // An edit to the mod never reloads it mid-session (the snapshot can't
+    // change anyway), and the pinned Claude Code never updates itself.
+    CLAUDE_CODE_PLUGIN_DIR_WATCH: "0",
+    DISABLE_AUTOUPDATER: "1",
   };
+  // In the spawn env only: the mod unsets it once it has checked in.
+  const linkToken = crypto.randomUUID();
   // --mcp-config gives every session talos's structured tools (tools-server.ts);
   // the PreToolUse hook decides when each may be called.
-  const claudeArgs = [...claudeCommand(), "--session-id", crypto.randomUUID(), "--settings", buildHookSettings(hookCommand, hookEnv), "--mcp-config", paths().mcpConfig];
+  // --permission-mode default: a fresh Claude Code config starts in auto mode.
+  const claudeArgs = [
+    ...claudeCommand(),
+    "--session-id",
+    crypto.randomUUID(),
+    "--settings",
+    buildHookSettings(hookCommand, hookEnv),
+    "--mcp-config",
+    paths().mcpConfig,
+    "--plugin-dir",
+    runnerState.modSnapshotFolder,
+    "--permission-mode",
+    "default",
+  ];
   const child = Bun.spawn(
     [...withOpenFileLimit(SESSION_LIMITS.maxSessionOpenFiles), ...claudeArgs],
     {
       cwd: path,
-      env: buildSessionEnv(process.env, hookEnv),
+      env: buildSessionEnv(process.env, { ...hookEnv, [LINK_ENV_KEYS.token]: linkToken }),
       terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, hookToken, chunk) },
     } as Parameters<typeof Bun.spawn>[1],
   );
@@ -130,6 +152,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     placing: NO_PLACING,
     heldAnswers: [],
     hookToken,
+    link: { token: linkToken, isCheckedIn: false, secret: null, lastSeq: 0, commands: null },
     startedAtMs: Date.now(),
     hasStarted: false,
     hasDraft: false,

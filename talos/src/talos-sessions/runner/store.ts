@@ -20,6 +20,16 @@ export type TypedMessage = { text: string; hasImages: boolean; imagePaths?: read
 // the tools seen there that haven't ended yet.
 export type Transcript = { path: string; readByteCount: number; runningTools: Map<string, ToolEntry> };
 
+// A session's link to its mod (see link-server.ts). The token is good for one
+// check-in, which gives the secret; commands is the helper's open stream.
+export type SessionLink = {
+  token: string;
+  isCheckedIn: boolean;
+  secret: string | null;
+  lastSeq: number;
+  commands: ReadableStreamDefaultController<string> | null;
+};
+
 export type HeldSession = {
   summary: SessionSummary;
   path: string;
@@ -40,6 +50,7 @@ export type HeldSession = {
   heldAnswers: HeldAnswer[];
   // Proves a hook POST on the shared hooks socket came from this session.
   hookToken: string;
+  link: SessionLink;
   // Claude Code reported its start (its first SessionStart).
   hasStarted: boolean;
   // When it started, on the wall clock: saved with its process group, so a
@@ -80,7 +91,8 @@ export const trustChanges: TrustChange[] = [];
 // Sessions whose start is under way, by name, so a stop can wait for one; and
 // whether the runner is stopping, when it takes no new sessions.
 export const startingSessions = new Map<string, Promise<Response>>();
-export const runnerState = { isStopping: false };
+// The mod snapshot sessions load (see mod-snapshot.ts), made at the runner's start.
+export const runnerState = { isStopping: false, modSnapshotFolder: "" };
 
 // Changes a held session only while it's the same instance (same hook token),
 // so a loop or read left over from a session that ended never touches a new

@@ -9,10 +9,11 @@ export const HOME_MODE = 0o700;
 // The session runner: the background program that holds the Claude Code
 // terminals, so sessions outlive talos restarts. talos and the hook script
 // reach it through file sockets only this user can open.
-// Two sockets, so a session reaches only the hook one. The control socket
-// (used by talos) carries the powerful routes - typing into sessions,
-// starting/stopping them; the hook socket carries only hooks, which is all a
-// running Claude session needs. Both are 0600 in the 0700 home.
+// The control socket (used by talos) carries the powerful routes: typing into
+// sessions, starting and stopping them. A session is told only the hooks and
+// link sockets. That's no wall: a session runs as the same user, so its Bash
+// can open the control socket too (see MODULES.md's known limit). All are
+// 0600 in the 0700 home.
 export const RUNNER_SOCKET_MODE = 0o600;
 export const HOOK_SCRIPT = new URL("./hook.ts", import.meta.url).pathname;
 
@@ -28,6 +29,16 @@ export const RUNNER_START_TIMEOUT_MS = 5000;
 export const RUNNER_START_CHECK_MS = 100;
 
 export const SESSION_ENV_KEYS = { sessionName: "TALOS_SESSION_NAME", runnerSocket: "TALOS_RUNNER_SOCKET", hookToken: "TALOS_HOOK_TOKEN" } as const;
+
+// The mod (see mod/): its source, and the one Claude Code version it's tested
+// with, which every session runs (the pinned copy in the home) and which its
+// manifest's engines range names.
+export const MOD_FOLDER = new URL("./mod/", import.meta.url).pathname;
+export const PINNED_CLAUDE_CODE_VERSION = "2.1.330";
+// Where an installer keeps each version, when `claude` on the path is another.
+export const CLAUDE_VERSIONS_FOLDER = join(homedir(), ".local", "share", "claude", "versions");
+// Claude Code names a plugin loaded from a folder `<name>@inline`.
+export const MOD_PLUGIN_ID = "talos@inline";
 
 export const CLAUDE_COMMAND = "claude";
 export const CLAUDE_CONFIG_FILE = join(homedir(), ".claude.json");
@@ -58,6 +69,11 @@ export const homePaths = (givenHome: string) => {
   home,
   runnerSocket: join(home, "runner.sock"),
   hooksSocket: join(home, "runner-hooks.sock"),
+  // Each session's mod reaches the runner here (see runner/link-server.ts).
+  linkSocket: join(home, "runner-link.sock"),
+  // Read-only copies of the mod, one folder per hash, and the pinned Claude Code.
+  modSnapshots: join(home, "mod"),
+  pinnedClaudeCode: join(home, "claude-code"),
   log: join(home, "runner.log"),
   mcpConfig: join(home, "mcp-config.json"),
   uploads: join(home, "uploads"),

@@ -7,4 +7,10 @@ set -e
 cd "$(dirname "$0")"
 bunx tsc --noEmit -p tsconfig.json
 # CI=true: a stray test.only fails instead of skipping the tests beside it.
-CI=true bun test .
+# The mod's own tests run under Claude Code's kit, not bun (below).
+CI=true bun test --path-ignore-patterns 'mod/**' .
+# The mod is checked by Claude Code itself, so only where it's installed (not CI).
+if command -v claude >/dev/null 2>&1; then
+  claude plugin validate mod >/dev/null
+  claude plugin test mod
+fi

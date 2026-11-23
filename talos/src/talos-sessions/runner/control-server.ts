@@ -1,6 +1,6 @@
-// The control socket: the routes talos (and only talos) uses to start, drive,
-// watch and stop sessions. A session is told the hooks socket instead, so a
-// prompt-injected session can't reach these.
+// The control socket: the routes talos uses to start, drive, watch and stop
+// sessions. Sessions aren't told it, but run as the same user, so they can
+// reach it (see MODULES.md's known limit).
 import { steadyNow } from "../constants";
 import { rm } from "node:fs/promises";
 import type { BunRequest } from "bun";
@@ -88,10 +88,10 @@ export const stopRunner = async (): Promise<Response> => {
     const isPutBack = await putTrustBack(trustChanges);
     // The sockets, lock and trust record go only if they're still this
     // runner's: a home deleted and started again belongs to the new runner now.
-    const { runnerSocket, hooksSocket, runnerLock } = paths();
+    const { runnerSocket, hooksSocket, linkSocket, runnerLock } = paths();
     const isOurs = await Bun.file(runnerLock).text().then((pid) => Number(pid) === process.pid, () => false);
     if (isOurs && isPutBack) await forgetTrustChanges();
-    if (isOurs) await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true }), rm(runnerLock, { force: true })]);
+    if (isOurs) await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true }), rm(linkSocket, { force: true }), rm(runnerLock, { force: true })]);
     setTimeout(() => process.exit(0), 50);
   })();
   await stopping;

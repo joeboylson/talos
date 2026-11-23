@@ -96,4 +96,12 @@ export const SESSION_LIMITS = {
   // enough for real work, short enough that a session stuck waiting on the person
   // doesn't block asks for good.
   queuedAskTimeoutMs: 30 * 60_000,
+  // A post from a session's mod is parsed on the runner's one thread, like a
+  // hook, so it's capped the same way; a prompt's text is the big part.
+  maxLinkBodyBytes: 4 * 1024 * 1024,
+  maxFactsPerPost: 200,
+  // The runner writes to each helper this often, so a helper that's gone shows
+  // as a failed write, and the link socket's idle timeout never closes one.
+  linkHeartbeatMs: 5_000,
+  linkIdleTimeoutSeconds: 30,
 } as const;

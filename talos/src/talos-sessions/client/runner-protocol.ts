@@ -8,7 +8,10 @@ export type RunnerEvent =
   | { type: "sessions"; sessions: SessionSummary[] }
   | { type: "session-entries"; sessionName: string; entries: SessionEntry[] }
   // Something the owner asked for that didn't happen, like a held answer dropped.
-  | { type: "notice"; sessionName: string; message: string };
+  | { type: "notice"; sessionName: string; message: string }
+  // A message that waited for its turn and won't go in (an interrupt, an Esc in
+  // the terminal), given back to the page that sent it (its request id).
+  | { type: "message-returned"; sessionName: string; text: string; requestId?: string };
 
 // What the session runner sends when it turns a request down: a fixed code a
 // program can check, and a reason to show. A malformed request isn't a refusal:
@@ -26,6 +29,7 @@ export const REFUSAL_CODES = [
   "stopped",
   "link-lost",
   "no-claude-code",
+  "not-running",
 ] as const;
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
 export type Refusal = { code: RefusalCode; reason: string };
@@ -94,7 +98,7 @@ export const readHookAnswer = (line: string): HookAnswer | null => {
   return kind === "reply" && typeof reply === "string" ? { kind, reply } : null;
 };
 
-export const sessionRoute = (sessionName: string, action: "send" | "stop" | "ask" | "answer" | "output" | "input" | "resize") =>
+export const sessionRoute = (sessionName: string, action: "send" | "stop" | "interrupt" | "ask" | "answer" | "output" | "input" | "resize") =>
   `${RUNNER_ROUTES.sessions}/${encodeURIComponent(sessionName)}/${action}`;
 
 // One event per line, so a stream can be read line by line.
@@ -117,6 +121,11 @@ export const parseRunnerEvent = (line: string): RunnerEvent | null => {
     const sessionName: unknown = Reflect.get(value, "sessionName");
     const message: unknown = Reflect.get(value, "message");
     return typeof sessionName === "string" && typeof message === "string" ? { type: "notice", sessionName, message } : null;
+  }
+  if (eventType === "message-returned") {
+    const [sessionName, text, requestId] = ["sessionName", "text", "requestId"].map((field) => Reflect.get(value, field));
+    if (typeof sessionName !== "string" || typeof text !== "string") return null;
+    return { type: "message-returned", sessionName, text, ...(typeof requestId === "string" && { requestId }) };
   }
   return null;
 };

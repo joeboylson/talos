@@ -49,6 +49,13 @@ docs. Use these and no others.
 - **structured tool**: the tool a session calls to send an output of a kind
   (report_status, ask_decision). Its own call isn't shown in the conversation.
 - **attach**: show a session's terminal in your own, to watch or type.
+- **waiting message**: a message sent from the page while a session's turn
+  runs, held by the session runner and sent once the turn is over, one per
+  turn. Every page shows it.
+- **interrupt**: stopping a session's running turn from the page. Unlike Esc
+  in its terminal, the session goes on taking messages. Waiting messages go
+  back to the message box of the page that sent them, as they do after an
+  Esc.
 
 ## Programs
 

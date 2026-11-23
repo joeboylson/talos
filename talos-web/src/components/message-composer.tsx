@@ -1,21 +1,40 @@
 import { ImagePlusIcon, SendIcon, XIcon } from "lucide-react";
-import { useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/icon-button";
 import { Textarea } from "@/components/ui/textarea";
 import { canSendMessage, isSendKey, takeImagesThatFit } from "@/compose-message";
-import { prepareImage, type PreparedImage } from "@/images";
+import { prepareImage, previewSentImage, type PreparedImage } from "@/images";
+import type { ReturnedMessage } from "@/page-state";
 import { LIMITS } from "talos-shared";
 
 // onSend: false when it couldn't be sent, so what was typed stays.
-type MessageComposerProps = { onSend: (text: string, images: PreparedImage[]) => boolean };
+// returned: messages given back (they waited and won't go in), added to
+// what's typed, with their images; onReturnedTaken says they're in.
+type MessageComposerProps = {
+  onSend: (text: string, images: PreparedImage[]) => boolean;
+  returned?: ReturnedMessage;
+  onReturnedTaken?: () => void;
+};
 
 const imagesOf = (files: Iterable<File>): File[] => [...files].filter((file) => file.type.startsWith("image/"));
 
 // The box for a new message. Images come from the attach button or from
 // pasting.
-export const MessageComposer = ({ onSend }: MessageComposerProps) => {
+export const MessageComposer = ({ onSend, returned, onReturnedTaken }: MessageComposerProps) => {
   const [typedText, setTypedText] = useState("");
   const [images, setImages] = useState<PreparedImage[]>([]);
+
+  useEffect(() => {
+    if (!returned) return;
+    setTypedText((current) => (current.trim() ? `${returned.text}\n\n${current}` : returned.text));
+    const returnedImages = returned.images.map(previewSentImage);
+    setImages((current) => {
+      const kept = [...returnedImages, ...current];
+      kept.slice(LIMITS.maxImagesPerMessage).forEach(({ previewUrl }) => URL.revokeObjectURL(previewUrl));
+      return kept.slice(0, LIMITS.maxImagesPerMessage);
+    });
+    onReturnedTaken?.();
+  }, [returned, onReturnedTaken]);
   const [problem, setProblem] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 

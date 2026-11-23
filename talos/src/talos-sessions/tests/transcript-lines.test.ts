@@ -3,12 +3,14 @@ import {
   allowTranscriptSwitch,
   readCommandPrompt,
   readCompleteLines,
+  readSentMessage,
   numberItems,
   readTranscriptLine,
   resolveTranscriptItems,
   summarizeToolInput,
 } from "../transcript/transcript-lines";
 import { SESSION_LIMITS } from "../limits";
+import { INTERRUPTED_NOTE } from "../constants";
 
 describe("readTranscriptLine", () => {
   const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
@@ -251,5 +253,22 @@ describe("numbering in conversation order", () => {
   test("a structured tool's call holds its place instead of showing", () => {
     const content = [{ type: "tool_use", id: "s1", name: "mcp__talos__ask_decision", input: {} }];
     expect(readTranscriptLine(JSON.stringify({ uuid: "u1", type: "assistant", message: { content } }))).toEqual([{ kind: "structured-call", toolUseId: "s1" }]);
+  });
+});
+
+describe("a message talos sent reads as it was sent", () => {
+  const image = (name: string) => `/Users/joe/.talos/uploads/fix-login/${name}.png`;
+  const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  test.each([
+    ["plain text", "look", "look", 0],
+    ["text and two images", `look\n\n${image(ID)}\n\n${image(ID.replace("0", "1"))}`, "look", 2],
+    ["images only", image(ID), "", 1],
+    ["the note after an interrupt", `${INTERRUPTED_NOTE}\n\nwhat next`, "what next", 0],
+    ["the note and an image", `${INTERRUPTED_NOTE}\n\nwhat next\n\n${image(ID)}`, "what next", 1],
+    ["a path the person typed mid-message stays", `see ${image(ID)} please`, `see ${image(ID)} please`, 0],
+    ["the note's words later in a message stay", `hi\n\n${INTERRUPTED_NOTE}`, `hi\n\n${INTERRUPTED_NOTE}`, 0],
+    ["a path that isn't an upload stays", "look\n\n/tmp/x.png", "look\n\n/tmp/x.png", 0],
+  ])("%s", (_name, sent, text, sentImageCount) => {
+    expect(readSentMessage(sent)).toEqual({ text, sentImageCount });
   });
 });

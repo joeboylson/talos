@@ -15,9 +15,10 @@ export type Terminal = { write: (data: string | Uint8Array) => void; resize: (co
 
 export type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
 
-// A message from the page waiting for the turn to be over, with the paths of
-// the images it names.
-export type WaitingMessage = { text: string; imagePaths: readonly string[] };
+// A message from the page waiting for the turn to be over: what goes in (its
+// text and the paths of the images it names), the text as the page sent it,
+// and the page's request id, to give it back by.
+export type WaitingMessage = { text: string; imagePaths: readonly string[]; pageText: string; requestId?: string };
 
 // Where a session's conversation is saved, how much of it has been read, and
 // the tools seen there that haven't ended yet.
@@ -80,6 +81,11 @@ export type HeldSession = {
   // fact hasn't come). Nothing else goes in until it has: a send Claude Code
   // queues behind a turn it started on its own can't be taken back.
   sendInFlight: string | null;
+  // talos asked the mod to abort the running turn, and the turn then ended
+  // aborted: the person's next message says so, since an abort leaves the
+  // model no sign of it. A turn that ended on its own meanwhile wasn't.
+  isInterrupting: boolean;
+  wasInterrupted: boolean;
   // The most recent terminal output, so someone attaching sees the screen.
   output: Uint8Array;
   // Attached terminals. A Set kept by reference: streams add and remove

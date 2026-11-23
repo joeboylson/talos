@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RECONNECT_DELAY_MS, SERVER_ROUTES, decode, encode, type PageToServer, type ServerToPage } from "talos-shared";
 import type { PreparedImage } from "@/images";
-import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries, type PageState } from "@/page-state";
+import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries, forgetReturned, type PageState } from "@/page-state";
 
 // The page's live line to the server: the person's machines as they connect
 // and disconnect, each machine's latest ping reply, and each session's
@@ -84,11 +84,18 @@ export const useServerSocket = () => {
       const requestId = crypto.randomUUID();
       const sentImages = images.map(({ mediaType, dataBase64 }) => ({ mediaType, dataBase64 }));
       const isSent = send({ type: "send-to-session", machineId, sessionName, text, images: sentImages }, requestId);
-      if (isSent) setPageState((current) => addWaitingPrompt(current, machineId, sessionName, text, imagePreviewUrls, requestId));
+      if (isSent) setPageState((current) => addWaitingPrompt(current, machineId, sessionName, text, imagePreviewUrls, requestId, sentImages));
       return isSent;
     },
     [send],
   );
+
+  const interruptSession = useCallback(
+    (machineId: string, sessionName: string) => send({ type: "interrupt-session", machineId, sessionName }),
+    [send],
+  );
+
+  const takeReturned = useCallback((key: string) => setPageState((current) => forgetReturned(current, key)), []);
 
   const stopSession = useCallback(
     (machineId: string, sessionName: string) => send({ type: "stop-session", machineId, sessionName }),
@@ -113,6 +120,8 @@ export const useServerSocket = () => {
     ping,
     startSession,
     sendToSession,
+    interruptSession,
+    takeReturned,
     stopSession,
     askForUpdate,
     answerOutput,

@@ -28,6 +28,13 @@ export const encodeWithinLimit = async (
   return { blob: jpegBlob, mediaType: "image/jpeg" };
 };
 
+// A returned image gets a preview of its own: the page frees the one it had
+// with its waiting message.
+export const previewSentImage = (image: SentImage): PreparedImage => {
+  const bytes = Uint8Array.from(atob(image.dataBase64), (character) => character.charCodeAt(0));
+  return { ...image, previewUrl: URL.createObjectURL(new Blob([bytes], { type: image.mediaType })) };
+};
+
 export const readBase64FromDataUrl = (dataUrl: string): string => dataUrl.split(",")[1] ?? "";
 
 const canvasToBlob = (canvas: HTMLCanvasElement, mediaType: SentImage["mediaType"]): Promise<Blob> =>

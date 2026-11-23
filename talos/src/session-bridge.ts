@@ -7,11 +7,12 @@ import type { RunnerEvent, SessionEntry as RunnerEntry, SessionSummary as Runner
 export type SharedRunnerEvent =
   | { type: "sessions"; sessions: SessionSummary[] }
   | { type: "session-entries"; sessionName: string; entries: SessionEntry[] }
-  | { type: "notice"; sessionName: string; message: string };
+  | { type: "notice"; sessionName: string; message: string }
+  | { type: "message-returned"; sessionName: string; text: string; requestId?: string };
 
 // The module's summary is the shared one's general shape; its kinds' fields are
 // checked where they're read (talos-shared's statusOf and openDecisionOf).
-const toSharedSummary = ({ sessionName, folderName, state, asks, openOutputs, isTurnOver, link, isSelfStarted }: RunnerSummary): SessionSummary => ({
+const toSharedSummary = ({ sessionName, folderName, state, asks, openOutputs, isTurnOver, link, isSelfStarted, waitingMessages }: RunnerSummary): SessionSummary => ({
   sessionName,
   folderName,
   state,
@@ -20,6 +21,7 @@ const toSharedSummary = ({ sessionName, folderName, state, asks, openOutputs, is
   ...(isTurnOver !== undefined && { isTurnOver }),
   ...(link && { link }),
   ...(isSelfStarted && { isSelfStarted }),
+  ...(waitingMessages && { waitingMessages }),
 });
 
 // The same shape on both sides; typed here so a change on either side fails the typecheck.
@@ -27,6 +29,6 @@ const toSharedEntry = (entry: RunnerEntry): SessionEntry => entry;
 
 export const toSharedEvent = (runnerEvent: RunnerEvent): SharedRunnerEvent => {
   if (runnerEvent.type === "sessions") return { type: "sessions", sessions: runnerEvent.sessions.map(toSharedSummary) };
-  if (runnerEvent.type === "notice") return runnerEvent;
+  if (runnerEvent.type === "notice" || runnerEvent.type === "message-returned") return runnerEvent;
   return { type: "session-entries", sessionName: runnerEvent.sessionName, entries: runnerEvent.entries.map(toSharedEntry) };
 };

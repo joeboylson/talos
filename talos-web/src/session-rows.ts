@@ -1,4 +1,4 @@
-import { LIMITS, openDecisionOf, statusOf, type LinkState, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
+import { LIMITS, openDecisionOf, statusOf, type LinkState, type SentImage, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
 
 export type SessionRow = {
   machineId: string;
@@ -13,6 +13,8 @@ export type SessionRow = {
   isPromptShowing: boolean;
   link?: LinkState;
   isSelfStarted?: true;
+  // Messages waiting for the turn to be over, sent from any page.
+  waitingMessages?: string[];
 };
 
 export const sessionKey = (machineId: string, sessionName: string): string => `${machineId}:${sessionName}`;
@@ -24,7 +26,7 @@ export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
       (sessions ?? []).map((session) => {
         const status = statusOf(session);
         const decision = openDecisionOf(session);
-        const { sessionName, folderName, state, link, isSelfStarted } = session;
+        const { sessionName, folderName, state, link, isSelfStarted, waitingMessages } = session;
         const isPromptShowing = state === "needs-you" && session.isTurnOver === false;
         return {
           machineId,
@@ -37,6 +39,7 @@ export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
           ...(decision && { decision }),
           ...(link && { link }),
           ...(isSelfStarted && { isSelfStarted }),
+          ...(waitingMessages && { waitingMessages }),
         };
       }),
     )
@@ -51,7 +54,8 @@ export const findSessionRow = (machines: MachineSummary[], machineName: string, 
 // A message sent from the page, with previews of its images, shown as
 // waiting until Claude Code saves it.
 // requestId: the send's own id, so a refusal of it takes its bubble away.
-export type WaitingPrompt = { text: string; imagePreviewUrls: string[]; requestId?: string };
+// sentImages: what was sent, to give back with the text if it's returned.
+export type WaitingPrompt = { text: string; imagePreviewUrls: string[]; requestId?: string; sentImages?: SentImage[] };
 
 // A message as the session saves it: without the control characters the
 // session runner strips (all but line breaks and tabs; its rule is in
@@ -70,3 +74,14 @@ export const removeAnsweredPrompt = (
   );
   return answeredIndex === -1 ? waitingPrompts : waitingPrompts.filter((_, index) => index !== answeredIndex);
 };
+
+// What other pages left waiting: the session's waiting messages less this
+// page's own, matched by text one for one.
+export const othersWaiting = (waitingMessages: readonly string[], ownPrompts: readonly WaitingPrompt[]): string[] =>
+  waitingMessages.reduce<{ left: string[]; own: string[] }>(
+    ({ left, own }, text) => {
+      const ownIndex = own.indexOf(asSaved(text));
+      return ownIndex === -1 ? { left: [...left, text], own } : { left, own: own.filter((_, index) => index !== ownIndex) };
+    },
+    { left: [], own: ownPrompts.map(({ text }) => asSaved(text)) },
+  ).left;

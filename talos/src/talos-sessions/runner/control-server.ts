@@ -12,7 +12,7 @@ import { noSuchSession, refuse } from "./refuse";
 import { claudeConfigFile, log, paths, restoresTrust } from "./inputs";
 import { restoreTrust, type TrustChange } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
-import { answerOutput, applyLaneEvent, askForOutput } from "./session-state";
+import { answerOutput, applyLaneEvent, askForOutput, interruptSession } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
 import { eventListeners, heldSessions, isPromptShowing, listSessions, runnerState, startingSessions, trustChanges } from "./store";
 
@@ -148,8 +148,12 @@ export const controlServeOptions = (runnerSocket: string) => ({
         if (!images || (!text.trim() && images.length === 0)) {
           return new Response("expected text or images", { status: 400 });
         }
-        return sendToSession(sessionNameOf(request), text, images);
+        const requestId = typeof body.requestId === "string" && body.requestId.length <= SESSION_LIMITS.maxIdTextLength ? body.requestId : undefined;
+        return sendToSession(sessionNameOf(request), text, images, requestId);
       },
+    },
+    [`${RUNNER_ROUTES.sessions}/:sessionName/interrupt`]: {
+      POST: (request: BunRequest) => interruptSession(sessionNameOf(request)),
     },
     [`${RUNNER_ROUTES.sessions}/:sessionName/stop`]: {
       POST: async (request: BunRequest) => {

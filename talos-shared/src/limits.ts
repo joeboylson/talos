@@ -48,6 +48,8 @@ export const LIMITS = {
   // summary stays small.
   maxOpenOutputs: 20,
   maxOutputFieldsBytes: 8 * 1024,
+  // Messages waiting for their session's turn to be over; the summary lists them.
+  maxQueuedMessages: 20,
   maxNameTextLength: 100,
   // The page shrinks images before sending, so these are rarely reached.
   maxImagesPerMessage: 4,

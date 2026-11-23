@@ -40,6 +40,7 @@ type MadeUpSession = {
   openOutputs: { id: string; kind: string; fields: Record<string, unknown>; atMs: number }[];
   link?: string;
   isSelfStarted?: true;
+  waitingMessages?: string[];
 };
 type MadeUpEntries = { sessionName: string; entries: unknown[] };
 
@@ -127,6 +128,7 @@ const atlas = await connectMachine(
       openOutputs: [],
       link: "linked",
       isSelfStarted: true,
+      waitingMessages: ["Use the blue from the logo for the buttons"],
     },
     {
       sessionName: "cleanup",
@@ -201,6 +203,7 @@ await takeShot({ name: "start-session-dialog", path: "/sessions", before: clickB
 await takeShot({ name: "session", path: "/sessions/atlas/fix-login" });
 await takeShot({ name: "session-dark", path: "/sessions/atlas/fix-login", dark: true });
 await takeShot({ name: "session-decision", path: "/sessions/atlas/deploy" });
+await takeShot({ name: "session-working", path: "/sessions/atlas/new-homepage" });
 await takeShot({ name: "settings", path: "/settings" });
 
 atlas.close();

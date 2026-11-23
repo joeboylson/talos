@@ -377,6 +377,11 @@ export const createConnections = (
       return machineSocket.send(encode<ServerToMachine>({ type: "stop-session", sessionName: message.sessionName, ...forwarded() }));
     }
 
+    if (message.type === "interrupt-session") {
+      log.event(`${displayName} interrupted session "${message.sessionName}" on "${machineName}"`);
+      return machineSocket.send(encode<ServerToMachine>({ type: "interrupt-session", sessionName: message.sessionName, ...forwarded() }));
+    }
+
     if (message.type === "ask-for-output") {
       const { sessionName, kind } = message;
       log.detail(`${displayName} asked session "${sessionName}" on "${machineName}" for a ${kind}`);
@@ -455,6 +460,15 @@ export const createConnections = (
     if (message.type === "pong") return handlePong(machine, message.id);
     if (message.type === "sessions") return handleSessions(machine, message.sessions);
     if (message.type === "session-entries") return handleSessionEntries(machine, message.sessionName, message.entries);
+    if (message.type === "message-returned") {
+      // Back to the page that sent it, for its message box; with no request
+      // to go by, to all the owner's pages.
+      const { sessionName, text } = message;
+      const returned = { type: "message-returned" as const, machineId: machine.machineId, sessionName, text };
+      const request = message.requestId ? takeRequest(machine.ownerPersonId, message.requestId) : null;
+      if (!request) return sendToOwnerPages(machine.ownerPersonId, returned);
+      return sendToPage(request.pageSocket, encode<ServerToPage>({ ...returned, requestId: request.requestId }));
+    }
     if (message.type === "error") {
       const problem = `${machine.machineName}: ${message.message}`;
       // Shown on the page whose request it was, if the machine names one;

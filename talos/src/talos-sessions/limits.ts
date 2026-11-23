@@ -20,6 +20,8 @@ export const COPIED_LIMITS = {
   // output's fields are capped too, so the session list stays small.
   maxOpenOutputs: 20,
   maxOutputFieldsBytes: 8 * 1024,
+  // Messages waiting for their session's turn to be over; the summary lists them.
+  maxQueuedMessages: 20,
 } as const;
 const LIMITS = COPIED_LIMITS;
 
@@ -74,8 +76,6 @@ export const SESSION_LIMITS = {
   // A draft no key has touched for this long stops holding talos's answers: the
   // key checks can't see every way a box is emptied.
   draftForgetMs: 60_000,
-  // Messages sent while a session starts, typed once it's ready.
-  maxQueuedMessages: 20,
   // The runner's log is moved to runner.log.1 past this, when a runner starts.
   maxRunnerLogBytes: 10 * 1024 * 1024,
   // A hook with a bad token is logged at most this often, so a flood can't fill the log.

@@ -44,6 +44,7 @@ describe("another person's page", () => {
   test.each([
     { type: "start-session", machineId: JOE_MACHINE, folderName: "talos" },
     { type: "stop-session", machineId: JOE_MACHINE, sessionName: "fix" },
+    { type: "interrupt-session", machineId: JOE_MACHINE, sessionName: "fix" },
     { type: "send-to-session", machineId: JOE_MACHINE, sessionName: "fix", text: "hi" },
     { type: "ask-for-output", machineId: JOE_MACHINE, sessionName: "fix", kind: "summary" },
     { type: "answer-output", machineId: JOE_MACHINE, sessionName: "fix", outputId: "o1", choice: 0 },
@@ -207,6 +208,21 @@ describe("per-socket budgets", () => {
     const overBudgetInBytes = threeByteCharacter.repeat(Math.floor(LIMITS.maxSocketIngressBytes / 3) + 1);
     handlers.message?.(joePage, overBudgetInBytes);
     expect(repliesFrom(joePage)).toBe(0);
+  });
+});
+
+describe("a returned message goes back to the page that sent it", () => {
+  test("only that page gets it, under its own id; Eve's pages get nothing", async () => {
+    const { open, send, machine, evePage } = await setUp();
+    const laptop = await open(pageData("joe"));
+    const phone = await open(pageData("joe"));
+    send(laptop, { type: "send-to-session", machineId: JOE_MACHINE, sessionName: "fix", text: "try this", requestId: "laptop-1" });
+    const forwarded = parsedMessages(machine.record.sent).find((message) => message.type === "send-to-session");
+    send(machine, { type: "message-returned", sessionName: "fix", text: "try this", requestId: forwarded?.requestId });
+    const returnedTo = (page: Socket) => parsedMessages(page.record.sent).filter((message) => message.type === "message-returned");
+    expect(returnedTo(laptop)).toEqual([{ type: "message-returned", machineId: JOE_MACHINE, sessionName: "fix", text: "try this", requestId: "laptop-1" }]);
+    expect(returnedTo(phone)).toEqual([]);
+    expect(returnedTo(evePage)).toEqual([]);
   });
 });
 

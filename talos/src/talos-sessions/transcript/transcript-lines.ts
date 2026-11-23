@@ -3,7 +3,7 @@ import { parseJsonOrNull } from "../json";
 import { SESSION_LIMITS } from "../limits";
 import { STRUCTURED_TOOL_PREFIX } from "../kinds";
 import { capDroppedMarkers, readSessionEntry, toDroppedMarker, type SessionEntry, type UnnumberedEntry } from "../shapes";
-import { TOOL_SUMMARY_SHOWN_LENGTH, NEWLINE_BYTE } from "../constants";
+import { INTERRUPTED_NOTE, NEWLINE_BYTE, SENT_IMAGE_PATH, TOOL_SUMMARY_SHOWN_LENGTH } from "../constants";
 import { removeControlCharacters } from "../terminal";
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
@@ -75,6 +75,16 @@ export const summarizeToolInput = (input: unknown): string => {
   return truncate((firstTellingValue ?? "").replace(/\s+/g, " ").trim(), TOOL_SUMMARY_SHOWN_LENGTH);
 };
 
+// A message talos sent, as it was sent: without the note it put before it
+// after an interrupt, and with the image paths it put after it counted as
+// images. The page matches its waiting messages against this text.
+export const readSentMessage = (text: string): { text: string; sentImageCount: number } => {
+  const notePrefix = `${INTERRUPTED_NOTE}\n\n`;
+  const paragraphs = (text.startsWith(notePrefix) ? text.slice(notePrefix.length) : text).split("\n\n");
+  const firstPathAt = paragraphs.findLastIndex((paragraph) => !SENT_IMAGE_PATH.test(paragraph)) + 1;
+  return { text: paragraphs.slice(0, firstPathAt).join("\n\n"), sentImageCount: paragraphs.length - firstPathAt };
+};
+
 const readPromptLine = (entryId: string, blocks: ContentBlock[]): UnnumberedEntry[] => {
   const typedText = blocks.flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : [])).join("\n");
   const imageCount = blocks.filter((block) => block.type === "image").length;
@@ -86,9 +96,11 @@ const readPromptLine = (entryId: string, blocks: ContentBlock[]): UnnumberedEntr
     return commandOutput ? [{ kind: "text", entryId, text: truncate(commandOutput, SESSION_LIMITS.maxEntryTextLength) }] : [];
   }
 
-  const promptText = (readCommandPrompt(typedText) ?? typedText.replace(IMAGE_MARKER, "")).trim();
-  if (!promptText && imageCount === 0) return [];
-  return [{ kind: "prompt", entryId, text: truncate(promptText, SESSION_LIMITS.maxEntryTextLength), imageCount }];
+  const sent = readSentMessage(typedText.replace(IMAGE_MARKER, ""));
+  const promptText = (readCommandPrompt(typedText) ?? sent.text).trim();
+  const shownImageCount = imageCount + sent.sentImageCount;
+  if (!promptText && shownImageCount === 0) return [];
+  return [{ kind: "prompt", entryId, text: truncate(promptText, SESSION_LIMITS.maxEntryTextLength), imageCount: shownImageCount }];
 };
 
 const readToolEnds = (blocks: ContentBlock[]): TranscriptItem[] =>

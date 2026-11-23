@@ -55,6 +55,13 @@ export const TOOL_SUMMARY_SHOWN_LENGTH = 300;
 
 export const UPLOAD_FILE_MODE = 0o600;
 
+// What talos adds to a message it sends: the note after an interrupt goes
+// before it, and the paths of its images after it, each in a paragraph of its
+// own. The conversation reader takes both off again (transcript-lines.ts), so
+// a message reads as it was sent.
+export const INTERRUPTED_NOTE = "(I stopped your last turn before it finished.)";
+export const SENT_IMAGE_PATH = /^\/\S*\/uploads\/[a-z0-9-]+\/[0-9a-f-]{36}\.(png|jpg|gif|webp)$/;
+
 // Everything the module keeps in its home. Images sent with a message go in
 // uploads/, one folder per session, which keeps the newest 20 and goes when
 // the session ends; Claude Code reads them from their path. A relative home is made whole first: sessions

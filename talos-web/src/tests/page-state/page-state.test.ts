@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { LIMITS, type SessionEntry } from "talos-shared";
-import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries } from "../../page-state";
+import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries, forgetReturned } from "../../page-state";
 import { sessionKey } from "../../session-rows";
 
 const KEY = sessionKey("m1", "web");
@@ -79,4 +79,16 @@ test("a refused send's waiting copy goes, and only that one", () => {
   const refused = applyServerMessage(waiting, { type: "error", message: "atlas: Claude is asking permission; answer it first", requestId: "r1" });
   expect(refused.waitingPromptsBySession[KEY]?.map(({ text }) => text)).toEqual(["second"]);
   expect(refused.notice).toContain("asking permission");
+});
+
+test("a returned message goes back for the session's message box with the images this page sent, and its waiting copy goes", () => {
+  const image = { mediaType: "image/png" as const, dataBase64: "cG5n" };
+  const waiting = addWaitingPrompt(EMPTY_PAGE_STATE, "m1", "web", "try this", ["blob:1"], "r1", [image]);
+  const returned = { type: "message-returned", machineId: "m1", sessionName: "web" } as const;
+  const once = applyServerMessage(waiting, { ...returned, text: "try this", requestId: "r1" });
+  expect(once.waitingPromptsBySession[KEY]).toEqual([]);
+  expect(once.returnedBySession[KEY]).toEqual({ text: "try this", images: [image] });
+  const twice = applyServerMessage(once, { ...returned, text: "and this" });
+  expect(twice.returnedBySession[KEY]).toEqual({ text: "try this\n\nand this", images: [image] });
+  expect(forgetReturned(twice, KEY).returnedBySession).toEqual({});
 });

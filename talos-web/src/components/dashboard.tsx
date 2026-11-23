@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useCallback, type CSSProperties } from "react";
 import type { CurrentUserResponse, MachineSummary } from "talos-shared";
 import { removeMachine, signOut } from "@/api";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -39,6 +39,8 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
   const isSessionOpen = activeView === "sessions" && openMachineName !== null && openSessionName !== null;
   const openSessionRow = isSessionOpen ? findSessionRow(machineList, openMachineName, openSessionName) : null;
   const openSessionKey = openSessionRow ? sessionKey(openSessionRow.machineId, openSessionRow.sessionName) : "";
+  const { takeReturned } = serverSocket;
+  const takeOpenReturned = useCallback(() => takeReturned(openSessionKey), [takeReturned, openSessionKey]);
   const crumbs: Crumb[] = isSessionOpen
     ? [
         { label: VIEWS.sessions.title, onOpen: () => openView("sessions") },
@@ -101,6 +103,9 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
               onAnswer={(outputId, choice) =>
                 openSessionRow && serverSocket.answerOutput(openSessionRow.machineId, openSessionRow.sessionName, outputId, choice)
               }
+              onInterrupt={() => openSessionRow && serverSocket.interruptSession(openSessionRow.machineId, openSessionRow.sessionName)}
+              returned={serverSocket.returnedBySession[openSessionKey]}
+              onReturnedTaken={takeOpenReturned}
             />
           )}
           {activeView === "settings" && currentUser.isAdmin && <SettingsView />}

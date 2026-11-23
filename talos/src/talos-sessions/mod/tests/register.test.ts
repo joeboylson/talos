@@ -226,3 +226,32 @@ test("a submit from the runner goes in as the person or framed, reports done, an
   expect(facts.filter(({ type }) => type === 'submit-done').map(({ details }) => details.sendId)).toEqual(['s1', 's2'])
   expect(facts.filter(({ type }) => type === 'turn-start').map(({ details }) => details.startedBy)).toEqual(['person', 'talos'])
 })
+
+test('an abort from the runner stops the running turn, and does nothing once none runs', async ($, on) => {
+  const clock = mock.clock(on)
+  startLinked(on, '/bin/bun')
+  recordFacts(on)
+  const aborted: string[] = []
+  on('turn.abort', (_, e) => {
+    aborted.push(e.turnId)
+    return { value: undefined }
+  })
+  on('turn.complete', () => ({ text: '' }) as never)
+  // Two aborts: one while t1 runs, one after it ended.
+  let sendAbort: (() => void) | null = null
+  on('process.spawn', async function* () {
+    while (true) {
+      await new Promise<void>(resolve => (sendAbort = resolve))
+      yield { stream: 'stdout' as const, text: '{"type":"abort"}\n' }
+    }
+  })
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
+  await clock.settle()
+  await $.turn.start({ turnId: 't1', text: 'work' } as never)
+  sendAbort!()
+  await clock.settle()
+  await $.turn.complete({ turnId: 't1', reason: 'aborted', answer: '' } as never)
+  sendAbort!()
+  await clock.settle()
+  expect(aborted).toEqual(['t1'])
+})

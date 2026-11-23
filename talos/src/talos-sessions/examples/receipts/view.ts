@@ -77,6 +77,7 @@ export const receiptsView: ExampleView<ReceiptsState> = {
     if (input.type === "event") {
       const { event } = input;
       if (event.type === "notice") return noActions({ ...state, notice: event.message });
+      if (event.type === "message-returned") return noActions(state);
       if (event.type === "session-entries") return withTallyAsk({ ...state, entries: mergeSessionEntries(state.entries, event.entries, KEPT_ENTRIES) });
       const session = event.sessions[0];
       if (!session) return noActions(state);

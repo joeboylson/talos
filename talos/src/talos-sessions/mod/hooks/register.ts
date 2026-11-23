@@ -29,6 +29,8 @@ let lastSessionId = ''
 let pendingPrompts: { text: string; startedBy: TurnStarter }[] = []
 // Tool calls whose permission prompt shows, so their end can be reported.
 let waitingPermissions: string[] = []
+// The main conversation's running turn, for an interrupt from the page.
+let runningTurnId: string | null = null
 
 type TurnStarter = 'person' | 'talos' | 'self'
 
@@ -123,9 +125,12 @@ const submit = async ($: Calls, sendId: string, text: string, isPerson: boolean)
   report($, 'submit-done', { sendId, ...(submitted.drop !== undefined && { drop: submitted.drop }) })
 }
 
+// An abort that fails (the turn ended meanwhile) changes nothing: the turn's
+// own end is reported anyway.
 const actOn = ($: Calls, line: string) => {
   const command = JSON.parse(line)
   if (command.type === 'submit') void submit($, String(command.sendId), String(command.text), command.isPerson === true)
+  if (command.type === 'abort' && runningTurnId) void $.turn.abort({ turnId: runningTurnId }).catch(() => undefined)
 }
 
 // The helper is the runner's way in: it holds a stream open to the runner and
@@ -200,12 +205,14 @@ export const register: Register = on => {
   on('turn.start', ($, e, next) => {
     const started = next(e)
     const startedBy = e.agentId === undefined ? takeStarter(e.text) : 'self'
+    if (e.agentId === undefined) runningTurnId = e.turnId
     report($, 'turn-start', { turnId: e.turnId, agentId: e.agentId, startedBy })
     return started
   })
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) waitingPermissions = []
+    if (e.agentId === undefined && runningTurnId === e.turnId) runningTurnId = null
     report($, 'turn-complete', { turnId: e.turnId, agentId: e.agentId, reason: e.reason })
     return completed
   })

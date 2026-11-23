@@ -51,7 +51,7 @@ const readPageCommand = (value: unknown): PageToServer | null => {
 
   const sessionName = fieldOf(message, "sessionName");
   if (!isIdentifierName(sessionName)) return null;
-  if (type === "stop-session") return { type, machineId, sessionName };
+  if (type === "stop-session" || type === "interrupt-session") return { type, machineId, sessionName };
   if (type === "ask-for-output") {
     const kind = fieldOf(message, "kind");
     return isShortText(kind, LIMITS.maxNameTextLength) ? { type, machineId, sessionName, kind } : null;
@@ -88,7 +88,7 @@ const readMachineCommand = (value: unknown): ServerToMachine | null => {
 
   const sessionName = fieldOf(message, "sessionName");
   if (!isIdentifierName(sessionName)) return null;
-  if (type === "stop-session") return { type, sessionName };
+  if (type === "stop-session" || type === "interrupt-session") return { type, sessionName };
   if (type === "ask-for-output") {
     const kind = fieldOf(message, "kind");
     return isShortText(kind, LIMITS.maxNameTextLength) ? { type, sessionName, kind } : null;
@@ -112,7 +112,8 @@ const withRequestId = <T extends object>(message: object, read: T): T => {
   const requestId = fieldOf(message, "requestId");
   return isShortText(requestId, LIMITS.maxIdTextLength) ? { ...read, requestId } : read;
 };
-const isSessionCommand = (read: { type: string }) => ["start-session", "send-to-session", "ask-for-output", "answer-output", "stop-session"].includes(read.type);
+const isSessionCommand = (read: { type: string }) =>
+  ["start-session", "send-to-session", "ask-for-output", "answer-output", "interrupt-session", "stop-session"].includes(read.type);
 
 export const readPageToServer = (value: unknown): PageToServer | null => {
   const read = readPageCommand(value);
@@ -136,6 +137,12 @@ export const readMachineToServer = (value: unknown): MachineToServer | null => {
   if (type === "error") {
     const text = fieldOf(message, "message");
     return isShortText(text, LIMITS.maxMachineErrorLength) ? withRequestId(message, { type: "error" as const, message: text }) : null;
+  }
+  if (type === "message-returned") {
+    const sessionName = fieldOf(message, "sessionName");
+    const text = fieldOf(message, "text");
+    const isReturned = isIdentifierName(sessionName) && isShortText(text, LIMITS.maxEntryTextLength);
+    return isReturned ? withRequestId(message, { type: "message-returned" as const, sessionName, text }) : null;
   }
   if (type === "folders") {
     const folders = readFolderList(fieldOf(message, "folders"));

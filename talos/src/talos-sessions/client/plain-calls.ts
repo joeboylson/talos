@@ -100,7 +100,10 @@ export const connectToSessions = ({ home, runnerScript }: { home: string; runner
     isRunning: () => isRunnerRunning(home),
     ensureRunning: () => ensureRunnerRunning(home, runnerScript),
     start: (sessionName: string, folderName: string, path: string) => post(RUNNER_ROUTES.sessions, { sessionName, folderName, path }),
-    send: (sessionName: string, text: string, images: SentImage[] = []) => post(sessionRoute(sessionName, "send"), { text, images }),
+    // requestId: given back with the message if it's returned (message-returned).
+    send: (sessionName: string, text: string, images: SentImage[] = [], requestId?: string) =>
+      post(sessionRoute(sessionName, "send"), { text, images, ...(requestId && { requestId }) }),
+    interrupt: (sessionName: string) => post(sessionRoute(sessionName, "interrupt"), {}),
     ask: (sessionName: string, kind: string) => post(sessionRoute(sessionName, "ask"), { kind }),
     answer: (sessionName: string, outputId: string, choice: number) => post(sessionRoute(sessionName, "answer"), { outputId, choice }),
     keys,

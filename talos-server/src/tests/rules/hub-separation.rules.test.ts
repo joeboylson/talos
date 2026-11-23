@@ -13,7 +13,7 @@ const PEOPLE = ["p0", "p1", "p2"];
 const MACHINE_COUNT = 5;
 const FOLDERS = ["f0", "f1"];
 const SESSIONS = ["s0", "s1", "s2"];
-const COMMAND_TYPES = ["start-session", "stop-session", "send-to-session", "ask-for-output", "answer-output"] as const;
+const COMMAND_TYPES = ["start-session", "stop-session", "interrupt-session", "send-to-session", "ask-for-output", "answer-output"] as const;
 
 // No coalescing wait, so each step settles in one tick.
 const RELAY_COALESCE_MS = 0;
@@ -160,6 +160,7 @@ const runScenario = async (owners: number[], actions: Action[]) => {
             const byType = {
               "start-session": { ...base, folderName: step.folder },
               "stop-session": { ...base, sessionName: step.session },
+              "interrupt-session": { ...base, sessionName: step.session },
               "send-to-session": { ...base, sessionName: step.session, text: "hello" },
               "ask-for-output": { ...base, sessionName: step.session, kind: "summary" },
               "answer-output": { ...base, sessionName: step.session, outputId: "o1", choice: 0 },

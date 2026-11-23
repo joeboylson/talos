@@ -56,7 +56,8 @@ Each block below is listed as what goes in → what comes out.
     runs the pinned Claude Code.
   - In, through its plain calls (`connectToSessions({ home, runnerScript })`):
     start a session in a folder, send it a message (through its mod, one per
-    turn, waiting while a turn runs) or keys, stop it, resize
+    turn, waiting while a turn runs) or keys, interrupt its turn, stop it,
+    resize
     it, see its screen, ask it for a kind of output, answer an open output by
     its id, attach a terminal, list the sessions, follow events, and start,
     check or stop the session runner itself.
@@ -65,7 +66,9 @@ Each block below is listed as what goes in → what comes out.
     turn was started by Claude Code on its own, its asks
     (state and latest answer per kind), its open outputs, its conversation as
     entries in conversation order (outputs and dropped markers included),
-    notices like a dropped answer, and its raw terminal output.
+    its waiting messages, notices like a dropped answer, each waiting
+    message given back (with the request id it was sent with) when an
+    interrupt or Esc means it won't go in, and its raw terminal output.
   - Refusal codes: `no-such-session`, `already-running`, `too-many-sessions`,
     `folder-not-allowed` (also a folder that's gone), `already-asking`,
     `closed` (that question has closed), `not-a-choice`, `not-sendable` (a
@@ -74,7 +77,8 @@ Each block below is listed as what goes in → what comes out.
     its terminal stopped
     it; only the person continues it, there), `link-lost` (its mod is gone,
     so talos sends it nothing) and `no-claude-code` (the machine hasn't the
-    one Claude Code version talos runs). A malformed
+    one Claude Code version talos runs) and `not-running` (an interrupt with
+    no turn running). A malformed
     request, or a session runner that can't be reached, throws instead.
   - Its home holds: `runner.sock` (the plain calls), `runner-hooks.sock`
     (the sessions' hooks) and `runner-link.sock` (the sessions' mods),

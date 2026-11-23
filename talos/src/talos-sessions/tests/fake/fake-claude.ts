@@ -13,6 +13,10 @@
 //   Stop, as Claude Code does.
 // - "stop-me": the person pressing Esc mid-turn: a stop, then the turn ends
 //   aborted, as Claude Code reports it.
+// - "deaf": a turn that works for 1 s and ends on its own, an abort or not.
+// - "long": a turn that works for 3 s, unless talos interrupts it (an abort
+//   through the mod) or the person presses Esc (a stop first), which end it
+//   aborted.
 // - "wake-later": a turn, then at once one Claude Code starts on its own (like
 //   a background task's notice), which runs for a second: what talos sends as
 //   the first ends is queued behind it.
@@ -95,6 +99,17 @@ const runTurn = async (text: string, { origin, startedBy } = TYPED) => {
   if (text === "stop-me") {
     await reportFact("session-stop", { isTurnRunning: true });
     return reportFact("turn-complete", { turnId, reason: "aborted" });
+  }
+  if (text === "deaf") {
+    saveLine({ type: "user", message: { content: text } });
+    await Bun.sleep(1000);
+    return reportFact("turn-complete", { turnId, reason: "answer" });
+  }
+  if (text === "long") {
+    saveLine({ type: "user", message: { content: text } });
+    const isAborted = await Promise.race([Bun.sleep(3000).then(() => false), new Promise<boolean>((resolve) => (abortTurn = () => resolve(true)))]);
+    abortTurn = null;
+    return reportFact("turn-complete", { turnId, reason: isAborted ? "aborted" : "answer" });
   }
   const reason = await runTurnSteps(text);
   await reportFact("turn-complete", { turnId, reason });
@@ -190,6 +205,8 @@ if (!basename(process.cwd()).startsWith("mute")) await hook({ hook_event_name: "
 // What talos sends through its mod: a turn of its own after any running one,
 // as Claude Code queues a submit. "drop-me" is dropped, as Claude Code drops a
 // submit after Esc.
+// Set while a "long" turn runs: an abort from talos ends it.
+let abortTurn: (() => void) | null = null;
 let submitsNotStarted = 0;
 const runSubmit = ({ sendId, text, isPerson }: SubmitCommand) => {
   if (text === "drop-me") return void reportFact("submit-done", { sendId, drop: "the session was stopped" });
@@ -213,7 +230,7 @@ const startingFacts: [Fact["type"], Record<string, unknown>][] = isPromptingFold
       ["permission-asked", { toolUseId: "perm-0" }],
     ]
   : [];
-if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod(startingFacts, runSubmit);
+if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod(startingFacts, { onSubmit: runSubmit, onAbort: () => abortTurn?.() });
 process.stdout.write("ready\n");
 
 // What the session runner types: Esc, then the message in bracketed paste, then
@@ -222,6 +239,11 @@ process.stdout.write("ready\n");
 let answerPrompt: ((key: string) => void) | null = null;
 let typed = "";
 process.stdin.on("data", (chunk: Buffer) => {
+  // Esc during a "long" turn: the person stopping it, as Claude Code reports it.
+  if (chunk.toString() === "\x1b" && abortTurn) {
+    const stop = abortTurn;
+    return void reportFact("session-stop", { isTurnRunning: true }).then(stop);
+  }
   if (answerPrompt) {
     const answer = answerPrompt;
     answerPrompt = null;

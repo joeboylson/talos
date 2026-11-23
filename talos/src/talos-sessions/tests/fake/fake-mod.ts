@@ -26,9 +26,10 @@ export const reportFact = async (type: Fact["type"], details: Record<string, unk
 };
 
 export type SubmitCommand = { sendId: string; text: string; isPerson: boolean };
+export type CommandHandlers = { onSubmit: (submit: SubmitCommand) => void; onAbort: () => void };
 
-// Each submit line the runner sends through the helper goes to onSubmit.
-const readSubmits = async (output: ReadableStream<Uint8Array>, onSubmit: (submit: SubmitCommand) => void): Promise<void> => {
+// Each command line the runner sends through the helper goes to its handler.
+const readCommands = async (output: ReadableStream<Uint8Array>, { onSubmit, onAbort }: CommandHandlers): Promise<void> => {
   let unread = "";
   for await (const chunk of output) {
     const lines = (unread + new TextDecoder().decode(chunk)).split("\n");
@@ -36,8 +37,10 @@ const readSubmits = async (output: ReadableStream<Uint8Array>, onSubmit: (submit
     lines
       .filter((line) => line.trim())
       .map((line) => JSON.parse(line))
-      .filter((command) => command.type === "submit")
-      .forEach((command) => onSubmit(command));
+      .forEach((command) => {
+        if (command.type === "submit") onSubmit(command);
+        if (command.type === "abort") onAbort();
+      });
   }
 };
 
@@ -45,7 +48,7 @@ const readSubmits = async (output: ReadableStream<Uint8Array>, onSubmit: (submit
 // given go before the start's, as a turn Claude Code starts on its own would.
 export const linkLikeTheMod = async (
   firstFacts: readonly [Fact["type"], Record<string, unknown>][],
-  onSubmit: (submit: SubmitCommand) => void,
+  handlers: CommandHandlers,
 ): Promise<void> => {
   if (!socket || !token) return;
   const answer = await checkIn();
@@ -55,7 +58,7 @@ export const linkLikeTheMod = async (
     env: { [LINK_ENV_KEYS.socket]: socket, [LINK_ENV_KEYS.secret]: secret },
     stdout: "pipe",
   });
-  void readSubmits(helper.stdout, onSubmit);
+  void readCommands(helper.stdout, handlers);
   writeFileSync(join(process.cwd(), "helper.pid"), String(helper.pid));
   for (const [type, details] of firstFacts) await reportFact(type, details);
   await reportFact("session-start");

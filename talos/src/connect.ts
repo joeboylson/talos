@@ -62,7 +62,7 @@ export const runConnect = async (): Promise<void> => {
   // turn, so the page never gets newer entries before older ones.
   let sessionsAwaitingResend = new Set<string>();
 
-  const keepLatest = (runnerEvent: Exclude<SharedRunnerEvent, { type: "notice" }>) => {
+  const keepLatest = (runnerEvent: Exclude<SharedRunnerEvent, { type: "notice" | "message-returned" }>) => {
     if (runnerEvent.type === "sessions") {
       latestSessions = runnerEvent.sessions;
       const liveSessionNames = new Set(latestSessions.map(({ sessionName }) => sessionName));
@@ -123,6 +123,10 @@ export const runConnect = async (): Promise<void> => {
   const sendFoldersOrWarn = () => void sendFolders().catch((error: unknown) => log.warn(`talos: couldn't send the folders (${error})`));
 
   const forwardRunnerEvent = (runnerEvent: SharedRunnerEvent) => {
+    if (runnerEvent.type === "message-returned") {
+      const { sessionName, text, requestId } = runnerEvent;
+      return sendToServer?.({ type: "message-returned", sessionName, text, ...(requestId && { requestId }) });
+    }
     if (runnerEvent.type === "notice") {
       return sendToServer?.({ type: "error", message: `${runnerEvent.sessionName}: ${runnerEvent.message}`.slice(0, LIMITS.maxMachineErrorLength) });
     }
@@ -181,7 +185,8 @@ export const runConnect = async (): Promise<void> => {
   // messaged or stopped a session.
   const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
     if (message.type === "start-session") return startSession(message.folderName, message.sessionName, message.requestId);
-    if (message.type === "send-to-session") return reportRefusal(await sessions.send(message.sessionName, message.text, message.images), message.requestId);
+    if (message.type === "interrupt-session") return reportRefusal(await sessions.interrupt(message.sessionName), message.requestId);
+    if (message.type === "send-to-session") return reportRefusal(await sessions.send(message.sessionName, message.text, message.images, message.requestId), message.requestId);
     if (message.type === "stop-session") return reportRefusal(await sessions.stop(message.sessionName), message.requestId);
     if (message.type === "ask-for-output") {
       return reportRefusal(await sessions.ask(message.sessionName, message.kind), message.requestId);

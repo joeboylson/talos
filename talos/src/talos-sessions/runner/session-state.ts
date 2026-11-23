@@ -1,6 +1,6 @@
 // A session's state and its lane: every change to either goes through here.
 import { mergeSessionEntries, type SessionEntry, type SessionState, type SessionSummary } from "../shapes";
-import { steadyNow } from "../constants";
+import { INTERRUPTED_NOTE, steadyNow } from "../constants";
 import { findKind } from "../kinds";
 import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
 import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
@@ -9,8 +9,8 @@ import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held
 import { catalog, log } from "./inputs";
 import { noSuchSession, refuse } from "./refuse";
 import { broadcast, broadcastSessions, heldSessions, updateHeldSession, type HeldSession } from "./store";
-import { dropOldImages, refuseLinkLost } from "./messages";
-import { submitThroughMod } from "./submit";
+import { dropOldImages, giveBackWaitingMessages, refuseLinkLost, setWaitingMessages } from "./messages";
+import { sendCommand, submitThroughMod } from "./submit";
 
 // The summary shows each ask's state and latest answer, and the open outputs.
 const withAsk = (summary: SessionSummary, change: LaneStep["askChange"]): SessionSummary => {
@@ -131,9 +131,11 @@ const isWaitingToSettle = (session: HeldSession | undefined): boolean =>
 // ends any ask, and the session works on it. Its images' older ones go then.
 const submitWaitingMessage = (sessionName: string, session: HeldSession): void => {
   const [next, ...rest] = session.queuedMessages;
-  const sendInFlight = next ? submitThroughMod(session, next.text, true) : null;
+  const text = next && session.wasInterrupted ? `${INTERRUPTED_NOTE}\n\n${next.text}` : next?.text;
+  const sendInFlight = text ? submitThroughMod(session, text, true) : null;
   if (!next || !sendInFlight) return;
-  updateHeldSession(sessionName, session.hookToken, { queuedMessages: rest, isTurnOver: false, sendInFlight });
+  setWaitingMessages(sessionName, session, rest);
+  updateHeldSession(sessionName, session.hookToken, { isTurnOver: false, sendInFlight, wasInterrupted: false });
   applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   void dropOldImages(sessionName, next.imagePaths).catch(() => {});
 };
@@ -197,5 +199,19 @@ export const answerOutput = (sessionName: string, outputId: unknown, choice: unk
   if ("code" in answer) return refuse(answer.code, answer.reason);
   saveSession(sessionName, session, { heldAnswers: [...session.heldAnswers, answer] });
   if (session.isTurnOver) stepLaneWhenSettled(sessionName, session.hookToken);
+  return new Response(null, { status: 204 });
+};
+
+// Stops the running turn through the mod, as Esc would, but the session takes
+// sends after. What waited goes back to the page: Claude Code would run it
+// next, and the person stopping the turn may want to say something else.
+export const interruptSession = (sessionName: string): Response => {
+  const session = heldSessions.get(sessionName);
+  if (!session) return noSuchSession(sessionName);
+  if (session.summary.link === "lost") return refuseLinkLost();
+  if (session.link.factView.isTurnOver) return refuse("not-running", "It isn't working on anything");
+  if (!sendCommand(session, { type: "abort" })) return refuseLinkLost();
+  updateHeldSession(sessionName, session.hookToken, { isInterrupting: true });
+  giveBackWaitingMessages(sessionName);
   return new Response(null, { status: 204 });
 };

@@ -24,6 +24,8 @@ export const chatStep = <State extends ChatState>(state: State, input: Input): {
       return noActions({ ...state, session });
     }
     if (event.type === "session-entries") return noActions({ ...state, entries: mergeSessionEntries(state.entries, event.entries, KEPT_ENTRIES) });
+    // A message that waited and won't go in comes back into the draft.
+    if (event.type === "message-returned") return noActions({ ...state, draft: state.draft === "" ? event.text : state.draft });
     return noActions({ ...state, notice: event.message });
   }
   if (input.type === "result") {

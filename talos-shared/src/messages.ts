@@ -8,7 +8,8 @@ export type Folder = { folderName: string; path: string };
 // machine-name: the owner renamed this machine on the page.
 // rename-folder: the owner renamed one of its folders; the machine keeps its
 // folders, so it makes the change and sends its new list.
-// start-, send-to- and stop-session: the owner, from the page.
+// start-, send-to-, interrupt- and stop-session: the owner, from the page.
+// interrupt-session stops a session's running turn; the session goes on.
 // requestId: names the page's request a command came from, so what didn't
 // happen is shown on that page only. The server makes its own for the machine.
 type Request = { requestId?: string };
@@ -21,13 +22,17 @@ export type ServerToMachine =
   | ({ type: "send-to-session"; sessionName: string; text: string; images: SentImage[] } & Request)
   | ({ type: "ask-for-output"; sessionName: string; kind: string } & Request)
   | ({ type: "answer-output"; sessionName: string; outputId: string; choice: number } & Request)
+  | ({ type: "interrupt-session"; sessionName: string } & Request)
   | ({ type: "stop-session"; sessionName: string } & Request);
 
 // error: something the owner asked for didn't happen, like an answer to a
 // question that has closed. The server shows it on the owner's pages.
+// message-returned: a message that waited for its turn and won't go in (an
+// interrupt, Esc in its terminal), back to the page that sent it.
 export type MachineToServer =
   | { type: "pong"; id: string }
   | ({ type: "error"; message: string } & Request)
+  | ({ type: "message-returned"; sessionName: string; text: string } & Request)
   | { type: "folders"; folders: Folder[] }
   | { type: "sessions"; sessions: SessionSummary[] }
   | { type: "session-entries"; sessionName: string; entries: SessionEntry[] };
@@ -55,12 +60,14 @@ export type PageToServer =
   | ({ type: "send-to-session"; machineId: string; sessionName: string; text: string; images?: SentImage[] } & Request)
   | ({ type: "ask-for-output"; machineId: string; sessionName: string; kind: string } & Request)
   | ({ type: "answer-output"; machineId: string; sessionName: string; outputId: string; choice: number } & Request)
+  | ({ type: "interrupt-session"; machineId: string; sessionName: string } & Request)
   | ({ type: "stop-session"; machineId: string; sessionName: string } & Request);
 
 export type ServerToPage =
   | { type: "machines"; machines: MachineSummary[] }
   | { type: "pong"; machineId: string; machineName: string; roundTripMs: number }
   | { type: "session-entries"; machineId: string; sessionName: string; entries: SessionEntry[] }
+  | ({ type: "message-returned"; machineId: string; sessionName: string; text: string } & Request)
   | ({ type: "error"; message: string } & Request);
 
 export type Message = ServerToMachine | MachineToServer | PageToServer | ServerToPage;

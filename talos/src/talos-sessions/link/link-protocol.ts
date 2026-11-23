@@ -85,5 +85,7 @@ export type CheckInAnswer = { secret: string };
 // person's own words (isPerson: what they typed on the page) or framed as the
 // talos mod's (an ask, an answer); the mod reports its outcome as a
 // submit-done fact with the same sendId.
-export type LinkCommand = { type: "heartbeat" } | { type: "submit"; sendId: string; text: string; isPerson: boolean };
+// An abort stops the running turn, as Esc would, but leaves the session able
+// to take sends.
+export type LinkCommand = { type: "heartbeat" } | { type: "submit"; sendId: string; text: string; isPerson: boolean } | { type: "abort" };
 export const encodeLinkCommand = (command: LinkCommand): string => `${JSON.stringify(command)}\n`;

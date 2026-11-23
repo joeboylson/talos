@@ -13,7 +13,9 @@ const calls = connectToSessions({ home, runnerScript: new URL("./fake/fake-runne
 
 let sessions: SessionSummary[] = [];
 let notices: string[] = [];
+let returned: { sessionName: string; text: string; requestId?: string }[] = [];
 const onEvent = (event: RunnerEvent) => {
+  if (event.type === "message-returned") returned = [...returned, { sessionName: event.sessionName, text: event.text, ...(event.requestId && { requestId: event.requestId }) }];
   if (event.type === "sessions") sessions = event.sessions;
   if (event.type === "notice") notices = [...notices, `${event.sessionName}: ${event.message}`];
 };
@@ -140,4 +142,48 @@ test("what talos sends while Claude Code runs a turn of its own waits for it, so
   const submits = () => (existsSync(join(folder, "submits.log")) ? readFileSync(join(folder, "submits.log"), "utf8") : "");
   await waitUntil(() => submits().includes("second-after"), "both to be sent", 15_000);
   expect(submits()).toContain("second-after behind 0");
+}, 20_000);
+
+test("interrupting a turn stops it, gives back what waited, and the next message says the turn was stopped", async () => {
+  const folder = await startIn("interrupted", "interrupted");
+  await waitUntil(() => stateOf("interrupted") === "idle", "the session to be ready");
+  expect(await calls.interrupt("interrupted")).toMatchObject({ ok: false, code: "not-running" });
+  expect(await calls.send("interrupted", "long")).toEqual({ ok: true });
+  await waitUntil(() => stateOf("interrupted") === "working", "the long turn");
+  expect(await calls.send("interrupted", "said meanwhile", [], "req-1")).toEqual({ ok: true });
+  await waitUntil(() => summaryOf("interrupted")?.waitingMessages?.[0] === "said meanwhile", "the message to be listed as waiting");
+  expect(await calls.interrupt("interrupted")).toEqual({ ok: true });
+  await waitUntil(() => returned.some(({ sessionName }) => sessionName === "interrupted"), "the message to come back");
+  expect(returned.filter(({ sessionName }) => sessionName === "interrupted")).toEqual([{ sessionName: "interrupted", text: "said meanwhile", requestId: "req-1" }]);
+  await waitUntil(() => stateOf("interrupted") === "idle" && summaryOf("interrupted")?.waitingMessages === undefined, "the turn to end");
+  expect(await calls.send("interrupted", "what next")).toEqual({ ok: true });
+  const transcript = () => readFileSync(join(folder, "transcript.jsonl"), "utf8");
+  await waitUntil(() => transcript().includes("what next"), "the next message");
+  expect(transcript()).toContain(JSON.stringify("(I stopped your last turn before it finished.)\n\nwhat next"));
+  expect(transcript()).not.toContain("said meanwhile");
+}, 20_000);
+
+test("Esc in the terminal gives back what waited", async () => {
+  await startIn("escaped", "escaped");
+  await waitUntil(() => stateOf("escaped") === "idle", "the session to be ready");
+  expect(await calls.send("escaped", "long")).toEqual({ ok: true });
+  await waitUntil(() => stateOf("escaped") === "working", "the long turn");
+  expect(await calls.send("escaped", "waiting here", [], "req-2")).toEqual({ ok: true });
+  expect(await calls.keys("escaped", "\x1b")).toEqual({ ok: true });
+  await waitUntil(() => stateOf("escaped") === "stopped", "the session to stop");
+  await waitUntil(() => returned.some(({ requestId }) => requestId === "req-2"), "the message to come back");
+  expect(summaryOf("escaped")?.waitingMessages).toBeUndefined();
+}, 20_000);
+
+test("an interrupt that comes too late (the turn ended on its own) leaves the next message as it is", async () => {
+  const folder = await startIn("too-late", "too-late");
+  await waitUntil(() => stateOf("too-late") === "idle", "the session to be ready");
+  expect(await calls.send("too-late", "deaf")).toEqual({ ok: true });
+  await waitUntil(() => stateOf("too-late") === "working", "the turn");
+  expect(await calls.interrupt("too-late")).toEqual({ ok: true });
+  await waitUntil(() => stateOf("too-late") === "idle", "the turn to end on its own");
+  expect(await calls.send("too-late", "carry on")).toEqual({ ok: true });
+  const transcript = () => readFileSync(join(folder, "transcript.jsonl"), "utf8");
+  await waitUntil(() => transcript().includes("carry on"), "the next message");
+  expect(transcript()).not.toContain("I stopped your last turn");
 }, 20_000);

@@ -36,6 +36,8 @@ export type SessionSummary = {
   link?: LinkState;
   // The turn running now was started by Claude Code on its own, not a message.
   isSelfStarted?: true;
+  // Messages from the page waiting for the turn to be over, oldest first.
+  waitingMessages?: string[];
 };
 
 // A question the session asked the person while working, with the choices it
@@ -175,6 +177,11 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
     const isTurnOver = fieldOf(item as object, "isTurnOver");
     const link = fieldOf(item as object, "link");
     const isSelfStarted = fieldOf(item as object, "isSelfStarted");
+    const waitingMessages = fieldOf(item as object, "waitingMessages");
+    const isWaitingList =
+      Array.isArray(waitingMessages) &&
+      waitingMessages.length <= LIMITS.maxQueuedMessages &&
+      waitingMessages.every((text) => isTextUpTo(text, LIMITS.maxEntryTextLength));
     return {
       sessionName,
       folderName,
@@ -184,6 +191,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
       ...(typeof isTurnOver === "boolean" && { isTurnOver }),
       ...(isOneOf(LINK_STATES, link) && { link }),
       ...(isSelfStarted === true && { isSelfStarted }),
+      ...(isWaitingList && waitingMessages.length > 0 && { waitingMessages: waitingMessages as string[] }),
     };
   });
 };

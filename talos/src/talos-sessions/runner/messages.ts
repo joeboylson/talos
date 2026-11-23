@@ -8,7 +8,7 @@ import { noSuchSession, refuse } from "./refuse";
 import { SESSION_LIMITS } from "../limits";
 import { buildMessageWithImages } from "../terminal";
 import { sendWhenSettled } from "./session-state";
-import { heldSessions } from "./store";
+import { broadcast, broadcastSessions, heldSessions, type HeldSession, type WaitingMessage } from "./store";
 
 const IMAGE_FILE_EXTENSIONS: Record<SentImage["mediaType"], string> = {
   "image/png": "png",
@@ -47,7 +47,7 @@ const saveImages = async (sessionName: string, images: SentImage[]): Promise<str
 // Every message waits its turn in the session's list and goes in once the
 // turn is over (see sendWhenSettled): Claude Code can't take back one it has
 // queued, and an interrupt or Esc gives the waiting ones back to the page.
-export const sendToSession = async (sessionName: string, text: string, images: SentImage[]): Promise<Response> => {
+export const sendToSession = async (sessionName: string, text: string, images: SentImage[], requestId?: string): Promise<Response> => {
   const waiting = heldSessions.get(sessionName);
   if (!waiting) return noSuchSession(sessionName);
   // Esc in the terminal stopped it: only the person continues it, there.
@@ -61,10 +61,29 @@ export const sendToSession = async (sessionName: string, text: string, images: S
   });
   const session = heldSessions.get(sessionName);
   if (!session || !imagePaths) return noSuchSession(sessionName);
-  const message = { text: buildMessageWithImages(text, imagePaths), imagePaths };
-  heldSessions.set(sessionName, { ...session, queuedMessages: [...session.queuedMessages, message] });
+  const message = { text: buildMessageWithImages(text, imagePaths), imagePaths, pageText: text.trim(), ...(requestId && { requestId }) };
+  setWaitingMessages(sessionName, session, [...session.queuedMessages, message]);
   sendWhenSettled(sessionName);
   return new Response(null, { status: 204 });
+};
+
+// The session list shows what waits, so every page sees it.
+export const setWaitingMessages = (sessionName: string, session: HeldSession, queuedMessages: WaitingMessage[]): void => {
+  const { waitingMessages: _shown, ...summary } = session.summary;
+  const waitingMessages = queuedMessages.map(({ pageText }) => pageText);
+  heldSessions.set(sessionName, { ...session, queuedMessages, summary: waitingMessages.length > 0 ? { ...summary, waitingMessages } : summary });
+  broadcastSessions();
+};
+
+// What waited won't go in (an interrupt, Esc in the terminal): each message
+// goes back to the page that sent it, for its message box.
+export const giveBackWaitingMessages = (sessionName: string): void => {
+  const session = heldSessions.get(sessionName);
+  if (!session || session.queuedMessages.length === 0) return;
+  session.queuedMessages.forEach(({ pageText, requestId }) =>
+    broadcast({ type: "message-returned", sessionName, text: pageText, ...(requestId && { requestId }) }),
+  );
+  setWaitingMessages(sessionName, session, []);
 };
 
 // Its mod is gone, so talos can't see where it is: what's sent could land

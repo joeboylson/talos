@@ -161,6 +161,8 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     isTurnOver: false,
     isTalosTypedNext: false,
     sendInFlight: null,
+    isInterrupting: false,
+    wasInterrupted: false,
     output: new Uint8Array(),
     outputListeners: new Set(),
     isBeingRead: false,

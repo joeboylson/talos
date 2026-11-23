@@ -9,6 +9,7 @@ import { SESSION_LIMITS } from "../limits";
 import type { LinkState } from "../shapes";
 import { linkSilenceMs, log } from "./inputs";
 import { sendWhenSettled, setSessionState } from "./session-state";
+import { giveBackWaitingMessages } from "./messages";
 import { broadcast, broadcastSessions, heldSessions, runnerState, updateHeldSession, type HeldSession, type SessionLink } from "./store";
 
 const FORBIDDEN = () => new Response(null, { status: 403 });
@@ -82,7 +83,9 @@ const showFactState = (sessionName: string, token: string, before: FactView, aft
   const shown = shownFactState(after);
   const hasOpenOutput = session.summary.openOutputs.length > 0;
   // Its turn over, what waited goes in (messages sent while it started first).
+  // Stopped, it goes back to the page: only the person continues it, there.
   setSessionState(sessionName, shown === "idle" && hasOpenOutput ? "needs-you" : shown, after.isTurnOver);
+  if (shown === "stopped") giveBackWaitingMessages(sessionName);
 };
 
 // Once Claude Code has taken talos's send, the next may go when the turn is
@@ -101,6 +104,13 @@ const handleSubmitsDone = (sessionName: string, token: string, taken: readonly F
   sendWhenSettled(sessionName);
 };
 
+const noteInterruptedTurn = (sessionName: string, token: string, taken: readonly Fact[]): void => {
+  const ended = taken.find((fact) => fact.type === "turn-complete" && fact.details.agentId === undefined);
+  const session = heldSessions.get(sessionName);
+  if (!ended || session?.hookToken !== token || !session.isInterrupting) return;
+  updateHeldSession(sessionName, token, { isInterrupting: false, wasInterrupted: ended.details.reason === "aborted" });
+};
+
 const answerFacts = async (session: HeldSession, request: Request): Promise<Response> => {
   const facts = readFacts(await readBody(request));
   if (!facts) return BAD_REQUEST();
@@ -111,6 +121,7 @@ const answerFacts = async (session: HeldSession, request: Request): Promise<Resp
   const factView = taken.reduce(stepFactView, current.factView);
   changeLink(session, { lastSeq, lastHeardAtMs: steadyNow(), factView });
   taken.forEach((fact) => log.detail(`runner: ${session.summary.sessionName} fact ${fact.seq} ${fact.type} ${JSON.stringify(fact.details)}`));
+  noteInterruptedTurn(session.summary.sessionName, session.hookToken, taken);
   showFactState(session.summary.sessionName, session.hookToken, current.factView, factView);
   handleSubmitsDone(session.summary.sessionName, session.hookToken, taken);
   return Response.json({ acked: lastSeq } satisfies FactsAnswer);

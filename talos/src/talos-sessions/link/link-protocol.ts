@@ -14,13 +14,21 @@ export const LINK_ENV_KEYS = {
   secret: "TALOS_LINK_SECRET",
 } as const;
 
-export const FACT_TYPES = ["session-start", "session-end", "session-stop", "turn-start", "turn-complete", "prompt-submit"] as const;
+export const FACT_TYPES = [
+  "session-start",
+  "session-end",
+  "session-stop",
+  "turn-start",
+  "turn-complete",
+  "prompt-submit",
+  "permission-asked",
+  "permission-settled",
+] as const;
 export type FactType = (typeof FACT_TYPES)[number];
 
 export type CheckIn = { token: string; sessionId: string; version: string; snapshot: string };
-// seq counts from 1 within one check-in. Each type gets its own fields once
-// the runner builds a session's state from facts; until then they ride as
-// details.
+// seq counts from 1 within one check-in. Each type's fields ride in details,
+// and fact-state.ts reads the ones it needs.
 export type Fact = { seq: number; type: FactType; atMs: number; sessionId: string; details: Record<string, unknown> };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -63,6 +71,12 @@ export const takeNextFacts = (lastSeq: number, facts: readonly Fact[]): { taken:
   const taken = takeFrom(lastSeq + 1, []);
   return { taken, lastSeq: lastSeq + taken.length };
 };
+
+// Who started a turn: the person (at the terminal or through Remote Control),
+// talos (through the mod), or Claude Code on its own (a sub-agent's turn, a
+// background task's notice, a wake-up).
+export const TURN_STARTERS = ["person", "talos", "self"] as const;
+export type TurnStarter = (typeof TURN_STARTERS)[number];
 
 export type FactsAnswer = { acked: number };
 export type CheckInAnswer = { secret: string };

@@ -75,4 +75,5 @@ await runSessionRunner({
   claudeConfigFile: `${home}/claude.json`,
   // Shortened on request, so a test can see a start that never comes.
   ...(process.env.FAKE_START_WAIT_MS && { startLongestWaitMs: Number(process.env.FAKE_START_WAIT_MS) }),
+  ...(process.env.FAKE_LINK_SILENCE_MS && { linkSilenceMs: Number(process.env.FAKE_LINK_SILENCE_MS) }),
 });

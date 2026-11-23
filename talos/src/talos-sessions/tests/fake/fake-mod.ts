@@ -1,6 +1,7 @@
 // What talos's mod does over the link, for the fake Claude: check in with the
-// one-use token, send facts, and start the mod's real helper. In a folder
-// named relink… it checks in a second time, as a reloaded mod would.
+// one-use token, send facts and heartbeats, and start the mod's real helper.
+// In a folder named relink… it checks in a second time, as a reloaded mod
+// would; in one named quiet… it sends no heartbeats, as a stuck mod would.
 import { basename, join } from "node:path";
 import { writeFileSync } from "node:fs";
 import { LINK_ENV_KEYS, LINK_ROUTES, type Fact } from "../../link/link-protocol";
@@ -9,6 +10,7 @@ import { MOD_FOLDER } from "../../constants";
 const socket = process.env[LINK_ENV_KEYS.socket] ?? "";
 const token = process.env[LINK_ENV_KEYS.token] ?? "";
 let secret = "";
+const HEARTBEAT_MS = 1000;
 let seq = 0;
 
 const postJson = (route: string, body: unknown, headers: Record<string, string> = {}) =>
@@ -35,5 +37,6 @@ export const linkLikeTheMod = async (): Promise<void> => {
   });
   writeFileSync(join(process.cwd(), "helper.pid"), String(helper.pid));
   await reportFact("session-start");
+  if (!basename(process.cwd()).startsWith("quiet")) setInterval(() => void postJson(LINK_ROUTES.facts, { facts: [] }, { authorization: `Bearer ${secret}` }), HEARTBEAT_MS);
   if (basename(process.cwd()).startsWith("relink")) await checkIn();
 };

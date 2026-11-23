@@ -1,3 +1,4 @@
+import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 // The test stands in for the runner's link socket and the session, and
@@ -56,7 +57,7 @@ test('with no token it sends nothing', async ($, on) => {
 // Answers a check-in, then acks each facts post as the runner would: up to the
 // last fact in it. While isUp says no, it turns facts away.
 const DOWN = { value: { status: 503, ok: false, headers: {}, text: '' } }
-const runnerBeneath = (on: Parameters<Parameters<typeof test>[1]>[1], posts: number[][], reply = (text: string) => text, isUp = () => true) =>
+const runnerBeneath = (on: On, posts: number[][], reply = (text: string) => text, isUp = () => true) =>
   on('http.fetch', (_, e) => {
     if (e.url.endsWith('/check-in')) return { value: { status: 200, ok: true, headers: {}, text: '{"secret":"s"}' } }
     if (!isUp()) return DOWN
@@ -65,7 +66,7 @@ const runnerBeneath = (on: Parameters<Parameters<typeof test>[1]>[1], posts: num
     return { value: { status: 200, ok: true, headers: {}, text: reply(`{"acked":${seqs.at(-1)}}`) } }
   })
 
-const startLinked = (on: Parameters<Parameters<typeof test>[1]>[1]) => {
+const startLinked = (on: On) => {
   mock.env(on, { TALOS_LINK_TOKEN: 't', TALOS_LINK_SOCKET: '/tmp/link.sock' })
   on('env.set', () => ({ value: {} }))
   on('session.id', () => ({ value: 'session-1' }))
@@ -102,4 +103,87 @@ test('a reply that is no ack is tried again, and reporting carries on', async ($
   await clock.advance(1000)
   expect(posts[0]).toEqual([1])
   expect(posts.flat().at(-1)).toBe(2)
+})
+
+const factsOf = (posts: { facts: { type: string; details: Record<string, unknown> }[] }[]) => posts.flatMap(({ facts }) => facts)
+
+const recordFacts = (on: On) => {
+  const posts: { facts: { type: string; details: Record<string, unknown> }[] }[] = []
+  on('http.fetch', (_, e) => {
+    if (e.url.endsWith('/check-in')) return { value: { status: 200, ok: true, headers: {}, text: '{"secret":"s"}' } }
+    const body = JSON.parse(String(e.init?.body))
+    posts.push(body)
+    const last = body.facts.at(-1)?.seq ?? 0
+    return { value: { status: 200, ok: true, headers: {}, text: `{"acked":${last}}` } }
+  })
+  return posts
+}
+
+test('a turn says who started it: the person, talos, or Claude Code itself', async ($, on) => {
+  mock.clock(on)
+  startLinked(on)
+  const posts = recordFacts(on)
+  on('prompt.submit', (_, e) => ({ text: e.text, origin: e.origin }) as never)
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
+  await $.prompt.submit({ text: 'typed', origin: { kind: 'composer' } } as never)
+  await $.turn.start({ turnId: 't1', text: 'typed' } as never)
+  await $.prompt.submit({ text: 'sent', origin: { kind: 'plugin', name: 'talos', asUser: true } } as never)
+  await $.turn.start({ turnId: 't2', text: 'sent' } as never)
+  await $.turn.start({ turnId: 't3', text: 'a task finished' } as never)
+  await $.turn.start({ turnId: 't4', text: 'typed', agentId: 'a1' } as never)
+  const starts = factsOf(posts).filter(({ type }) => type === 'turn-start').map(({ details }) => details.startedBy)
+  expect(starts).toEqual(['person', 'talos', 'self', 'self'])
+})
+
+// That a declined or allowed call then reports permission-settled needs the
+// call's real id, which the kit mints itself; it was checked in a session
+// (ref/mod-test-results.md, "Before step 4").
+test('a permission prompt is reported only when the person is the one asked', async ($, on) => {
+  mock.clock(on)
+  startLinked(on)
+  const posts = recordFacts(on)
+  on('tool.check', (_, e) => ((e.input as { ask?: boolean }).ask ? { decision: 'ask' } : { decision: 'allow' }) as never)
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
+  await $.tool.check({ tool: 'Bash', input: { ask: true }, tool_use_id: 'u1', approver: 'person' } as never)
+  await $.tool.check({ tool: 'Bash', input: { ask: false }, tool_use_id: 'u2', approver: 'person' } as never)
+  await $.tool.check({ tool: 'Bash', input: { ask: true }, tool_use_id: 'u3', approver: 'host' } as never)
+  const permissionFacts = factsOf(posts)
+    .filter(({ type }) => type.startsWith('permission'))
+    .map(({ type, details }) => [type, details.toolUseId])
+  expect(permissionFacts).toEqual([['permission-asked', 'u1']])
+})
+
+test('a fact that comes before the one ahead of it is resent after a pause, not at once', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { TALOS_LINK_TOKEN: 't', TALOS_LINK_SOCKET: '/tmp/link.sock' })
+  on('env.set', () => ({ value: {} }))
+  on('session.version', () => ({ value: { version: '2.1.330', base: '2.1.330', builtAt: '' } }))
+  const posts: number[][] = []
+  // The runner takes facts only in order: past a gap it acks what it had.
+  let lastTaken = 0
+  on('http.fetch', (_, e) => {
+    if (e.url.endsWith('/check-in')) return { value: { status: 200, ok: true, headers: {}, text: '{"secret":"s"}' } }
+    const seqs = (JSON.parse(String(e.init?.body)).facts as { seq: number }[]).map(({ seq }) => seq)
+    posts.push(seqs)
+    seqs.forEach(seq => (lastTaken = seq === lastTaken + 1 ? seq : lastTaken))
+    return { value: { status: 200, ok: true, headers: {}, text: `{"acked":${lastTaken}}` } }
+  })
+  // The second fact's id comes late, so the third is ready first.
+  let idCalls = 0
+  on('session.id', async () => {
+    idCalls += 1
+    if (idCalls === 3) await clock.sleep(5000)
+    return { value: 'session-1' }
+  })
+  on('session.start', (_, e) => e)
+  on('turn.start', (_, e) => e)
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
+  void $.turn.start({ turnId: 't1', text: '' } as never)
+  void $.turn.start({ turnId: 't2', text: '' } as never)
+  await clock.settle()
+  const postsBeforeTheGapFills = posts.length
+  await clock.advance(4000)
+  expect(posts.length - postsBeforeTheGapFills).toBeLessThanOrEqual(5)
+  await clock.advance(2000)
+  expect(lastTaken).toBe(3)
 })

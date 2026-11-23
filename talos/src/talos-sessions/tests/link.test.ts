@@ -7,6 +7,8 @@ import { connectToSessions, type RunnerEvent, type SessionSummary } from "../ind
 // The real session runner and the fake Claude, which links as talos's mod does
 // and runs the mod's real helper.
 const home = mkdtempSync(join(tmpdir(), "talos-link-"));
+// A mod quiet for 2 s counts as gone, so a test can see it.
+process.env.FAKE_LINK_SILENCE_MS = "2000";
 const calls = connectToSessions({ home, runnerScript: new URL("./fake/fake-runner.ts", import.meta.url).pathname });
 
 let sessions: SessionSummary[] = [];
@@ -63,3 +65,16 @@ test("a second check-in, from a mod that started over, loses the link", async ()
   await startIn("relinked", "relink");
   await waitUntil(() => linkOf("relinked") === "lost", "the second check-in");
 });
+
+test("a session whose mod goes quiet shows its link lost", async () => {
+  await startIn("quiet", "quiet");
+  await waitUntil(() => linkOf("quiet") === "linked", "the check-in");
+  await waitUntil(() => linkOf("quiet") === "lost", "the link to be lost", 15_000);
+}, 20_000);
+
+test("a session that keeps sending word keeps its link", async () => {
+  await startIn("chatty", "chatty");
+  await waitUntil(() => linkOf("chatty") === "linked", "the check-in");
+  await Bun.sleep(8_000);
+  expect(linkOf("chatty")).toBe("linked");
+}, 15_000);

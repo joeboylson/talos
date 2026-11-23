@@ -8,6 +8,7 @@ import type { Lane } from "../lanes/lane";
 import type { OutputPlacing, Outputs } from "../lanes/outputs";
 import type { HeldAnswer } from "../lanes/held";
 import type { TrustChange } from "../claude/claude-trust";
+import type { FactView } from "../link/fact-state";
 import { SESSION_LIMITS } from "../limits";
 
 export type Terminal = { write: (data: string | Uint8Array) => void; resize: (cols: number, rows: number) => void };
@@ -28,6 +29,10 @@ export type SessionLink = {
   secret: string | null;
   lastSeq: number;
   commands: ReadableStreamDefaultController<string> | null;
+  // The session's state worked out from facts alone, and when the mod last sent
+  // anything (a heartbeat included), on the steady clock.
+  factView: FactView;
+  lastHeardAtMs: number;
 };
 
 export type HeldSession = {

@@ -104,4 +104,10 @@ export const SESSION_LIMITS = {
   // as a failed write, and the link socket's idle timeout never closes one.
   linkHeartbeatMs: 5_000,
   linkIdleTimeoutSeconds: 30,
+  // A mod that sends nothing for this long counts as gone. It sends word every
+  // 5 s, so this allows for a few missed.
+  linkSilenceMs: 20_000,
+  // Facts and hooks arrive apart, so the two states are compared a moment
+  // after each fact.
+  stateCompareDelayMs: 1_500,
 } as const;

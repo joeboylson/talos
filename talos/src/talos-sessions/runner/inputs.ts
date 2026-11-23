@@ -27,8 +27,10 @@ export type RunnerInputs = {
   // from. Tests pass stand-ins, so they never touch the real ~/.claude.json.
   claudeCommand?: readonly string[];
   claudeConfigFile?: string;
-  // How long a session may take to report its start (SESSION_LIMITS.startLongestWaitMs).
+  // How long a session may take to report its start (SESSION_LIMITS.startLongestWaitMs),
+  // and how long its mod may go quiet (SESSION_LIMITS.linkSilenceMs).
   startLongestWaitMs?: number;
+  linkSilenceMs?: number;
 };
 
 const given: RunnerInputs = {
@@ -59,5 +61,6 @@ export const claudeCommand = (): readonly string[] => given.claudeCommand ?? [CL
 export const claudeConfigFile = (): string => given.claudeConfigFile ?? CLAUDE_CONFIG_FILE;
 
 export const startLongestWaitMs = (): number => given.startLongestWaitMs ?? SESSION_LIMITS.startLongestWaitMs;
+export const linkSilenceMs = (): number => given.linkSilenceMs ?? SESSION_LIMITS.linkSilenceMs;
 
 export const catalog = (): Catalog => ({ kinds: given.kinds, proseTurn: given.proseTurn });

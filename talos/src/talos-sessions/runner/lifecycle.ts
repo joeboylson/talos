@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { trustFolder, type TrustChange } from "../claude/claude-trust";
 import { LINK_ENV_KEYS } from "../link/link-protocol";
+import { NO_FACTS } from "../link/fact-state";
 import { HOOK_SCRIPT, READY_CHECK_MS, READY_QUIET_MS, SESSION_ENV_KEYS, steadyNow, TERMINAL_SIZE } from "../constants";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
@@ -152,7 +153,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     placing: NO_PLACING,
     heldAnswers: [],
     hookToken,
-    link: { token: linkToken, isCheckedIn: false, secret: null, lastSeq: 0, commands: null },
+    link: { token: linkToken, isCheckedIn: false, secret: null, lastSeq: 0, commands: null, factView: NO_FACTS, lastHeardAtMs: 0 },
     startedAtMs: Date.now(),
     hasStarted: false,
     hasDraft: false,

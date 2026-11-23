@@ -3,16 +3,11 @@ import {
   isCtrlKey,
   appendOutput,
   buildMessageWithImages,
-  buildPastedText,
   isDraftChangingKeys,
   isDraftClearingKeys,
   isTurnChangingKeys,
   removeControlCharacters,
 } from "../terminal";
-
-test("buildPastedText pastes the whole text as one piece", () => {
-  expect(buildPastedText("line one\nline two")).toBe("\x1b[200~line one\nline two\x1b[201~");
-});
 
 test("buildMessageWithImages puts each image's path after the text", () => {
   expect(buildMessageWithImages(" look ", ["/u/a.png", "/u/b.png"])).toBe("look\n\n/u/a.png\n\n/u/b.png");
@@ -33,9 +28,8 @@ test("appendOutput keeps only the most recent bytes", () => {
   expect([...appendOutput(new Uint8Array(), new Uint8Array([1]), 4)]).toEqual([1]);
 });
 
-test("a message can't end the paste early and type keystrokes", () => {
-  const sneaky = "hello\x1b[201~\r!rm -rf ~\r";
-  expect(buildPastedText(sneaky)).toBe("\x1b[200~hello[201~!rm -rf ~\x1b[201~");
+test("a message's control characters come out, so it's saved as the page shows it", () => {
+  expect(buildMessageWithImages("hello\x1b[201~\r!rm", [])).toBe("hello[201~!rm");
 });
 
 test("removeControlCharacters keeps line breaks and tabs only", () => {

@@ -36,7 +36,10 @@ const PINNED_EMPTY_HOOK_ENV = {
   LD_LIBRARY_PATH: "",
 };
 
-export const buildHookSettings = (hookCommand: string, hookEnv: Record<string, string>): string => {
+// Messages name their images by path (talos's mod can't attach them), so
+// Claude may read the session's uploads folder, and nothing around it (the
+// home also holds the runner's sockets). `//` starts an absolute path in a rule.
+export const buildHookSettings = (hookCommand: string, hookEnv: Record<string, string>, uploadsFolder: string): string => {
   const commandHook = [{ hooks: [{ type: "command", command: hookCommand }] }];
   // Pin `env` too: --settings outranks a project's own settings, so a session
   // can't write .claude/settings.local.json with an `env` block that blanks the
@@ -46,6 +49,7 @@ export const buildHookSettings = (hookCommand: string, hookEnv: Record<string, s
   return JSON.stringify({
     disableAllHooks: false,
     enabledPlugins: { [MOD_PLUGIN_ID]: true },
+    permissions: { allow: [`Read(/${uploadsFolder}/**)`] },
     env: { ...PINNED_EMPTY_HOOK_ENV, ...hookEnv },
     hooks: Object.fromEntries(HOOK_EVENTS.map((hookEvent) => [hookEvent, commandHook])),
   });

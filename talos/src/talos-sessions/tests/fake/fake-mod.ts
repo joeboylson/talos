@@ -25,17 +25,37 @@ export const reportFact = async (type: Fact["type"], details: Record<string, unk
   await postJson(LINK_ROUTES.facts, { facts: [fact] }, { authorization: `Bearer ${secret}` });
 };
 
+export type SubmitCommand = { sendId: string; text: string; isPerson: boolean };
+
+// Each submit line the runner sends through the helper goes to onSubmit.
+const readSubmits = async (output: ReadableStream<Uint8Array>, onSubmit: (submit: SubmitCommand) => void): Promise<void> => {
+  let unread = "";
+  for await (const chunk of output) {
+    const lines = (unread + new TextDecoder().decode(chunk)).split("\n");
+    unread = lines.pop() ?? "";
+    lines
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line))
+      .filter((command) => command.type === "submit")
+      .forEach((command) => onSubmit(command));
+  }
+};
+
 // The helper's process id goes in helper.pid, so a test can end it. Facts
 // given go before the start's, as a turn Claude Code starts on its own would.
-export const linkLikeTheMod = async (firstFacts: readonly [Fact["type"], Record<string, unknown>][] = []): Promise<void> => {
+export const linkLikeTheMod = async (
+  firstFacts: readonly [Fact["type"], Record<string, unknown>][],
+  onSubmit: (submit: SubmitCommand) => void,
+): Promise<void> => {
   if (!socket || !token) return;
   const answer = await checkIn();
   if (!answer.ok) return;
   secret = String(((await answer.json()) as { secret: string }).secret);
   const helper = Bun.spawn([process.execPath, join(MOD_FOLDER, "helper.ts")], {
     env: { [LINK_ENV_KEYS.socket]: socket, [LINK_ENV_KEYS.secret]: secret },
-    stdout: "ignore",
+    stdout: "pipe",
   });
+  void readSubmits(helper.stdout, onSubmit);
   writeFileSync(join(process.cwd(), "helper.pid"), String(helper.pid));
   for (const [type, details] of firstFacts) await reportFact(type, details);
   await reportFact("session-start");

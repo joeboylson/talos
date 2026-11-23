@@ -86,10 +86,6 @@ export const homePaths = (givenHome: string) => {
 };
 export type HomePaths = ReturnType<typeof homePaths>;
 
-// Claude Code takes a moment to load a pasted image; Enter pressed before
-// that is lost, and the message with it.
-export const IMAGE_PASTE_SETTLE_MS = 1000;
-
 // The time for every wait and order the runner keeps in memory (times saved to
 // disk use the wall clock, since another process reads them): like Date.now() when the
 // runner starts, but it only moves forward, so the system clock jumping back

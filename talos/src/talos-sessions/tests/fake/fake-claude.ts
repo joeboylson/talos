@@ -13,8 +13,11 @@
 //   Stop, as Claude Code does.
 // - "stop-me": the person pressing Esc mid-turn: a stop, then the turn ends
 //   aborted, as Claude Code reports it.
-// - "wake-later": a turn, then one Claude Code starts on its own (like a
-//   background task's notice), which runs for a second.
+// - "wake-later": a turn, then at once one Claude Code starts on its own (like
+//   a background task's notice), which runs for a second: what talos sends as
+//   the first ends is queued behind it.
+// Each submit is noted in submits.log as it arrives, with how many came
+//   before it and haven't started ("<text> behind <n>").
 // - "clear" / "resume": a last line in the current conversation file, then a
 //   switch to a second file / back to the first, as /clear and /resume do.
 // Anything else is a prompt it just answers by ending its turn.
@@ -28,7 +31,7 @@ import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { askRunner } from "../../client/hook-client";
 import { SESSION_ENV_KEYS } from "../../constants";
-import { linkLikeTheMod, reportFact } from "./fake-mod";
+import { linkLikeTheMod, reportFact, type SubmitCommand } from "./fake-mod";
 import type { Fact } from "../../link/link-protocol";
 
 // fake-runner.ts gives the status kind this request.
@@ -82,10 +85,13 @@ const askPermission = async (): Promise<string> => {
   await reportFact("permission-settled", { toolUseId });
   return key;
 };
-const runTurn = async (text: string) => {
+let turnsWaiting = 0;
+let turns = Promise.resolve();
+const TYPED = { origin: { kind: "composer" }, startedBy: "person" };
+const runTurn = async (text: string, { origin, startedBy } = TYPED) => {
   const turnId = `turn-${++turnCount}`;
-  await reportFact("prompt-submit", { origin: { kind: "composer" } });
-  await reportFact("turn-start", { turnId, startedBy: "person" });
+  await reportFact("prompt-submit", { origin });
+  await reportFact("turn-start", { turnId, startedBy });
   if (text === "stop-me") {
     await reportFact("session-stop", { isTurnRunning: true });
     return reportFact("turn-complete", { turnId, reason: "aborted" });
@@ -97,6 +103,8 @@ const runTurn = async (text: string) => {
   await reportFact("turn-start", { turnId: wakeId, startedBy: "self" });
   await Bun.sleep(1000);
   await reportFact("turn-complete", { turnId: wakeId, reason: "answer" });
+  // A moment before a queued turn starts, as in Claude Code.
+  await Bun.sleep(500);
 };
 
 const runTurnSteps = async (text: string): Promise<string> => {
@@ -179,6 +187,25 @@ if (basename(process.cwd()).startsWith("late")) await Bun.sleep(1500);
 // In a folder named mute… it never reports its start, like a Claude Code stuck
 // on a screen before its hooks run.
 if (!basename(process.cwd()).startsWith("mute")) await hook({ hook_event_name: "SessionStart" });
+// What talos sends through its mod: a turn of its own after any running one,
+// as Claude Code queues a submit. "drop-me" is dropped, as Claude Code drops a
+// submit after Esc.
+let submitsNotStarted = 0;
+const runSubmit = ({ sendId, text, isPerson }: SubmitCommand) => {
+  if (text === "drop-me") return void reportFact("submit-done", { sendId, drop: "the session was stopped" });
+  appendFileSync(join(process.cwd(), "submits.log"), `${text} behind ${submitsNotStarted}\n`);
+  submitsNotStarted += 1;
+  const origin = { kind: "plugin", name: "talos", ...(isPerson && { asUser: true }) };
+  turnsWaiting += 1;
+  turns = turns
+    .then(async () => {
+      submitsNotStarted -= 1;
+      await reportFact("submit-done", { sendId });
+      await runTurn(text, { origin, startedBy: isPerson ? "person" : "talos" });
+    })
+    .finally(() => (turnsWaiting -= 1));
+};
+
 // The prompting… folder's turn is under way, its prompt up, before the start.
 const startingFacts: [Fact["type"], Record<string, unknown>][] = isPromptingFolder()
   ? [
@@ -186,16 +213,14 @@ const startingFacts: [Fact["type"], Record<string, unknown>][] = isPromptingFold
       ["permission-asked", { toolUseId: "perm-0" }],
     ]
   : [];
-if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod(startingFacts);
+if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod(startingFacts, runSubmit);
 process.stdout.write("ready\n");
 
 // What the session runner types: Esc, then the message in bracketed paste, then
 // Enter. Turns run one after another.
-let turnsWaiting = 0;
 // Set while a permission prompt shows: the next keys go to it.
 let answerPrompt: ((key: string) => void) | null = null;
 let typed = "";
-let turns = Promise.resolve();
 process.stdin.on("data", (chunk: Buffer) => {
   if (answerPrompt) {
     const answer = answerPrompt;

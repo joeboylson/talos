@@ -111,8 +111,26 @@ const takeStarter = (text: string): TurnStarter => {
   return startedBy
 }
 
+// A submit resolves once its turn starts or Claude Code queues it, or drops
+// with a reason (after Esc: until the person enters something).
+// Claude Code skips a plugin's own hooks for its own calls, so this mod's
+// prompt.submit hook never sees these: the prompt is noted here instead, so
+// its turn says who started it.
+const submit = async ($: Calls, sendId: string, text: string, isPerson: boolean) => {
+  const startedBy: TurnStarter = isPerson ? 'person' : 'talos'
+  pendingPrompts = [...pendingPrompts, { text, startedBy }].slice(-MAX_PENDING_PROMPTS)
+  const submitted = await $.prompt.submit(isPerson ? { text, asUser: true } : { text }).catch((error: unknown) => ({ drop: String(error) }))
+  report($, 'submit-done', { sendId, ...(submitted.drop !== undefined && { drop: submitted.drop }) })
+}
+
+const actOn = ($: Calls, line: string) => {
+  const command = JSON.parse(line)
+  if (command.type === 'submit') void submit($, String(command.sendId), String(command.text), command.isPerson === true)
+}
+
 // The helper is the runner's way in: it holds a stream open to the runner and
-// writes each command to its output. Its loop is its life, so it ends with the
+// writes each command to its output as a line. Output comes in pieces, not
+// lines, so they're joined here. Its loop is its life, so it ends with the
 // session or this module.
 const startHelper = async ($: Calls) => {
   const bun = await $.env.get('TALOS_BUN')
@@ -121,8 +139,18 @@ const startHelper = async ($: Calls) => {
     argv: [bun, `${$.plugin.root}/helper.ts`],
     env: { TALOS_LINK_SOCKET: socketPath, TALOS_LINK_SECRET: secret },
   })
-  for await (const _chunk of helper) {
-    // The runner sends only heartbeats so far: nothing to act on.
+  let unread = ''
+  for await (const { stream, text } of helper) {
+    if (stream !== 'stdout') continue
+    const lines = (unread + text).split('\n')
+    unread = lines.pop() ?? ''
+    lines.filter(line => line.trim()).forEach(line => {
+      try {
+        actOn($, line)
+      } catch {
+        // A line that isn't a command is skipped; the runner sends only whole ones.
+      }
+    })
   }
 }
 

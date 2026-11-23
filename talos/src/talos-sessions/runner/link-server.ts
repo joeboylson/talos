@@ -3,13 +3,13 @@
 // fact-state.ts), and the summary says whether the link is up.
 import { shownFactState, stepFactView, type FactView } from "../link/fact-state";
 import { steadyNow } from "../constants";
-import { encodeLinkCommand, LINK_ROUTES, readCheckIn, readFacts, takeNextFacts, type CheckInAnswer, type FactsAnswer } from "../link/link-protocol";
+import { encodeLinkCommand, type Fact, LINK_ROUTES, readCheckIn, readFacts, takeNextFacts, type CheckInAnswer, type FactsAnswer } from "../link/link-protocol";
 import { parseJsonOrNull } from "../json";
 import { SESSION_LIMITS } from "../limits";
 import type { LinkState } from "../shapes";
 import { linkSilenceMs, log } from "./inputs";
-import { setSessionState } from "./session-state";
-import { broadcastSessions, heldSessions, runnerState, updateHeldSession, type HeldSession, type SessionLink } from "./store";
+import { sendWhenSettled, setSessionState } from "./session-state";
+import { broadcast, broadcastSessions, heldSessions, runnerState, updateHeldSession, type HeldSession, type SessionLink } from "./store";
 
 const FORBIDDEN = () => new Response(null, { status: 403 });
 const BAD_REQUEST = () => new Response(null, { status: 400 });
@@ -85,6 +85,22 @@ const showFactState = (sessionName: string, token: string, before: FactView, aft
   setSessionState(sessionName, shown === "idle" && hasOpenOutput ? "needs-you" : shown, after.isTurnOver);
 };
 
+// Once Claude Code has taken talos's send, the next may go when the turn is
+// over. One it dropped (after Esc, until the person enters something) starts
+// no turn: the session is as its facts say, and what waits can go in once
+// it's settled.
+const handleSubmitsDone = (sessionName: string, token: string, taken: readonly Fact[]): void => {
+  const done = taken.filter((fact) => fact.type === "submit-done");
+  const session = heldSessions.get(sessionName);
+  if (done.length === 0 || session?.hookToken !== token) return;
+  const isInFlightDone = done.some((fact) => fact.details.sendId === session.sendInFlight);
+  const dropped = done.filter((fact) => typeof fact.details.drop === "string");
+  dropped.forEach((fact) => broadcast({ type: "notice", sessionName, message: `A message didn't go in: ${String(fact.details.drop)}` }));
+  const isTurnOver = dropped.length > 0 ? session.link.factView.isTurnOver : session.isTurnOver;
+  updateHeldSession(sessionName, token, { isTurnOver, ...(isInFlightDone && { sendInFlight: null }) });
+  sendWhenSettled(sessionName);
+};
+
 const answerFacts = async (session: HeldSession, request: Request): Promise<Response> => {
   const facts = readFacts(await readBody(request));
   if (!facts) return BAD_REQUEST();
@@ -96,6 +112,7 @@ const answerFacts = async (session: HeldSession, request: Request): Promise<Resp
   changeLink(session, { lastSeq, lastHeardAtMs: steadyNow(), factView });
   taken.forEach((fact) => log.detail(`runner: ${session.summary.sessionName} fact ${fact.seq} ${fact.type} ${JSON.stringify(fact.details)}`));
   showFactState(session.summary.sessionName, session.hookToken, current.factView, factView);
+  handleSubmitsDone(session.summary.sessionName, session.hookToken, taken);
   return Response.json({ acked: lastSeq } satisfies FactsAnswer);
 };
 

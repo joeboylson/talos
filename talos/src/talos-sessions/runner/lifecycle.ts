@@ -16,7 +16,7 @@ import { claudeCommand, claudeConfigFile, isAllowedFolder, log, paths, restoresT
 import { refuse } from "./refuse";
 
 const SESSION_EXIT_WAIT_MS = 5000;
-import { forgetTypedImages, typeIntoSession } from "./messages";
+import { forgetTypedImages } from "./messages";
 import { applyLaneEvent, setSessionState } from "./session-state";
 import { writeWhole } from "./write-whole";
 import { broadcastSessions, heldSessions, runnerState, sendToListeners, startingSessions, trustChanges, updateHeldSession, type HeldSession, type Terminal } from "./store";
@@ -121,7 +121,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     "--session-id",
     crypto.randomUUID(),
     "--settings",
-    buildHookSettings(hookCommand, hookEnv),
+    buildHookSettings(hookCommand, hookEnv, join(paths().uploads, sessionName)),
     "--mcp-config",
     paths().mcpConfig,
     "--plugin-dir",
@@ -160,10 +160,10 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     draftAtMs: 0,
     isTurnOver: false,
     isTalosTypedNext: false,
+    sendInFlight: null,
     output: new Uint8Array(),
     outputListeners: new Set(),
     isBeingRead: false,
-    isWaitingToAsk: false,
   });
   saveSessionGroups();
   setTimeout(() => showStuckStart(sessionName, hookToken), startLongestWaitMs()).unref();

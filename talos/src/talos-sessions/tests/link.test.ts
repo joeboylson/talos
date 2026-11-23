@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectToSessions, type RunnerEvent, type SessionSummary } from "../index";
@@ -12,8 +12,10 @@ process.env.FAKE_LINK_SILENCE_MS = "2000";
 const calls = connectToSessions({ home, runnerScript: new URL("./fake/fake-runner.ts", import.meta.url).pathname });
 
 let sessions: SessionSummary[] = [];
+let notices: string[] = [];
 const onEvent = (event: RunnerEvent) => {
   if (event.type === "sessions") sessions = event.sessions;
+  if (event.type === "notice") notices = [...notices, `${event.sessionName}: ${event.message}`];
 };
 const summaryOf = (sessionName: string) => sessions.find((session) => session.sessionName === sessionName);
 const linkOf = (sessionName: string) => summaryOf(sessionName)?.link;
@@ -117,4 +119,25 @@ test("an answer held while a session is stopped isn't typed into the turn the pe
   await waitUntil(() => transcript().includes("go on") && stateOf("held") !== "working", "the person's turn to end");
   await Bun.sleep(1000);
   expect(transcript()).not.toContain(`BUSY Answer to ${question.id}`);
+}, 20_000);
+
+test("a message Claude Code drops is reported, and the next one still goes in", async () => {
+  const folder = await startIn("dropping", "dropping");
+  await waitUntil(() => stateOf("dropping") === "idle", "the session to be ready");
+  expect(await calls.send("dropping", "drop-me")).toEqual({ ok: true });
+  await waitUntil(() => notices.some((notice) => notice.startsWith("dropping: A message didn't go in")), "the notice");
+  expect(await calls.send("dropping", "after the drop")).toEqual({ ok: true });
+  await waitUntil(() => readFileSync(join(folder, "transcript.jsonl"), "utf8").includes("after the drop"), "the next message to go in");
+}, 20_000);
+
+test("what talos sends while Claude Code runs a turn of its own waits for it, so only one send is ever queued in Claude Code", async () => {
+  const folder = await startIn("queued", "queued");
+  await waitUntil(() => stateOf("queued") === "idle", "the session to be ready");
+  expect(await calls.send("queued", "wake-later")).toEqual({ ok: true });
+  await waitUntil(() => stateOf("queued") === "working", "the first turn");
+  expect(await calls.send("queued", "first-after")).toEqual({ ok: true });
+  expect(await calls.send("queued", "second-after")).toEqual({ ok: true });
+  const submits = () => (existsSync(join(folder, "submits.log")) ? readFileSync(join(folder, "submits.log"), "utf8") : "");
+  await waitUntil(() => submits().includes("second-after"), "both to be sent", 15_000);
+  expect(submits()).toContain("second-after behind 0");
 }, 20_000);

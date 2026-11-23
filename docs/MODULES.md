@@ -55,7 +55,8 @@ Each block below is listed as what goes in → what comes out.
     runs as Claude and the settings file it trusts folders in; otherwise it
     runs the pinned Claude Code.
   - In, through its plain calls (`connectToSessions({ home, runnerScript })`):
-    start a session in a folder, send it a message or keys, stop it, resize
+    start a session in a folder, send it a message (through its mod, one per
+    turn, waiting while a turn runs) or keys, stop it, resize
     it, see its screen, ask it for a kind of output, answer an open output by
     its id, attach a terminal, list the sessions, follow events, and start,
     check or stop the session runner itself.
@@ -68,10 +69,9 @@ Each block below is listed as what goes in → what comes out.
   - Refusal codes: `no-such-session`, `already-running`, `too-many-sessions`,
     `folder-not-allowed` (also a folder that's gone), `already-asking`,
     `closed` (that question has closed), `not-a-choice`, `not-sendable` (a
-    choice that would act as a command), and `still-starting` (a starting
-    session already has as many messages waiting as it takes), and
-    `prompt-showing` (a message can't go in while Claude Code asks permission:
-    it would answer the prompt), `stopped` (Esc in its terminal stopped
+    choice that would act as a command), `too-many-waiting` (it already has
+    as many messages waiting for their turn as it takes), `stopped` (Esc in
+    its terminal stopped
     it; only the person continues it, there), `link-lost` (its mod is gone,
     so talos sends it nothing) and `no-claude-code` (the machine hasn't the
     one Claude Code version talos runs). A malformed

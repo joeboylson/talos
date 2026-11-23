@@ -15,7 +15,9 @@ export type Terminal = { write: (data: string | Uint8Array) => void; resize: (co
 
 export type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
 
-export type TypedMessage = { text: string; hasImages: boolean; imagePaths?: readonly string[] };
+// A message from the page waiting for the turn to be over, with the paths of
+// the images it names.
+export type WaitingMessage = { text: string; imagePaths: readonly string[] };
 
 // Where a session's conversation is saved, how much of it has been read, and
 // the tools seen there that haven't ended yet.
@@ -40,8 +42,9 @@ export type HeldSession = {
   path: string;
   child: Subprocess;
   terminal: Terminal;
-  // Messages sent before Claude Code finished starting; typed once it's ready.
-  queuedMessages: TypedMessage[];
+  // Messages from the page, oldest first, waiting for the turn to be over: one
+  // goes in per turn, through the mod.
+  queuedMessages: WaitingMessage[];
   // The conversation files read so far, the one Claude Code writes now last.
   // Older ones are still read to their end, and one it comes back to carries on
   // where it stopped.
@@ -73,15 +76,17 @@ export type HeldSession = {
   // talos typed the next turn (an answer, an asked-for request), until it
   // starts or the person types over it.
   isTalosTypedNext: boolean;
+  // The send talos made that Claude Code hasn't taken yet (its submit-done
+  // fact hasn't come). Nothing else goes in until it has: a send Claude Code
+  // queues behind a turn it started on its own can't be taken back.
+  sendInFlight: string | null;
   // The most recent terminal output, so someone attaching sees the screen.
   output: Uint8Array;
   // Attached terminals. A Set kept by reference: streams add and remove
   // themselves as they open and close.
   outputListeners: Set<ReadableStreamDefaultController<Uint8Array>>;
-  // One of each at a time: a transcript read, so lines aren't read twice, and
-  // typing what waits for the turn to be over.
+  // One transcript read at a time, so lines aren't read twice.
   isBeingRead: boolean;
-  isWaitingToAsk: boolean;
 };
 
 export const heldSessions = new Map<string, HeldSession>();
@@ -126,18 +131,6 @@ export const broadcastSessions = createCoalescer(
   () => broadcast({ type: "sessions", sessions: listSessions() }),
   SESSION_LIMITS.sessionsBroadcastCoalesceMs,
 );
-
-// One thing types into a session at a time (a message, talos's answer or
-// request, the person's keys): one typed during another's pauses would join
-// it, and glue its text onto the other's.
-const typing = new Map<string, Promise<unknown>>();
-export const typeInTurn = <T>(sessionName: string, type: () => Promise<T>): Promise<T> => {
-  const typed = (typing.get(sessionName) ?? Promise.resolve()).then(type);
-  const settled = typed.catch(() => {});
-  typing.set(sessionName, settled);
-  void settled.then(() => typing.get(sessionName) === settled && typing.delete(sessionName));
-  return typed;
-};
 
 // A permission prompt shows: Claude Code waits on the person mid-turn.
 export const isPromptShowing = (session: HeldSession): boolean => session.summary.state === "needs-you" && !session.isTurnOver;

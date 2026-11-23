@@ -276,7 +276,7 @@ test(
 );
 
 test(
-  "a session whose start never comes needs the person, and nothing is typed into it",
+  "a session whose start never comes needs the person, and nothing goes into it",
   async () => {
     const { home, calls } = newHome();
     process.env.FAKE_START_WAIT_MS = "500";
@@ -290,7 +290,8 @@ test(
     const stateOf = async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "mute");
     await waitUntil(async () => (await stateOf())?.state === "needs-you", "the session to need the person");
     expect((await stateOf())?.isTurnOver).toBe(false);
-    expect(await calls.send("mute", "and again")).toMatchObject({ ok: false, code: "prompt-showing" });
+    // What's sent waits: with no mod to send it through, nothing goes in.
+    expect(await calls.send("mute", "and again")).toEqual({ ok: true });
     // Esc on its screen doesn't make it look ready.
     expect(await calls.keys("mute", "\x1b")).toEqual({ ok: true });
     expect((await stateOf())?.state).toBe("needs-you");

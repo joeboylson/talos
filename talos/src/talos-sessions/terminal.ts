@@ -1,18 +1,9 @@
-// Bracketed paste: Claude Code takes the whole text as one message, even with
-// line breaks, instead of sending at the first one. Enter then sends it.
+// Bracketed paste, as a terminal sends a paste: its line breaks aren't Enter.
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
-export const ENTER_KEY = "\r";
-// Pressed before anything talos types: it says no to a permission prompt and
-// does nothing in an empty input box. The pause keeps Claude Code from reading
-// it and the paste that follows as one key.
-export const ESC_KEY = "\x1b";
-export const ESC_PAUSE_MS = 150;
-export const buildPastedText = (text: string): string => `${PASTE_START}${removeControlCharacters(text)}${PASTE_END}`;
 
-// Control characters would act as keys in Claude Code instead of text: one
-// escape sequence ends the paste early and the rest gets typed as keystrokes
-// (Enter, answers to permission prompts). Only line breaks and tabs stay.
+// Taken out of a message's text, all but line breaks and tabs: the page
+// matches its waiting messages against the text as saved.
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 export const removeControlCharacters = (text: string): string => text.replace(CONTROL_CHARACTERS, "");
 
@@ -75,8 +66,8 @@ export const isDraftClearingKeys = (keys: Uint8Array): boolean => {
 
 // The message typed into Claude Code: the text, then each image's saved path.
 // Claude Code turns a pasted image path into an attached image.
-export const buildMessageWithImages = (text: string, imagePaths: string[]): string =>
-  [text.trim(), ...imagePaths].filter(Boolean).join("\n\n");
+export const buildMessageWithImages = (text: string, imagePaths: readonly string[]): string =>
+  [removeControlCharacters(text).trim(), ...imagePaths].filter(Boolean).join("\n\n");
 
 // Keeps the most recent output, so someone attaching sees the current screen.
 // Where it's cut, it starts at the next escape code or line (within a few KB),

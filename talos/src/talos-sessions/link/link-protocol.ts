@@ -23,6 +23,7 @@ export const FACT_TYPES = [
   "prompt-submit",
   "permission-asked",
   "permission-settled",
+  "submit-done",
 ] as const;
 export type FactType = (typeof FACT_TYPES)[number];
 
@@ -80,6 +81,9 @@ export type TurnStarter = (typeof TURN_STARTERS)[number];
 
 export type FactsAnswer = { acked: number };
 export type CheckInAnswer = { secret: string };
-// One line per command on the helper's stream. Only heartbeats so far.
-export type LinkCommand = { type: "heartbeat" };
+// One line per command on the helper's stream. A submit goes in as the
+// person's own words (isPerson: what they typed on the page) or framed as the
+// talos mod's (an ask, an answer); the mod reports its outcome as a
+// submit-done fact with the same sendId.
+export type LinkCommand = { type: "heartbeat" } | { type: "submit"; sendId: string; text: string; isPerson: boolean };
 export const encodeLinkCommand = (command: LinkCommand): string => `${JSON.stringify(command)}\n`;

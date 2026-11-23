@@ -66,8 +66,9 @@ const runnerBeneath = (on: On, posts: number[][], reply = (text: string) => text
     return { value: { status: 200, ok: true, headers: {}, text: reply(`{"acked":${seqs.at(-1)}}`) } }
   })
 
-const startLinked = (on: On) => {
-  mock.env(on, { TALOS_LINK_TOKEN: 't', TALOS_LINK_SOCKET: '/tmp/link.sock' })
+// With a Bun path the mod starts its helper, which the test then stands in for.
+const startLinked = (on: On, bun?: string) => {
+  mock.env(on, { TALOS_LINK_TOKEN: 't', TALOS_LINK_SOCKET: '/tmp/link.sock', ...(bun && { TALOS_BUN: bun }) })
   on('env.set', () => ({ value: {} }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.version', () => ({ value: { version: '2.1.330', base: '2.1.330', builtAt: '' } }))
@@ -190,9 +191,38 @@ test('a fact that comes before the one ahead of it is resent after a pause, not 
 
 test('/fork is refused with a reason, and other commands run', async ($, on) => {
   on('command.run', (_, e) => ({ text: `ran ${e.command}` }))
-  expect(await $.command.run({ command: 'fork' })).toMatchObject({ text: "talos sessions can't fork; start a new session instead" })
-  expect(await $.command.run({ command: 'compact' })).toMatchObject({ text: 'ran compact' })
+  expect(await $.command.run({ command: 'fork' } as never)).toMatchObject({ text: "talos sessions can't fork; start a new session instead" })
+  expect(await $.command.run({ command: 'compact' } as never)).toMatchObject({ text: 'ran compact' })
 })
 
 // Refusing other mods (plugin.register) can't be raised from the kit; it was
 // checked in a session (ref/mod-test-results.md, "Before step 5").
+
+test("a submit from the runner goes in as the person or framed, reports done, and its turn says who started it", async ($, on) => {
+  const clock = mock.clock(on)
+  startLinked(on, '/bin/bun')
+  const posts = recordFacts(on)
+  const submitted: { text: string; asUser?: true }[] = []
+  on('prompt.submit', (_, e) => {
+    submitted.push({ text: e.text, ...((e.origin as { asUser?: true }).asUser && { asUser: true as const }) })
+    return { text: e.text }
+  })
+  // The helper's output, in pieces that split a line, as a process's may.
+  const lines = [
+    JSON.stringify({ type: 'submit', sendId: 's1', text: 'from the page', isPerson: true }),
+    JSON.stringify({ type: 'submit', sendId: 's2', text: 'an ask', isPerson: false }),
+  ].join('\n') + '\n'
+  on('process.spawn', async function* () {
+    yield { stream: 'stdout' as const, text: lines.slice(0, 20) }
+    yield { stream: 'stdout' as const, text: lines.slice(20) }
+    return { value: { code: 0, signal: null } }
+  })
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
+  await clock.settle()
+  await $.turn.start({ turnId: 't1', text: 'from the page' } as never)
+  await $.turn.start({ turnId: 't2', text: 'an ask' } as never)
+  expect(submitted).toEqual([{ text: 'from the page', asUser: true }, { text: 'an ask' }])
+  const facts = factsOf(posts)
+  expect(facts.filter(({ type }) => type === 'submit-done').map(({ details }) => details.sendId)).toEqual(['s1', 's2'])
+  expect(facts.filter(({ type }) => type === 'turn-start').map(({ details }) => details.startedBy)).toEqual(['person', 'talos'])
+})

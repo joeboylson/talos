@@ -48,10 +48,15 @@ test(
 test(
   "a session keeps only its newest images",
   async () => {
-    expect(await calls.start("pics", "pics", folder("pics"))).toEqual({ ok: true });
+    const dir = folder("pics");
+    expect(await calls.start("pics", "pics", dir)).toEqual({ ok: true });
     await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "pics")?.state === "idle", "the session to be ready");
     const image = { mediaType: "image/png" as const, dataBase64: Buffer.from("png").toString("base64") };
-    for (let sent = 0; sent < SESSION_LIMITS.maxUploadsKept + 5; sent += 1) await calls.send("pics", `image ${sent}`, [image]);
+    // One at a time, as a person sends them: each waits for the last one's turn.
+    for (let sent = 0; sent < SESSION_LIMITS.maxUploadsKept + 5; sent += 1) {
+      expect(await calls.send("pics", `image ${sent}`, [image])).toEqual({ ok: true });
+      await waitUntil(() => userLines(dir).some((line) => line.split(/\s/)[1] === String(sent)), `image ${sent} to go in`);
+    }
     expect(readdirSync(join(homePaths(home).uploads, "pics"))).toHaveLength(SESSION_LIMITS.maxUploadsKept);
   },
   60_000,
@@ -64,7 +69,7 @@ test(
     const results = [];
     for (let sent = 0; sent <= SESSION_LIMITS.maxQueuedMessages; sent += 1) results.push(await calls.send("mute", `message ${sent}`));
     expect(results.slice(0, -1).every((result) => result.ok)).toBe(true);
-    expect(results.at(-1)).toMatchObject({ ok: false, code: "still-starting" });
+    expect(results.at(-1)).toMatchObject({ ok: false, code: "too-many-waiting" });
   },
   20_000,
 );
@@ -198,7 +203,7 @@ test(
 );
 
 test(
-  "a send made as a session becomes ready goes after the messages queued while it started",
+  "a send made as a session becomes ready goes after the messages sent while it started, each a turn of its own",
   async () => {
     const dir = folder("order");
     expect(await calls.start("order", "order", dir)).toEqual({ ok: true });
@@ -206,9 +211,8 @@ test(
     expect(await calls.send("order", "second")).toEqual({ ok: true });
     await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "order")?.state !== "starting", "the session to be ready");
     expect(await calls.send("order", "third")).toEqual({ ok: true });
-    await waitUntil(() => readFileSync(join(dir, "transcript.jsonl"), "utf8").includes("BUSY third"), "every message", 10_000);
-    const busy = readFileSync(join(dir, "transcript.jsonl"), "utf8").match(/BUSY (second|third)/g);
-    expect(busy).toEqual(["BUSY second", "BUSY third"]);
+    await waitUntil(() => userLines(dir).includes("third"), "every message", 10_000);
+    expect(userLines(dir).map((line) => line.split(/\s/)[0])).toEqual(["first", "second", "third"]);
   },
   30_000,
 );

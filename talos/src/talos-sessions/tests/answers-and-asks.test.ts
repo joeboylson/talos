@@ -26,6 +26,7 @@ const waitUntil = async (isDone: () => boolean, what: string, ms = 10_000): Prom
   }
 };
 
+const userTexts = (name: string) => (entries[name] ?? []).flatMap((entry) => (entry.kind === "prompt" ? [entry.text] : []));
 const texts = (name: string) => (entries[name] ?? []).flatMap((entry) => (entry.kind === "prompt" || entry.kind === "text" ? [entry.text] : []));
 const prompts = (name: string) => (entries[name] ?? []).flatMap((entry) => (entry.kind === "prompt" ? [entry.text] : []));
 const isSettled = (name: string) => latest[name]?.state !== "working";
@@ -171,33 +172,16 @@ test(
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 test(
-  "a prompt that comes up while a message's images settle stops its Enter, which would approve it",
-  async () => {
-    const name = "prompt-mid-paste";
-    mkdirSync(join(home, name));
-    expect(await calls.start(name, name, join(home, name))).toEqual({ ok: true });
-    await waitUntil(() => latest[name]?.state === "idle", "the session to be ready");
-    expect(await calls.send(name, "slow-prompt")).toEqual({ ok: true });
-    const sent = calls.send(name, "look at this", [{ mediaType: "image/png", dataBase64: PNG }]);
-    expect(await sent).toMatchObject({ ok: false, code: "prompt-showing" });
-    await Bun.sleep(500);
-    expect(texts(name)).not.toContain("APPROVED");
-    expect(await calls.keys(name, "\x1b")).toEqual({ ok: true });
-    await waitUntil(() => texts(name).includes("REFUSED"), "the prompt to be answered");
-  },
-  30_000,
-);
-
-test(
-  "a message sent while a permission prompt shows is refused, not typed into the prompt",
+  "a message sent while a permission prompt shows waits for it, and goes in once its turn is over",
   async () => {
     await atPrompt("send-at-prompt");
     expect(latest["send-at-prompt"]?.isTurnOver).toBe(false);
-    expect(await calls.send("send-at-prompt", "no wait, use git status")).toMatchObject({ ok: false, code: "prompt-showing" });
+    expect(await calls.send("send-at-prompt", "no wait, use git status")).toEqual({ ok: true });
     await Bun.sleep(1000);
     expect(texts("send-at-prompt")).not.toContain("APPROVED");
     expect(await calls.keys("send-at-prompt", "\x1b")).toEqual({ ok: true });
     await waitUntil(() => texts("send-at-prompt").includes("REFUSED"), "the prompt to be answered");
+    await waitUntil(() => userTexts("send-at-prompt").includes("no wait, use git status"), "the message to go in after");
   },
   30_000,
 );

@@ -102,10 +102,10 @@ something.
 - **optional output**: a structured output a session may send during a prose
   turn, like a decision, as its specific layer allows.
 - **kind**: a type of structured output, defined by talos's specific layer:
-  its fields and their check, which fields get typed into a session (and
+  its fields and their check, which fields get sent into a session (and
   whether those may hold commands), its **choices field** (the list a click
   picks from), whether the session waits after sending one, and the request
-  talos types to ask for one.
+  talos sends to ask for one.
 - **turn shape**: what a turn must hand back and what else it may send. A
   **prose turn** hands back prose and may send its optional outputs. An
   **asked-for turn** (like a **status turn**) is one talos starts to ask for a
@@ -115,23 +115,22 @@ something.
 - **pending output** and **open output**: an output's call was allowed and
   given an id (pending), then went through with that id (open). An open
   output that waits is a question; it closes when the person's turn after the
-  one that asked it ends. Turns talos types (an answer, an asked-for request)
+  one that asked it ends. Turns talos sends (an answer, an asked-for request)
   don't count, and only a turn's end counts.
 - **ask** and **asks list**: asking a session for a kind. The asks list holds,
   per kind, where the latest ask stands (asking, answered, no response) and its
   latest answer.
 - **settled**: a session's turn is over, as its mod reports it, and the
-  session isn't stopped. Talos types its own text into a session only then,
-  after an Esc, and only if no draft is waiting. One thing types into a session at a time: a message,
-  talos's text, or the person's keys.
+  session isn't stopped. Talos sends into a session only then, one thing per
+  turn: the person's waiting messages first, then its own text.
 - **framed**: how talos sends text it wrote itself (an ask, an answer, a
   loop step): marked as coming from the talos mod, not as the person. Only
   what the person types on the page is sent as them.
-- **draft**: text the person has in a session's input box. It keeps talos's
-  typing waiting and ends a queued ask; one no key has touched for a minute
-  stops counting.
+- **draft**: text the person has in a session's input box, typed in an
+  attached terminal. It keeps talos's asks and answers waiting and ends a
+  queued ask; one no key has touched for a minute stops counting.
 - **held answer**: a click on an open output's choice, kept until the session
-  has settled, then typed as `Answer to <id>: <choice>`. The message is
+  has settled, then sent as `Answer to <id>: <choice>`. The message is
   `answer-output`.
 
 ## Using a module

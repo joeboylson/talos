@@ -2,13 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { buildHookSettings, hookTokenAuthorized, isMainStopFailure } from "../claude/session-hooks";
 
 test("buildHookSettings runs the hook command on every event", () => {
-  const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"', { TALOS_RUNNER_SOCKET: "/sock", TALOS_HOOK_TOKEN: "tok" }));
+  const settings = JSON.parse(buildHookSettings('"/bin/bun" "/talos/hook.ts"', { TALOS_RUNNER_SOCKET: "/sock", TALOS_HOOK_TOKEN: "tok" }, "/home/uploads/s1"));
   expect(Object.keys(settings.hooks)).toEqual(["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure"]);
   expect(settings.hooks.Stop).toEqual([{ hooks: [{ type: "command", command: '"/bin/bun" "/talos/hook.ts"' }] }]);
   // Pinned so a project's own disableAllHooks:true can't switch off enforcement,
   // nor its enabledPlugins turn talos's mod off.
   expect(settings.disableAllHooks).toBe(false);
   expect(settings.enabledPlugins).toEqual({ "talos@inline": true });
+  // Claude may open the images a message names, from its own uploads only.
+  expect(settings.permissions.allow).toEqual(["Read(//home/uploads/s1/**)"]);
   // Pinned so a project's own `env` can't blank the socket/token the hook reads.
   expect(settings.env.TALOS_RUNNER_SOCKET).toBe("/sock");
   expect(settings.env.TALOS_HOOK_TOKEN).toBe("tok");
@@ -32,7 +34,7 @@ describe("hookTokenAuthorized", () => {
 
 describe("hook edges", () => {
   test("every interpreter and loader variable is pinned empty", () => {
-    const { env } = JSON.parse(buildHookSettings("hook", {}));
+    const { env } = JSON.parse(buildHookSettings("hook", {}, "/home/uploads/s1"));
     const pinned = ["BUN_OPTIONS", "NODE_OPTIONS", "BUN_INSPECT", "BUN_INSPECT_CONNECT_TO", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH"];
     expect(Object.fromEntries(pinned.map((name) => [name, env[name]]))).toEqual(Object.fromEntries(pinned.map((name) => [name, ""])));
   });

@@ -25,6 +25,12 @@ const readAnswer = (message: object): { outputId: string; choice: number } | nul
   return isShortText(outputId, LIMITS.maxIdTextLength) && isChoice ? { outputId, choice: Number(choice) } : null;
 };
 
+const readPermissionAnswer = (message: object): { toolUseId: string; isAllowed: boolean } | null => {
+  const toolUseId = fieldOf(message, "toolUseId");
+  const isAllowed = fieldOf(message, "isAllowed");
+  return isShortText(toolUseId, LIMITS.maxIdTextLength) && typeof isAllowed === "boolean" ? { toolUseId, isAllowed } : null;
+};
+
 const typeOf = (value: unknown): { message: object; type: unknown } | null =>
   typeof value === "object" && value !== null ? { message: value, type: fieldOf(value, "type") } : null;
 
@@ -52,6 +58,10 @@ const readPageCommand = (value: unknown): PageToServer | null => {
   const sessionName = fieldOf(message, "sessionName");
   if (!isIdentifierName(sessionName)) return null;
   if (type === "stop-session" || type === "interrupt-session") return { type, machineId, sessionName };
+  if (type === "answer-permission") {
+    const answer = readPermissionAnswer(message);
+    return answer ? { type, machineId, sessionName, ...answer } : null;
+  }
   if (type === "ask-for-output") {
     const kind = fieldOf(message, "kind");
     return isShortText(kind, LIMITS.maxNameTextLength) ? { type, machineId, sessionName, kind } : null;
@@ -89,6 +99,10 @@ const readMachineCommand = (value: unknown): ServerToMachine | null => {
   const sessionName = fieldOf(message, "sessionName");
   if (!isIdentifierName(sessionName)) return null;
   if (type === "stop-session" || type === "interrupt-session") return { type, sessionName };
+  if (type === "answer-permission") {
+    const answer = readPermissionAnswer(message);
+    return answer ? { type, sessionName, ...answer } : null;
+  }
   if (type === "ask-for-output") {
     const kind = fieldOf(message, "kind");
     return isShortText(kind, LIMITS.maxNameTextLength) ? { type, sessionName, kind } : null;
@@ -113,7 +127,7 @@ const withRequestId = <T extends object>(message: object, read: T): T => {
   return isShortText(requestId, LIMITS.maxIdTextLength) ? { ...read, requestId } : read;
 };
 const isSessionCommand = (read: { type: string }) =>
-  ["start-session", "send-to-session", "ask-for-output", "answer-output", "interrupt-session", "stop-session"].includes(read.type);
+  ["start-session", "send-to-session", "ask-for-output", "answer-output", "answer-permission", "interrupt-session", "stop-session"].includes(read.type);
 
 export const readPageToServer = (value: unknown): PageToServer | null => {
   const read = readPageCommand(value);

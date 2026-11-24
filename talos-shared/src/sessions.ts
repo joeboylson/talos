@@ -38,7 +38,11 @@ export type SessionSummary = {
   isSelfStarted?: true;
   // Messages from the page waiting for the turn to be over, oldest first.
   waitingMessages?: string[];
+  // Permission prompts showing in its terminal, oldest first: each can be
+  // answered from the page too, by its id.
+  permissionAsks?: PermissionAsk[];
 };
+export type PermissionAsk = { id: string; tool: string; summary: string };
 
 // A question the session asked the person while working, with the choices it
 // offered. A click answers it by its id and the choice's position; the message
@@ -162,6 +166,14 @@ export const openDecisionOf = (session: SessionSummary): SessionDecision | null 
   return output ? readSessionDecision({ ...output.fields, id: output.id, atMs: output.atMs }) : null;
 };
 
+const readPermissionAsks = (value: unknown): PermissionAsk[] =>
+  (Array.isArray(value) ? value.slice(0, LIMITS.maxOpenOutputs) : []).flatMap((ask: unknown) => {
+    if (typeof ask !== "object" || ask === null) return [];
+    const [id, tool, summary] = ["id", "tool", "summary"].map((field) => fieldOf(ask, field));
+    const isAsk = isTextUpTo(id, LIMITS.maxIdTextLength) && isTextUpTo(tool, LIMITS.maxNameTextLength) && isTextUpTo(summary, LIMITS.maxToolSummaryLength);
+    return isAsk ? [{ id: id as string, tool: tool as string, summary: summary as string }] : [];
+  });
+
 // Both sides read these from messages, so neither trusts the shape.
 export const readSessionList = (value: unknown): SessionSummary[] | null => {
   if (!Array.isArray(value) || value.length > LIMITS.maxSessions) return null;
@@ -178,6 +190,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
     const link = fieldOf(item as object, "link");
     const isSelfStarted = fieldOf(item as object, "isSelfStarted");
     const waitingMessages = fieldOf(item as object, "waitingMessages");
+    const permissionAsks = readPermissionAsks(fieldOf(item as object, "permissionAsks"));
     const isWaitingList =
       Array.isArray(waitingMessages) &&
       waitingMessages.length <= LIMITS.maxQueuedMessages &&
@@ -192,6 +205,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
       ...(isOneOf(LINK_STATES, link) && { link }),
       ...(isSelfStarted === true && { isSelfStarted }),
       ...(isWaitingList && waitingMessages.length > 0 && { waitingMessages: waitingMessages as string[] }),
+      ...(permissionAsks.length > 0 && { permissionAsks }),
     };
   });
 };

@@ -27,8 +27,13 @@ let lastSessionId = ''
 // Prompts submitted but not yet started, with who sent each, so a turn can say
 // who started it (see TURN_STARTERS in link-protocol.ts).
 let pendingPrompts: { text: string; startedBy: TurnStarter }[] = []
-// Tool calls whose permission prompt shows, so their end can be reported.
-let waitingPermissions: string[] = []
+// Tool calls whose permission prompt shows, so their end can be reported and
+// an answer from the page can reach their dialog: each with its tool and
+// input (the dialog's hook gets no call id), and, once its dialog shows, how
+// to answer it (null: the call settled some other way).
+type WaitingPermission = { toolUseId: string; tool: string; inputKey: string; answer?: (decision: PermissionDecision | null) => void }
+type PermissionDecision = { behavior: 'allow' } | { behavior: 'deny'; message: string }
+let waitingPermissions: WaitingPermission[] = []
 // The main conversation's running turn, for an interrupt from the page.
 let runningTurnId: string | null = null
 
@@ -127,10 +132,30 @@ const submit = async ($: Calls, sendId: string, text: string, isPerson: boolean)
 
 // An abort that fails (the turn ended meanwhile) changes nothing: the turn's
 // own end is reported anyway.
+const DENIED_FROM_PAGE = 'The person said no from the talos page'
+
+// What a tool call would do, in a line, for the page to ask about: its
+// command, its file or its address.
+const SUMMARY_FIELDS = ['command', 'file_path', 'path', 'url', 'pattern', 'description', 'prompt']
+const SUMMARY_LENGTH = 300
+const summaryOf = (input: unknown): string => {
+  if (typeof input !== 'object' || input === null) return ''
+  const telling = SUMMARY_FIELDS.map(field => Reflect.get(input, field)).find((value): value is string => typeof value === 'string' && value.trim() !== '')
+  return (telling ?? '').replace(/\s+/g, ' ').trim().slice(0, SUMMARY_LENGTH)
+}
+const inputKeyOf = (input: unknown): string => JSON.stringify(input ?? null)
+
+const answerPermission = (toolUseId: string, decision: PermissionDecision | null) =>
+  waitingPermissions.find(waiting => waiting.toolUseId === toolUseId)?.answer?.(decision)
+
 const actOn = ($: Calls, line: string) => {
   const command = JSON.parse(line)
   if (command.type === 'submit') void submit($, String(command.sendId), String(command.text), command.isPerson === true)
   if (command.type === 'abort' && runningTurnId) void $.turn.abort({ turnId: runningTurnId }).catch(() => undefined)
+  if (command.type === 'permission-answer') {
+    const decision: PermissionDecision = command.isAllowed === true ? { behavior: 'allow' } : { behavior: 'deny', message: DENIED_FROM_PAGE }
+    answerPermission(String(command.toolUseId), decision)
+  }
 }
 
 // The helper is the runner's way in: it holds a stream open to the runner and
@@ -211,7 +236,10 @@ export const register: Register = on => {
   })
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
-    if (e.agentId === undefined) waitingPermissions = []
+    if (e.agentId === undefined) {
+      waitingPermissions.forEach(waiting => waiting.answer?.(null))
+      waitingPermissions = []
+    }
     if (e.agentId === undefined && runningTurnId === e.turnId) runningTurnId = null
     report($, 'turn-complete', { turnId: e.turnId, agentId: e.agentId, reason: e.reason })
     return completed
@@ -222,17 +250,32 @@ export const register: Register = on => {
     const verdict = await next(e)
     const isPersonAsked = verdict.decision === 'ask' && e.approver === 'person' && e.tool_use_id !== undefined
     if (isPersonAsked) {
-      waitingPermissions = [...waitingPermissions, e.tool_use_id!]
-      report($, 'permission-asked', { toolUseId: e.tool_use_id, agentId: e.agentId })
+      waitingPermissions = [...waitingPermissions, { toolUseId: e.tool_use_id!, tool: e.tool, inputKey: inputKeyOf(e.input) }]
+      report($, 'permission-asked', { toolUseId: e.tool_use_id, agentId: e.agentId, tool: e.tool, summary: summaryOf(e.input) })
     }
     return verdict
+  })
+  // The dialog is showing, in the terminal: whichever answers first wins, the
+  // person there or a click on the page. The page's answer is this hook's;
+  // an answer there settles the call and leaves this hook to step aside.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const inputKey = inputKeyOf(e.tool_input)
+    const waiting =
+      waitingPermissions.find(permission => !permission.answer && permission.tool === e.tool_name && permission.inputKey === inputKey) ??
+      waitingPermissions.find(permission => !permission.answer && permission.tool === e.tool_name)
+    if (!waiting) return next(e)
+    const decision = await new Promise<PermissionDecision | null>(resolve => {
+      waitingPermissions = waitingPermissions.map(permission => (permission === waiting ? { ...permission, answer: resolve } : permission))
+    })
+    return decision ? { decision } : next(e)
   })
   // Allowed or declined (Esc or "No"), the call resolves here.
   on('tool.call', async ($, e, next) => {
     const called = await next(e)
     const toolUseId = e.tool_use_id
-    if (toolUseId && waitingPermissions.includes(toolUseId)) {
-      waitingPermissions = waitingPermissions.filter(id => id !== toolUseId)
+    if (toolUseId && waitingPermissions.some(waiting => waiting.toolUseId === toolUseId)) {
+      answerPermission(toolUseId, null)
+      waitingPermissions = waitingPermissions.filter(waiting => waiting.toolUseId !== toolUseId)
       report($, 'permission-settled', { toolUseId })
     }
     return called

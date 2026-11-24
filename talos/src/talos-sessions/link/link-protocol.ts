@@ -87,5 +87,11 @@ export type CheckInAnswer = { secret: string };
 // submit-done fact with the same sendId.
 // An abort stops the running turn, as Esc would, but leaves the session able
 // to take sends.
-export type LinkCommand = { type: "heartbeat" } | { type: "submit"; sendId: string; text: string; isPerson: boolean } | { type: "abort" };
+// A permission answer settles the prompt showing for that tool call, as the
+// person answering it in the terminal would.
+export type LinkCommand =
+  | { type: "heartbeat" }
+  | { type: "submit"; sendId: string; text: string; isPerson: boolean }
+  | { type: "abort" }
+  | { type: "permission-answer"; toolUseId: string; isAllowed: boolean };
 export const encodeLinkCommand = (command: LinkCommand): string => `${JSON.stringify(command)}\n`;

@@ -221,6 +221,10 @@ export const runConnect = async (): Promise<void> => {
   const handleServerMessage = async (message: Exclude<ServerToMachine, { type: "ping" }>) => {
     if (message.type === "start-session") return startSession(message.folderName, message.sessionName, message.requestId);
     if (message.type === "interrupt-session") return reportRefusal(await sessions.interrupt(message.sessionName), message.requestId);
+    if (message.type === "answer-permission") {
+      const { sessionName, toolUseId, isAllowed, requestId } = message;
+      return reportRefusal(await sessions.answerPermission(sessionName, toolUseId, isAllowed), requestId);
+    }
     if (message.type === "send-to-session") return reportRefusal(await sessions.send(message.sessionName, message.text, message.images, message.requestId), message.requestId);
     if (message.type === "stop-session") return reportRefusal(await sessions.stop(message.sessionName), message.requestId);
     if (message.type === "ask-for-output") {

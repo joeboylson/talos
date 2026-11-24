@@ -12,7 +12,7 @@ export type SharedRunnerEvent =
 
 // The module's summary is the shared one's general shape; its kinds' fields are
 // checked where they're read (talos-shared's statusOf and openDecisionOf).
-const toSharedSummary = ({ sessionName, folderName, state, asks, openOutputs, isTurnOver, link, isSelfStarted, waitingMessages }: RunnerSummary): SessionSummary => ({
+const toSharedSummary = ({ sessionName, folderName, state, asks, openOutputs, isTurnOver, link, isSelfStarted, waitingMessages, permissionAsks }: RunnerSummary): SessionSummary => ({
   sessionName,
   folderName,
   state,
@@ -22,6 +22,7 @@ const toSharedSummary = ({ sessionName, folderName, state, asks, openOutputs, is
   ...(link && { link }),
   ...(isSelfStarted && { isSelfStarted }),
   ...(waitingMessages && { waitingMessages }),
+  ...(permissionAsks && { permissionAsks }),
 });
 
 // The same shape on both sides; typed here so a change on either side fails the typecheck.

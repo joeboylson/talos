@@ -98,7 +98,10 @@ export const readHookAnswer = (line: string): HookAnswer | null => {
   return kind === "reply" && typeof reply === "string" ? { kind, reply } : null;
 };
 
-export const sessionRoute = (sessionName: string, action: "send" | "stop" | "interrupt" | "ask" | "answer" | "output" | "input" | "resize") =>
+export const sessionRoute = (
+  sessionName: string,
+  action: "send" | "stop" | "interrupt" | "ask" | "answer" | "answer-permission" | "output" | "input" | "resize",
+) =>
   `${RUNNER_ROUTES.sessions}/${encodeURIComponent(sessionName)}/${action}`;
 
 // One event per line, so a stream can be read line by line.

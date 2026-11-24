@@ -187,3 +187,25 @@ test("an interrupt that comes too late (the turn ended on its own) leaves the ne
   await waitUntil(() => transcript().includes("carry on"), "the next message");
   expect(transcript()).not.toContain("I stopped your last turn");
 }, 20_000);
+
+test("a permission prompt is listed with what it asks, and the page's Allow answers it; a second answer is closed", async () => {
+  const folder = await startIn("asking", "asking");
+  await waitUntil(() => stateOf("asking") === "idle", "the session to be ready");
+  expect(await calls.send("asking", "prompt")).toEqual({ ok: true });
+  await waitUntil(() => (summaryOf("asking")?.permissionAsks?.length ?? 0) > 0, "the prompt to be listed");
+  const [ask] = summaryOf("asking")!.permissionAsks!;
+  expect(ask).toEqual({ id: expect.any(String), tool: "Bash", summary: "ls" });
+  expect(await calls.answerPermission("asking", ask!.id, true)).toEqual({ ok: true });
+  await waitUntil(() => readFileSync(join(folder, "transcript.jsonl"), "utf8").includes("APPROVED"), "the prompt to be answered");
+  await waitUntil(() => summaryOf("asking")?.permissionAsks === undefined, "the prompt to leave the list");
+  expect(await calls.answerPermission("asking", ask!.id, true)).toMatchObject({ ok: false, code: "closed" });
+}, 20_000);
+
+test("the page's Deny says no to a prompt", async () => {
+  const folder = await startIn("refusing", "refusing");
+  await waitUntil(() => stateOf("refusing") === "idle", "the session to be ready");
+  expect(await calls.send("refusing", "prompt")).toEqual({ ok: true });
+  await waitUntil(() => (summaryOf("refusing")?.permissionAsks?.length ?? 0) > 0, "the prompt to be listed");
+  expect(await calls.answerPermission("refusing", summaryOf("refusing")!.permissionAsks![0]!.id, false)).toEqual({ ok: true });
+  await waitUntil(() => readFileSync(join(folder, "transcript.jsonl"), "utf8").includes("REFUSED"), "the prompt to be refused");
+}, 20_000);

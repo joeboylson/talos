@@ -56,7 +56,8 @@ Each block below is listed as what goes in → what comes out.
     runs the pinned Claude Code.
   - In, through its plain calls (`connectToSessions({ home, runnerScript })`):
     start a session in a folder, send it a message (through its mod, one per
-    turn, waiting while a turn runs) or keys, interrupt its turn, stop it,
+    turn, waiting while a turn runs) or keys, interrupt its turn, answer a
+    permission prompt showing in its terminal (allow or deny), stop it,
     resize
     it, see its screen, ask it for a kind of output, answer an open output by
     its id, attach a terminal, list the sessions, follow events, and start,
@@ -66,7 +67,8 @@ Each block below is listed as what goes in → what comes out.
     turn was started by Claude Code on its own, its asks
     (state and latest answer per kind), its open outputs, its conversation as
     entries in conversation order (outputs and dropped markers included),
-    its waiting messages, notices like a dropped answer, each waiting
+    its waiting messages, the permission prompts showing in its terminal
+    (each with its tool and what it would do), notices like a dropped answer, each waiting
     message given back (with the request id it was sent with) when an
     interrupt or Esc means it won't go in, and its raw terminal output.
   - Refusal codes: `no-such-session`, `already-running`, `too-many-sessions`,

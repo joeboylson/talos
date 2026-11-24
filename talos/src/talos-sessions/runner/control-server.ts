@@ -12,7 +12,7 @@ import { noSuchSession, refuse } from "./refuse";
 import { claudeConfigFile, log, paths, restoresTrust } from "./inputs";
 import { restoreTrust, type TrustChange } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
-import { answerOutput, applyLaneEvent, askForOutput, interruptSession } from "./session-state";
+import { answerOutput, answerPermission, applyLaneEvent, askForOutput, interruptSession } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
 import { eventListeners, heldSessions, isPromptShowing, listSessions, runnerState, startingSessions, trustChanges } from "./store";
 
@@ -150,6 +150,12 @@ export const controlServeOptions = (runnerSocket: string) => ({
         }
         const requestId = typeof body.requestId === "string" && body.requestId.length <= SESSION_LIMITS.maxIdTextLength ? body.requestId : undefined;
         return sendToSession(sessionNameOf(request), text, images, requestId);
+      },
+    },
+    [`${RUNNER_ROUTES.sessions}/:sessionName/answer-permission`]: {
+      POST: async (request: BunRequest) => {
+        const { toolUseId, isAllowed } = await readJson(request);
+        return answerPermission(sessionNameOf(request), toolUseId, isAllowed);
       },
     },
     [`${RUNNER_ROUTES.sessions}/:sessionName/interrupt`]: {

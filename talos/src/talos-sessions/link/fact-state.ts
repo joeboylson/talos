@@ -1,5 +1,6 @@
 // A session's state, worked out from its mod's facts alone: one rule per fact.
 // See docs/GLOSSARY.md for the states.
+import { COPIED_LIMITS } from "../limits";
 import type { SessionState } from "../shapes";
 import { TURN_STARTERS, type Fact, type TurnStarter } from "./link-protocol";
 
@@ -9,11 +10,15 @@ export type FactView = {
   // Esc during a turn. Claude Code refuses the mod's sends until the person
   // enters something at the terminal (or through Remote Control).
   isStopped: boolean;
-  // Permission prompts showing, by tool call id; a sub-agent's shows in the
-  // same terminal.
-  waitingPermissions: readonly string[];
+  // Permission prompts showing, oldest first; a sub-agent's shows in the same
+  // terminal.
+  waitingPermissions: readonly PermissionAsk[];
   turnStarter: TurnStarter | null;
 };
+
+// What a permission prompt asks: which tool call, the tool, and a line saying
+// what it would do (its command, its file).
+export type PermissionAsk = { toolUseId: string; tool: string; summary: string };
 
 export const NO_FACTS: FactView = { activity: "starting", isTurnOver: true, isStopped: false, waitingPermissions: [], turnStarter: null };
 
@@ -48,10 +53,15 @@ export const stepFactView = (view: FactView, fact: Fact): FactView => {
       return isMainLoop(fact) ? { ...view, activity: "working", isTurnOver: false, turnStarter: starterOf(fact) } : view;
     case "turn-complete":
       return isMainLoop(fact) ? { ...view, activity: "idle", isTurnOver: true, waitingPermissions: [], turnStarter: null } : view;
-    case "permission-asked":
-      return toolUseId && !view.waitingPermissions.includes(toolUseId) ? { ...view, waitingPermissions: [...view.waitingPermissions, toolUseId] } : view;
+    case "permission-asked": {
+      const isNew = toolUseId !== null && !view.waitingPermissions.some((ask) => ask.toolUseId === toolUseId);
+      if (!isNew) return view;
+      const tool = (textOf(fact.details, "tool") ?? "a tool").slice(0, COPIED_LIMITS.maxNameTextLength);
+      const ask = { toolUseId, tool, summary: (textOf(fact.details, "summary") ?? "").slice(0, COPIED_LIMITS.maxToolSummaryLength) };
+      return { ...view, waitingPermissions: [...view.waitingPermissions, ask] };
+    }
     case "permission-settled":
-      return { ...view, waitingPermissions: view.waitingPermissions.filter((id) => id !== toolUseId) };
+      return { ...view, waitingPermissions: view.waitingPermissions.filter((ask) => ask.toolUseId !== toolUseId) };
     case "session-end":
     case "submit-done":
       return view;

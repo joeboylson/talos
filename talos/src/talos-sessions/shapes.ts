@@ -34,7 +34,11 @@ export type SessionSummary = {
   isSelfStarted?: true;
   // Messages from the page waiting for the turn to be over, oldest first.
   waitingMessages?: string[];
+  // Permission prompts showing in its terminal, oldest first: each can be
+  // answered from the page too, by its id.
+  permissionAsks?: PermissionAskShown[];
 };
+export type PermissionAskShown = { id: string; tool: string; summary: string };
 
 // One thing in a session's conversation, read from Claude Code's saved
 // conversation as it grows: a message someone sent, text Claude wrote, or a
@@ -113,6 +117,14 @@ const readOpenOutputs = (value: unknown): OpenOutput[] =>
     return isOutput ? [{ id, kind, fields, atMs }] : [];
   });
 
+const readPermissionAsks = (value: unknown): PermissionAskShown[] =>
+  (Array.isArray(value) ? value.slice(0, LIMITS.maxOpenOutputs) : []).flatMap((ask: unknown) => {
+    if (!isPlainObject(ask)) return [];
+    const { id, tool, summary } = ask;
+    const isAsk = isTextUpTo(id, LIMITS.maxIdTextLength) && isTextUpTo(tool, LIMITS.maxNameTextLength) && isTextUpTo(summary, LIMITS.maxToolSummaryLength);
+    return isAsk ? [{ id, tool, summary }] : [];
+  });
+
 export const readSessionList = (value: unknown): SessionSummary[] | null => {
   if (!Array.isArray(value) || value.length > LIMITS.maxSessions) return null;
   const isSession = (item: unknown): boolean =>
@@ -128,6 +140,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
     const link = fieldOf(item as object, "link");
     const isSelfStarted = fieldOf(item as object, "isSelfStarted");
     const waitingMessages = fieldOf(item as object, "waitingMessages");
+    const permissionAsks = readPermissionAsks(fieldOf(item as object, "permissionAsks"));
     const isWaitingList =
       Array.isArray(waitingMessages) &&
       waitingMessages.length <= LIMITS.maxQueuedMessages &&
@@ -142,6 +155,7 @@ export const readSessionList = (value: unknown): SessionSummary[] | null => {
       ...(isOneOf(LINK_STATES, link) && { link }),
       ...(isSelfStarted === true && { isSelfStarted }),
       ...(isWaitingList && waitingMessages.length > 0 && { waitingMessages: waitingMessages as string[] }),
+      ...(permissionAsks.length > 0 && { permissionAsks }),
     };
   });
 };

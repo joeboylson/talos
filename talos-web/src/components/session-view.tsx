@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { SessionEntry } from "talos-shared";
 import { DecisionCard } from "@/components/decision-card";
 import { IconButton } from "@/components/icon-button";
+import { PermissionCard } from "@/components/permission-card";
 import { MessageComposer } from "@/components/message-composer";
 import { EntryBoundary, SessionEntryView, WaitingPromptBubble } from "@/components/session-entry";
 import { SessionStateBadge } from "@/components/session-state-badge";
@@ -17,6 +18,7 @@ type SessionViewProps = {
   onSend: (text: string, images: PreparedImage[]) => boolean;
   onAnswer: (outputId: string, choice: number) => void;
   onInterrupt: () => void;
+  onAnswerPermission: (toolUseId: string, isAllowed: boolean) => void;
   returned?: ReturnedMessage;
   onReturnedTaken: () => void;
   // What the person tried here and couldn't do (a closed question, a refused send).
@@ -26,7 +28,7 @@ type SessionViewProps = {
 // One session's conversation as it happens: messages, Claude's text, and each
 // tool Claude runs, then a box to send it a message.
 export const SessionView = (props: SessionViewProps) => {
-  const { sessionRow, entries, waitingPrompts, onSend, onAnswer, onInterrupt, returned, onReturnedTaken, notice } = props;
+  const { sessionRow, entries, waitingPrompts, onSend, onAnswer, onInterrupt, onAnswerPermission, returned, onReturnedTaken, notice } = props;
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastEntry = entries.at(-1);
   const scrollTrigger = `${entries.length}:${lastEntry?.entryId}:${lastEntry?.kind === "tool" ? lastEntry.outcome : ""}:${waitingPrompts.length}:${sessionRow?.decision !== undefined}`;
@@ -67,7 +69,10 @@ export const SessionView = (props: SessionViewProps) => {
         {isWorking && (
           <LoaderCircleIcon className="size-4 animate-spin text-muted-foreground" aria-label="Working" role="status" />
         )}
-        {sessionRow.isPromptShowing && (
+        {sessionRow.permissionAsks?.map((ask) => (
+          <PermissionCard key={ask.id} ask={ask} onAnswer={(isAllowed) => onAnswerPermission(ask.id, isAllowed)} />
+        ))}
+        {sessionRow.isPromptShowing && !sessionRow.permissionAsks && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <SquareTerminalIcon className="size-4" aria-hidden />
             Answer in the terminal

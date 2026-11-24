@@ -26,10 +26,14 @@ export const reportFact = async (type: Fact["type"], details: Record<string, unk
 };
 
 export type SubmitCommand = { sendId: string; text: string; isPerson: boolean };
-export type CommandHandlers = { onSubmit: (submit: SubmitCommand) => void; onAbort: () => void };
+export type CommandHandlers = {
+  onSubmit: (submit: SubmitCommand) => void;
+  onAbort: () => void;
+  onPermissionAnswer: (toolUseId: string, isAllowed: boolean) => void;
+};
 
 // Each command line the runner sends through the helper goes to its handler.
-const readCommands = async (output: ReadableStream<Uint8Array>, { onSubmit, onAbort }: CommandHandlers): Promise<void> => {
+const readCommands = async (output: ReadableStream<Uint8Array>, { onSubmit, onAbort, onPermissionAnswer }: CommandHandlers): Promise<void> => {
   let unread = "";
   for await (const chunk of output) {
     const lines = (unread + new TextDecoder().decode(chunk)).split("\n");
@@ -40,6 +44,7 @@ const readCommands = async (output: ReadableStream<Uint8Array>, { onSubmit, onAb
       .forEach((command) => {
         if (command.type === "submit") onSubmit(command);
         if (command.type === "abort") onAbort();
+        if (command.type === "permission-answer") onPermissionAnswer(command.toolUseId, command.isAllowed);
       });
   }
 };

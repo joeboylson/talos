@@ -65,6 +65,15 @@ const answerCheckIn = async (request: Request): Promise<Response> => {
   return Response.json({ secret } satisfies CheckInAnswer);
 };
 
+const showPermissionAsks = (sessionName: string, token: string, view: FactView): void => {
+  const session = heldSessions.get(sessionName);
+  if (session?.hookToken !== token) return;
+  const { permissionAsks: _shown, ...summary } = session.summary;
+  const permissionAsks = view.waitingPermissions.map(({ toolUseId, tool, summary: what }) => ({ id: toolUseId, tool, summary: what }));
+  updateHeldSession(sessionName, token, { summary: permissionAsks.length > 0 ? { ...summary, permissionAsks } : summary });
+  broadcastSessions();
+};
+
 // A turn that ended on an open question waits for the person, not idle. Only
 // a change in what the facts say is applied: a fact that changes nothing (the
 // prompt, just before its turn) mustn't count a turn talos just typed as over.
@@ -78,6 +87,7 @@ const showFactState = (sessionName: string, token: string, before: FactView, aft
     updateHeldSession(sessionName, token, { summary: isSelfStarted ? { ...rest, isSelfStarted } : rest });
     broadcastSessions();
   }
+  if (before.waitingPermissions !== after.waitingPermissions) showPermissionAsks(sessionName, token, after);
   const isSameState = shownFactState(before) === shownFactState(after) && before.isTurnOver === after.isTurnOver;
   if (isSameState) return;
   const shown = shownFactState(after);

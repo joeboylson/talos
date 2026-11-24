@@ -41,6 +41,8 @@ type MadeUpSession = {
   link?: string;
   isSelfStarted?: true;
   waitingMessages?: string[];
+  isTurnOver?: boolean;
+  permissionAsks?: { id: string; tool: string; summary: string }[];
 };
 type MadeUpEntries = { sessionName: string; entries: unknown[] };
 
@@ -131,6 +133,16 @@ const atlas = await connectMachine(
       waitingMessages: ["Use the blue from the logo for the buttons"],
     },
     {
+      sessionName: "migrate",
+      folderName: "talos",
+      state: "needs-you",
+      asks: {},
+      openOutputs: [],
+      isTurnOver: false,
+      link: "linked",
+      permissionAsks: [{ id: "toolu_1", tool: "Bash", summary: "bun run migrate --apply" }],
+    },
+    {
       sessionName: "cleanup",
       folderName: "talos",
       state: "stopped",
@@ -216,6 +228,7 @@ await takeShot({ name: "session", path: "/sessions/atlas/fix-login" });
 await takeShot({ name: "session-dark", path: "/sessions/atlas/fix-login", dark: true });
 await takeShot({ name: "session-decision", path: "/sessions/atlas/deploy" });
 await takeShot({ name: "session-working", path: "/sessions/atlas/new-homepage" });
+await takeShot({ name: "session-permission", path: "/sessions/atlas/migrate" });
 await takeShot({ name: "settings", path: "/settings" });
 
 atlas.close();

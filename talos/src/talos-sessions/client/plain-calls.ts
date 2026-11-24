@@ -104,6 +104,10 @@ export const connectToSessions = ({ home, runnerScript }: { home: string; runner
     send: (sessionName: string, text: string, images: SentImage[] = [], requestId?: string) =>
       post(sessionRoute(sessionName, "send"), { text, images, ...(requestId && { requestId }) }),
     interrupt: (sessionName: string) => post(sessionRoute(sessionName, "interrupt"), {}),
+    // Answers a permission prompt showing in the session's terminal (its id
+    // from the session's permissionAsks).
+    answerPermission: (sessionName: string, toolUseId: string, isAllowed: boolean) =>
+      post(sessionRoute(sessionName, "answer-permission"), { toolUseId, isAllowed }),
     ask: (sessionName: string, kind: string) => post(sessionRoute(sessionName, "ask"), { kind }),
     answer: (sessionName: string, outputId: string, choice: number) => post(sessionRoute(sessionName, "answer"), { outputId, choice }),
     keys,

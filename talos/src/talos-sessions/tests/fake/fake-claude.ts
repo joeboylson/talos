@@ -81,9 +81,19 @@ const notePastedImages = (text: string) =>
 // however it ended (a refused prompt and an API error included).
 let turnCount = 0;
 let permissionCount = 0;
+// The tool call whose prompt shows: an answer from the page names it. Allow
+// is Enter, Deny is Esc, as the keys would be.
+let promptToolUseId: string | null = null;
+const answerFromPage = (toolUseId: string, isAllowed: boolean) => {
+  if (toolUseId !== promptToolUseId || !answerPrompt) return;
+  const answer = answerPrompt;
+  answerPrompt = null;
+  answer(isAllowed ? "\r" : "\x1b");
+};
 const askPermission = async (): Promise<string> => {
   const toolUseId = `perm-${++permissionCount}`;
-  await reportFact("permission-asked", { toolUseId });
+  promptToolUseId = toolUseId;
+  await reportFact("permission-asked", { toolUseId, tool: "Bash", summary: "ls" });
   await hook({ hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command: "ls" } });
   const key = await new Promise<string>((resolve) => (answerPrompt = resolve));
   await reportFact("permission-settled", { toolUseId });
@@ -230,7 +240,7 @@ const startingFacts: [Fact["type"], Record<string, unknown>][] = isPromptingFold
       ["permission-asked", { toolUseId: "perm-0" }],
     ]
   : [];
-if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod(startingFacts, { onSubmit: runSubmit, onAbort: () => abortTurn?.() });
+if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod(startingFacts, { onSubmit: runSubmit, onAbort: () => abortTurn?.(), onPermissionAnswer: answerFromPage });
 process.stdout.write("ready\n");
 
 // What the session runner types: Esc, then the message in bracketed paste, then

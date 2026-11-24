@@ -377,6 +377,12 @@ export const createConnections = (
       return machineSocket.send(encode<ServerToMachine>({ type: "stop-session", sessionName: message.sessionName, ...forwarded() }));
     }
 
+    if (message.type === "answer-permission") {
+      const { sessionName, toolUseId, isAllowed } = message;
+      log.detail(`${displayName} ${isAllowed ? "allowed" : "denied"} a tool in session "${sessionName}" on "${machineName}"`);
+      return machineSocket.send(encode<ServerToMachine>({ type: "answer-permission", sessionName, toolUseId, isAllowed, ...forwarded() }));
+    }
+
     if (message.type === "interrupt-session") {
       log.event(`${displayName} interrupted session "${message.sessionName}" on "${machineName}"`);
       return machineSocket.send(encode<ServerToMachine>({ type: "interrupt-session", sessionName: message.sessionName, ...forwarded() }));

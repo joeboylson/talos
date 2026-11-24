@@ -1,4 +1,4 @@
-import { LIMITS, openDecisionOf, statusOf, type LinkState, type SentImage, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
+import { LIMITS, openDecisionOf, statusOf, type LinkState, type PermissionAsk, type SentImage, type MachineSummary, type SessionDecision, type SessionEntry, type SessionState, type SessionStatus } from "talos-shared";
 
 export type SessionRow = {
   machineId: string;
@@ -15,6 +15,8 @@ export type SessionRow = {
   isSelfStarted?: true;
   // Messages waiting for the turn to be over, sent from any page.
   waitingMessages?: string[];
+  // Permission prompts showing in its terminal, answerable here too.
+  permissionAsks?: PermissionAsk[];
 };
 
 export const sessionKey = (machineId: string, sessionName: string): string => `${machineId}:${sessionName}`;
@@ -26,7 +28,7 @@ export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
       (sessions ?? []).map((session) => {
         const status = statusOf(session);
         const decision = openDecisionOf(session);
-        const { sessionName, folderName, state, link, isSelfStarted, waitingMessages } = session;
+        const { sessionName, folderName, state, link, isSelfStarted, waitingMessages, permissionAsks } = session;
         const isPromptShowing = state === "needs-you" && session.isTurnOver === false;
         return {
           machineId,
@@ -40,6 +42,7 @@ export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
           ...(link && { link }),
           ...(isSelfStarted && { isSelfStarted }),
           ...(waitingMessages && { waitingMessages }),
+          ...(permissionAsks && { permissionAsks }),
         };
       }),
     )

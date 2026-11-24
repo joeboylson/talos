@@ -215,3 +215,17 @@ export const interruptSession = (sessionName: string): Response => {
   giveBackWaitingMessages(sessionName);
   return new Response(null, { status: 204 });
 };
+
+// Answers a permission prompt showing in the session's terminal, as the person
+// would there. One already answered (in the terminal, or by its turn ending) is
+// closed.
+export const answerPermission = (sessionName: string, toolUseId: unknown, isAllowed: unknown): Response => {
+  if (typeof toolUseId !== "string" || typeof isAllowed !== "boolean") return new Response("expected a toolUseId and isAllowed", { status: 400 });
+  const session = heldSessions.get(sessionName);
+  if (!session) return noSuchSession(sessionName);
+  if (session.summary.link === "lost") return refuseLinkLost();
+  const isShowing = session.link.factView.waitingPermissions.some((ask) => ask.toolUseId === toolUseId);
+  if (!isShowing) return refuse("closed", "That prompt was already answered");
+  if (!sendCommand(session, { type: "permission-answer", toolUseId, isAllowed })) return refuseLinkLost();
+  return new Response(null, { status: 204 });
+};

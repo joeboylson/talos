@@ -90,6 +90,12 @@ export const useServerSocket = () => {
     [send],
   );
 
+  const answerPermission = useCallback(
+    (machineId: string, sessionName: string, toolUseId: string, isAllowed: boolean) =>
+      send({ type: "answer-permission", machineId, sessionName, toolUseId, isAllowed }),
+    [send],
+  );
+
   const interruptSession = useCallback(
     (machineId: string, sessionName: string) => send({ type: "interrupt-session", machineId, sessionName }),
     [send],
@@ -121,6 +127,7 @@ export const useServerSocket = () => {
     startSession,
     sendToSession,
     interruptSession,
+    answerPermission,
     takeReturned,
     stopSession,
     askForUpdate,

@@ -115,7 +115,8 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   const linkToken = crypto.randomUUID();
   // --mcp-config gives every session talos's structured tools (tools-server.ts);
   // the PreToolUse hook decides when each may be called.
-  // --permission-mode default: a fresh Claude Code config starts in auto mode.
+  // Auto mode: Claude Code approves what it judges safe itself, and asks the
+  // person (on the page or in the terminal) only about the rest.
   const claudeArgs = [
     ...claudeCommand(),
     "--session-id",
@@ -127,7 +128,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     "--plugin-dir",
     runnerState.modSnapshotFolder,
     "--permission-mode",
-    "default",
+    "auto",
   ];
   const child = Bun.spawn(
     [...withOpenFileLimit(SESSION_LIMITS.maxSessionOpenFiles), ...claudeArgs],

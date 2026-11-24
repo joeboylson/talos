@@ -9,7 +9,7 @@ const sessionRow = { machineId: "m1", machineName: "atlas", sessionName: "web", 
 test("what the person couldn't do in a session is shown in it", () => {
   const html = renderToStaticMarkup(
     <TooltipProvider>
-      <SessionView sessionRow={sessionRow} entries={[]} waitingPrompts={[]} onSend={() => true} onAnswer={() => {}} onInterrupt={() => {}} onReturnedTaken={() => {}} notice="atlas: That question closed" />
+      <SessionView sessionRow={sessionRow} entries={[]} waitingPrompts={[]} onSend={() => true} onAnswer={() => {}} onInterrupt={() => {}} onAnswerPermission={() => {}} onReturnedTaken={() => {}} notice="atlas: That question closed" />
     </TooltipProvider>,
   );
   expect(html).toContain("atlas: That question closed");
@@ -26,6 +26,7 @@ const viewOf = (row: Partial<SessionRow>, waitingPrompts: { text: string; imageP
         onSend={() => true}
         onAnswer={() => {}}
         onInterrupt={() => {}}
+        onAnswerPermission={() => {}}
         onReturnedTaken={() => {}}
         notice={null}
       />
@@ -49,4 +50,13 @@ test("messages waiting from other pages show, and this page's own show once", ()
   const html = viewOf({ state: "working", waitingMessages: ["from my phone", "from here"] }, [{ text: "from here", imagePreviewUrls: [] }]);
   expect(html).toContain("from my phone");
   expect(html.split("from here").length - 1).toBe(1);
+});
+
+test("a permission prompt shows its tool and what it would do, with Allow and Deny", () => {
+  const html = viewOf({ state: "needs-you", isPromptShowing: true, permissionAsks: [{ id: "t1", tool: "Bash", summary: "rm -rf build" }] });
+  expect(html).toContain("Bash");
+  expect(html).toContain("rm -rf build");
+  expect(html).toContain('aria-label="Allow"');
+  expect(html).toContain('aria-label="Deny"');
+  expect(html).not.toContain("Answer in the terminal");
 });

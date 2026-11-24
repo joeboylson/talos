@@ -10,6 +10,7 @@ export type Folder = { folderName: string; path: string };
 // folders, so it makes the change and sends its new list.
 // start-, send-to-, interrupt- and stop-session: the owner, from the page.
 // interrupt-session stops a session's running turn; the session goes on.
+// answer-permission answers a permission prompt showing in its terminal.
 // requestId: names the page's request a command came from, so what didn't
 // happen is shown on that page only. The server makes its own for the machine.
 type Request = { requestId?: string };
@@ -22,6 +23,7 @@ export type ServerToMachine =
   | ({ type: "send-to-session"; sessionName: string; text: string; images: SentImage[] } & Request)
   | ({ type: "ask-for-output"; sessionName: string; kind: string } & Request)
   | ({ type: "answer-output"; sessionName: string; outputId: string; choice: number } & Request)
+  | ({ type: "answer-permission"; sessionName: string; toolUseId: string; isAllowed: boolean } & Request)
   | ({ type: "interrupt-session"; sessionName: string } & Request)
   | ({ type: "stop-session"; sessionName: string } & Request);
 
@@ -60,6 +62,7 @@ export type PageToServer =
   | ({ type: "send-to-session"; machineId: string; sessionName: string; text: string; images?: SentImage[] } & Request)
   | ({ type: "ask-for-output"; machineId: string; sessionName: string; kind: string } & Request)
   | ({ type: "answer-output"; machineId: string; sessionName: string; outputId: string; choice: number } & Request)
+  | ({ type: "answer-permission"; machineId: string; sessionName: string; toolUseId: string; isAllowed: boolean } & Request)
   | ({ type: "interrupt-session"; machineId: string; sessionName: string } & Request)
   | ({ type: "stop-session"; machineId: string; sessionName: string } & Request);
 

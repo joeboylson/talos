@@ -104,6 +104,9 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
                 openSessionRow && serverSocket.answerOutput(openSessionRow.machineId, openSessionRow.sessionName, outputId, choice)
               }
               onInterrupt={() => openSessionRow && serverSocket.interruptSession(openSessionRow.machineId, openSessionRow.sessionName)}
+              onAnswerPermission={(toolUseId, isAllowed) =>
+                openSessionRow && serverSocket.answerPermission(openSessionRow.machineId, openSessionRow.sessionName, toolUseId, isAllowed)
+              }
               returned={serverSocket.returnedBySession[openSessionKey]}
               onReturnedTaken={takeOpenReturned}
             />

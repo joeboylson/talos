@@ -31,6 +31,8 @@ export const CREDENTIALS_FILE_MODE = 0o600;
 export const INSTALLED_APP_FOLDER = join(TALOS_FOLDER, "app");
 export const INSTALLED_ENV_FILE = join(TALOS_FOLDER, "talos.env");
 export const SERVICE_LOG_FILE = join(TALOS_FOLDER, "talos.log");
+// How long `talos status` waits for the running talos to say whether it's connected.
+export const LOCAL_STATUS_WAIT_MS = 1000;
 
 // The session runner's start-up script, which talos spawns.
 export const RUNNER_SCRIPT = new URL("./session-runner.ts", import.meta.url).pathname;

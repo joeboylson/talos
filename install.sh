@@ -5,8 +5,9 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/joeboylson/talos/main/install.sh | sh -s -- wss://<server>
 #
-# Then `talos install` pairs this machine and runs talos at login. Later,
-# `talos update` (or this script again, with no address) updates it.
+# Then `talos service install` pairs this machine and runs talos in the
+# background, at every login. Later, `talos update` (or this script again, with
+# no address) updates it.
 set -eu
 
 REPO="joeboylson/talos"
@@ -94,30 +95,25 @@ else
   say "updated from $OLD_VERSION to $REF"
 fi
 
-# Running as a service (a launch agent on macOS, a systemd user service on
-# Linux): it restarts on the new code now.
-restart_service() {
-  if [ -f "$LAUNCH_AGENT" ]; then
-    launchctl kickstart -k "gui/$(id -u)/$LAUNCH_AGENT_LABEL" 2>/dev/null
-  else
-    systemctl --user restart "$SYSTEMD_UNIT_NAME" 2>/dev/null
-  fi
+# Running in the background (a launch agent on macOS, a systemd user service
+# on Linux), or asked to by `talos update`: `talos service install` from the
+# new copy sets it up again and restarts it. It pairs first if it must, so it
+# gets the terminal when there is one (piped into sh, stdin isn't it).
+has_service() { [ -f "$LAUNCH_AGENT" ] || [ -f "$SYSTEMD_UNIT" ]; }
+install_service() {
+  if (: </dev/tty) 2>/dev/null; then "$BIN_DIR/talos" service install </dev/tty; else "$BIN_DIR/talos" service install; fi
 }
-if [ -f "$LAUNCH_AGENT" ] || [ -f "$SYSTEMD_UNIT" ]; then
-  if [ "$OLD_SESSIONS" != "$NEW_SESSIONS" ]; then
+if [ "${TALOS_INSTALL_SERVICE:-}" = "1" ] || has_service; then
+  if [ "$OLD_VERSION" != "none" ] && [ "$OLD_SESSIONS" != "$NEW_SESSIONS" ]; then
     say "the session runner changed; restarting it ends its sessions"
     "$BIN_DIR/talos" runner stop || true
   fi
-  # The update is in place either way; a restart that fails is said as such.
-  if restart_service; then
-    say "restarted"
-  else
-    say "updated, but couldn't restart it; run: talos install"
-  fi
+  # The update is in place either way; a service that won't set up is said as such.
+  install_service || say "updated, but couldn't set up the background service; run: talos service install"
 elif [ "$OLD_VERSION" = "none" ]; then
   case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *) say "add $BIN_DIR to your PATH to run talos by name" ;;
   esac
-  say "next: talos install (pairs this machine, then runs talos at login)"
+  say "next: talos service install (pairs this machine, then runs talos in the background)"
 fi

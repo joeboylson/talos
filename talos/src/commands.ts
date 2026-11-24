@@ -13,8 +13,11 @@ export type Command =
   | { name: "sessions-attach"; sessionName: string }
   | { name: "sessions-stop"; sessionName: string }
   | { name: "runner-stop" }
-  | { name: "install" }
-  | { name: "uninstall" }
+  | { name: "service-install" }
+  | { name: "service-uninstall" }
+  | { name: "service-start" }
+  | { name: "service-stop" }
+  | { name: "status" }
   | { name: "update" }
   | { name: "unknown"; typed: string };
 
@@ -25,9 +28,15 @@ export const isFolderCommand = (command: Command): command is FolderCommand => c
 export const isSessionCommand = (command: Command): command is SessionCommand =>
   command.name.startsWith("sessions-") || command.name === "runner-stop";
 
-export const HELP_TEXT =`talos: connects this machine to the Talos server
+export const HELP_TEXT = `talos: connects this machine to the Talos server
 
-  talos                                     pair this machine if needed, then connect and stay connected
+  talos connect                             pair this machine if needed, then connect here until stopped
+  talos service install                     pair if needed, then run talos in the background, at every login
+  talos service start                       start the background talos
+  talos service stop                        stop it (it starts again at the next login)
+  talos service uninstall                   stop running talos in the background
+  talos status                              show whether this machine is paired, running and connected
+  talos update                              update to the latest talos, then run talos service install
   talos folders                             list the folders this machine allows sessions in
   talos folders add <path>                  allow sessions in a folder on this machine
   talos folders remove <folder>             stop allowing a folder
@@ -36,9 +45,6 @@ export const HELP_TEXT =`talos: connects this machine to the Talos server
   talos sessions <session> attach           watch and type in a session (Ctrl-\\ leaves it running)
   talos sessions <session> stop             end a session
   talos runner stop                         end the session runner and every session in it
-  talos install                             pair this machine if needed, then run talos at login
-  talos uninstall                           stop running talos at login
-  talos update                              update this copy to the latest talos, then run talos install
   talos help                                show this list
 `;
 
@@ -65,11 +71,17 @@ const parseSessionsCommand = (args: string[], typed: string): Command => {
 export const parseCommand = (args: string[]): Command => {
   const typed = args.join(" ");
   const [firstWord, ...otherWords] = args;
-  if (firstWord === undefined) return { name: "connect" };
+  if (firstWord === undefined) return { name: "help" };
   if (firstWord === "help" && otherWords.length === 0) return { name: "help" };
+  if (typed === "connect") return { name: "connect" };
+  if (typed === "status") return { name: "status" };
+  if (typed === "update") return { name: "update" };
   if (firstWord === "folders") return parseFoldersCommand(otherWords, typed);
   if (firstWord === "sessions") return parseSessionsCommand(otherWords, typed);
   if (typed === "runner stop") return { name: "runner-stop" };
-  if (typed === "install" || typed === "uninstall" || typed === "update") return { name: typed };
+  if (typed === "service install") return { name: "service-install" };
+  if (typed === "service uninstall") return { name: "service-uninstall" };
+  if (typed === "service start") return { name: "service-start" };
+  if (typed === "service stop") return { name: "service-stop" };
   return { name: "unknown", typed };
 };

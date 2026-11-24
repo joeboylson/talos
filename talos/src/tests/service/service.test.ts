@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildLaunchAgentPlist, buildSystemdUnit } from "../../service";
+import { buildLaunchAgentPlist, buildSystemdUnit, formatStatus } from "../../service";
 
 const specOf = (programArguments: string[], environment: Record<string, string> = {}) => ({ programArguments, environment, logFile: "/Users/joe/.talos/talos.log" });
 const TALOS = ["/bin/bun", "--env-file=/Users/joe/.talos/talos.env", "/Users/joe/.talos/app/talos/src/index.ts"];
@@ -35,4 +35,27 @@ test("the systemd unit runs talos at login and again whenever it stops, logging 
 // backslash as the end of the word.
 test("a systemd path with spaces, quotes or % stays one word, as it was", () => {
   expect(buildSystemdUnit(specOf(['/home/joe/my "code"/100%/index.ts']))).toContain('ExecStart="/home/joe/my \\"code\\"/100%%/index.ts"');
+});
+
+const facts = { version: "9f4c0a4", serverUrl: "wss://talos.example", machineName: "atlas", service: "running" as const, connection: { machineName: "atlas", isConnected: true }, sessionCount: 2 };
+
+test("status says where the machine stands, one fact a line", () => {
+  expect(formatStatus(facts).split("\n").map((line) => line.trim().replace(/\s+/, " | "))).toEqual([
+    "version | 9f4c0a4",
+    "server | wss://talos.example",
+    "machine | paired as atlas",
+    "service | running in the background",
+    "connection | connected as atlas",
+    "sessions | 2 running",
+  ]);
+});
+
+test("status says what to run when something isn't set up or running", () => {
+  const lines = formatStatus({ ...facts, serverUrl: null, machineName: null, service: "not-installed", connection: null, sessionCount: null });
+  expect(lines).toContain("not set (TALOS_SERVER_URL)");
+  expect(lines).toContain("not paired");
+  expect(lines).toContain("not set up (talos service install)");
+  expect(lines).toContain("talos isn't running");
+  expect(lines).toContain("session runner not running");
+  expect(formatStatus({ ...facts, service: "stopped", connection: { machineName: "atlas", isConnected: false } })).toContain("trying to connect");
 });

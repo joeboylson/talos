@@ -53,7 +53,7 @@ const describeFailure = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error);
 };
 
-// `talos` with no command: pair this machine if it isn't yet, connect to the
+// `talos connect`: pair this machine if it isn't yet, connect to the
 // server, and stay connected.
 // A call to the session runner that failed: it says so, or its socket did (a
 // failed fetch has a code but no syscall; a file error has both). Anything else

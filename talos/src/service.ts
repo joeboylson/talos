@@ -1,13 +1,26 @@
-// Running talos as a service that starts at login and again if it stops: a
-// launch agent on macOS, a systemd user service on Linux (`talos install`,
-// `talos uninstall`). `talos update` brings an installed copy up to main (see
-// install.sh).
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+// Running talos in the background, at every login and again if it stops: a
+// launch agent on macOS, a systemd user service on Linux (`talos service ...`).
+// `talos update` brings an installed copy up to main (see install.sh), and
+// `talos status` says where this machine stands.
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
-import { createLogger, ENV_KEYS, httpOriginFromServerUrl, readLogsMode, requireEnv, toIdentifierName } from "talos-shared";
-import { INSTALLED_APP_FOLDER, INSTALLED_ENV_FILE, SERVICE_LOG_FILE, TALOS_FOLDER } from "./constants";
+import {
+  createLogger,
+  ENV_KEYS,
+  httpOriginFromServerUrl,
+  LOCAL_STATUS_HOST,
+  LOCAL_STATUS_PORT,
+  LOCAL_STATUS_ROUTE,
+  readLogsMode,
+  requireEnv,
+  toIdentifierName,
+  type LocalStatus,
+} from "talos-shared";
+import { INSTALLED_APP_FOLDER, INSTALLED_ENV_FILE, LOCAL_STATUS_WAIT_MS, RUNNER_SCRIPT, SERVICE_LOG_FILE, TALOS_FOLDER } from "./constants";
+import { readCredentials } from "./credentials";
 import { acceptMachine } from "./pairing";
+import { connectToSessions } from "./talos-sessions";
 
 // install.sh and uninstall.sh use these same names.
 export const LAUNCH_AGENT_LABEL = "local.talos";
@@ -78,20 +91,35 @@ export const buildSystemdUnit = ({ programArguments, environment, logFile }: Ser
   ].join("\n");
 
 const succeeds = (command: string[]): boolean => Bun.spawnSync(command, { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
+const outputOf = (command: string[]): string => Bun.spawnSync(command, { stdout: "pipe", stderr: "ignore" }).stdout.toString();
 
-// Each system's file, and how to load and unload it. A load replaces one
-// loaded before (a second install), so the new file counts.
-type Service = { file: string; build: (spec: ServiceSpec) => string; load: () => boolean; unload: () => void };
-const launchdTarget = (): string => `gui/${process.getuid?.()}`;
+// Each system's file, and how to load it (start it now and at every login,
+// replacing one loaded before, so a new file counts), unload it, start and
+// stop it now, and ask whether it runs.
+type Service = {
+  file: string;
+  build: (spec: ServiceSpec) => string;
+  load: () => boolean;
+  unload: () => void;
+  start: () => boolean;
+  stop: () => boolean;
+  isRunning: () => boolean;
+};
+const launchdJob = (): string => `gui/${process.getuid?.()}/${LAUNCH_AGENT_LABEL}`;
+const launchdDomain = (): string => `gui/${process.getuid?.()}`;
+// A stopped launch agent is unloaded, so the next login (or a start) loads it again.
 const SERVICES: Partial<Record<NodeJS.Platform, Service>> = {
   darwin: {
     file: LAUNCH_AGENT_FILE,
     build: buildLaunchAgentPlist,
     load: () => {
-      succeeds(["launchctl", "bootout", `${launchdTarget()}/${LAUNCH_AGENT_LABEL}`]);
-      return succeeds(["launchctl", "bootstrap", launchdTarget(), LAUNCH_AGENT_FILE]);
+      succeeds(["launchctl", "bootout", launchdJob()]);
+      return succeeds(["launchctl", "bootstrap", launchdDomain(), LAUNCH_AGENT_FILE]);
     },
-    unload: () => void succeeds(["launchctl", "bootout", `${launchdTarget()}/${LAUNCH_AGENT_LABEL}`]),
+    unload: () => void succeeds(["launchctl", "bootout", launchdJob()]),
+    start: () => succeeds(["launchctl", "bootstrap", launchdDomain(), LAUNCH_AGENT_FILE]) || succeeds(["launchctl", "kickstart", launchdJob()]),
+    stop: () => succeeds(["launchctl", "bootout", launchdJob()]),
+    isRunning: () => outputOf(["launchctl", "print", launchdJob()]).includes("state = running"),
   },
   linux: {
     file: SYSTEMD_UNIT_FILE,
@@ -104,12 +132,20 @@ const SERVICES: Partial<Record<NodeJS.Platform, Service>> = {
       succeeds(["systemctl", "--user", "disable", "--now", SYSTEMD_UNIT_NAME]);
       succeeds(["systemctl", "--user", "daemon-reload"]);
     },
+    start: () => succeeds(["systemctl", "--user", "start", SYSTEMD_UNIT_NAME]),
+    stop: () => succeeds(["systemctl", "--user", "stop", SYSTEMD_UNIT_NAME]),
+    isRunning: () => succeeds(["systemctl", "--user", "is-active", "--quiet", SYSTEMD_UNIT_NAME]),
   },
 };
 
 const serviceForThisSystem = (): Service => {
   const service = SERVICES[process.platform];
-  if (!service) throw new Error(`talos: running as a service works on macOS and Linux, not ${process.platform}`);
+  if (!service) throw new Error(`talos: running in the background works on macOS and Linux, not ${process.platform}`);
+  return service;
+};
+const installedService = (): Service => {
+  const service = serviceForThisSystem();
+  if (!existsSync(service.file)) throw new Error("talos: it isn't set up to run in the background; run talos service install");
   return service;
 };
 
@@ -124,14 +160,14 @@ export const installService = async (): Promise<void> => {
   const wantedMachineName = toIdentifierName(process.env[ENV_KEYS.machineName] || hostname());
   const { machineName } = await acceptMachine(serverUrl, httpOriginFromServerUrl(serverUrl), wantedMachineName, log);
   const spec = {
-    programArguments: [process.execPath, `--env-file=${envFileOf()}`, INDEX_SCRIPT],
+    programArguments: [process.execPath, `--env-file=${envFileOf()}`, INDEX_SCRIPT, "connect"],
     environment: { PATH: process.env.PATH ?? "/usr/bin:/bin", ...(process.env.TALOS_HOME && { TALOS_HOME: process.env.TALOS_HOME }) },
     logFile: SERVICE_LOG_FILE,
   };
   mkdirSync(dirname(service.file), { recursive: true });
   writeFileSync(service.file, service.build(spec));
   if (!service.load()) throw new Error(`talos: the system wouldn't start ${service.file}`);
-  console.log(`talos: ${machineName} runs talos at login now, and again if it stops. Its log: ${SERVICE_LOG_FILE}`);
+  console.log(`talos: ${machineName} runs in the background now, and at every login. Its log: ${SERVICE_LOG_FILE}`);
 };
 
 // The session runner and its sessions go on until `talos runner stop`.
@@ -139,22 +175,93 @@ export const uninstallService = (): void => {
   const service = serviceForThisSystem();
   service.unload();
   rmSync(service.file, { force: true });
-  console.log("talos: no longer runs at login");
+  console.log("talos: no longer runs in the background");
 };
 
-// install.sh does the work, so an update and a fresh install are one path.
-// Then `talos install` runs, from the new copy: the machine ends up updated
-// and running at login, whatever it had before (pairing first if it must).
+export const startService = (): void => {
+  const service = installedService();
+  if (service.isRunning()) return console.log("talos: already running in the background");
+  if (!service.start()) throw new Error("talos: the system wouldn't start it; its log may say why: " + SERVICE_LOG_FILE);
+  console.log("talos: running in the background");
+};
+
+// Its sessions keep running in the session runner, and come back on the page
+// once talos starts again.
+export const stopService = (): void => {
+  const service = installedService();
+  if (!service.isRunning()) return console.log("talos: already stopped");
+  if (!service.stop()) throw new Error("talos: the system wouldn't stop it");
+  console.log("talos: stopped; it starts again at the next login, or with talos service start");
+};
+
+// install.sh does the work, so an update and a fresh install are one path. It
+// then runs `talos service install` from the new copy: the machine ends up
+// updated and running in the background, whatever it had before (pairing
+// first if it must).
 export const updateTalos = (): void => {
   if (!isInstalledCopy()) throw new Error("talos: this copy runs from a git checkout; update it with git pull");
-  const env = { ...process.env, TALOS_HOME: TALOS_FOLDER };
-  const updated = Bun.spawnSync(["sh", "-c", `curl -fsSL ${INSTALL_SCRIPT_URL} | sh`], { stdout: "inherit", stderr: "inherit", env });
+  const env = { ...process.env, TALOS_HOME: TALOS_FOLDER, TALOS_INSTALL_SERVICE: "1" };
+  const updated = Bun.spawnSync(["sh", "-c", `curl -fsSL ${INSTALL_SCRIPT_URL} | sh`], { stdin: "inherit", stdout: "inherit", stderr: "inherit", env });
   if (updated.exitCode !== 0) throw new Error("talos: the update didn't finish");
-  const installed = Bun.spawnSync([process.execPath, `--env-file=${INSTALLED_ENV_FILE}`, INDEX_SCRIPT, "install"], {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-    env,
-  });
-  if (installed.exitCode !== 0) throw new Error("talos: updated, but couldn't run talos install");
+};
+
+// What `talos status` shows, each fact gathered where it lives.
+export type StatusFacts = {
+  version: string;
+  serverUrl: string | null;
+  machineName: string | null;
+  service: "not-installed" | "running" | "stopped" | "unsupported";
+  connection: { machineName: string; isConnected: boolean } | null;
+  sessionCount: number | null;
+};
+
+export const formatStatus = ({ version, serverUrl, machineName, service, connection, sessionCount }: StatusFacts): string => {
+  const serviceText = { "not-installed": "not set up (talos service install)", running: "running in the background", stopped: "stopped (talos service start)", unsupported: "not on this system" }[service];
+  const connectionText = !connection ? "talos isn't running" : connection.isConnected ? `connected as ${connection.machineName}` : "trying to connect";
+  const rows: [string, string][] = [
+    ["version", version],
+    ["server", serverUrl ?? "not set (TALOS_SERVER_URL)"],
+    ["machine", machineName ? `paired as ${machineName}` : "not paired"],
+    ["service", serviceText],
+    ["connection", connectionText],
+    ["sessions", sessionCount === null ? "session runner not running" : `${sessionCount} running`],
+  ];
+  return rows.map(([label, value]) => `  ${label.padEnd(12)}${value}`).join("\n");
+};
+
+const versionOf = (): string => {
+  if (isInstalledCopy()) return readFileSync(join(INSTALLED_APP_FOLDER, "VERSION"), "utf8").trim().slice(0, 7);
+  const commit = outputOf(["git", "-C", dirname(INDEX_SCRIPT), "rev-parse", "--short", "HEAD"]).trim();
+  return `${commit || "unknown"} (git checkout)`;
+};
+
+// The running talos says whether it's connected, on the same local address
+// the page's "This machine" panel reads. Nothing answers when it isn't running.
+const readConnection = async (): Promise<StatusFacts["connection"]> => {
+  const answer = await fetch(`http://${LOCAL_STATUS_HOST}:${LOCAL_STATUS_PORT}${LOCAL_STATUS_ROUTE}`, { signal: AbortSignal.timeout(LOCAL_STATUS_WAIT_MS) }).catch(() => null);
+  const status = answer?.ok ? ((await answer.json().catch(() => null)) as Partial<LocalStatus> | null) : null;
+  return status && typeof status.machineName === "string" ? { machineName: status.machineName, isConnected: status.isConnected === true } : null;
+};
+
+const readServiceState = (): StatusFacts["service"] => {
+  const service = SERVICES[process.platform];
+  if (!service) return "unsupported";
+  if (!existsSync(service.file)) return "not-installed";
+  return service.isRunning() ? "running" : "stopped";
+};
+
+export const showStatus = async (): Promise<void> => {
+  const serverUrl = process.env[ENV_KEYS.serverUrl] || null;
+  const credentials = serverUrl ? await readCredentials(serverUrl) : null;
+  const sessions = connectToSessions({ home: TALOS_FOLDER, runnerScript: RUNNER_SCRIPT });
+  const sessionCount = (await sessions.isRunning()) ? (await sessions.sessions().catch(() => [])).length : null;
+  const facts = {
+    version: versionOf(),
+    serverUrl,
+    machineName: credentials?.machineName ?? (credentials ? "this machine" : null),
+    service: readServiceState(),
+    connection: await readConnection(),
+    sessionCount,
+  };
+  console.log(`talos\n${formatStatus(facts)}`);
 };

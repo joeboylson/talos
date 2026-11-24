@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { HELP_TEXT, isFolderCommand, isSessionCommand, parseCommand } from "../../commands";
 import { realFolderPath, resolveFolderPath } from "../../folder-commands";
 
-test("no command connects", () => {
-  expect(parseCommand([])).toEqual({ name: "connect" });
+test("no command shows the list; connecting is a command of its own", () => {
+  expect(parseCommand([])).toEqual({ name: "help" });
+  expect(parseCommand(["connect"])).toEqual({ name: "connect" });
 });
 
 test("help shows the list", () => {
@@ -24,14 +25,21 @@ test("session commands", () => {
   expect(parseCommand(["runner", "stop"])).toEqual({ name: "runner-stop" });
 });
 
-test("service commands", () => {
-  expect(parseCommand(["install"])).toEqual({ name: "install" });
-  expect(parseCommand(["uninstall"])).toEqual({ name: "uninstall" });
+test("service, status and update commands", () => {
+  expect(parseCommand(["service", "install"])).toEqual({ name: "service-install" });
+  expect(parseCommand(["service", "uninstall"])).toEqual({ name: "service-uninstall" });
+  expect(parseCommand(["service", "start"])).toEqual({ name: "service-start" });
+  expect(parseCommand(["service", "stop"])).toEqual({ name: "service-stop" });
+  expect(parseCommand(["status"])).toEqual({ name: "status" });
   expect(parseCommand(["update"])).toEqual({ name: "update" });
 });
 
 test.each([
-  [["install", "now"]],
+  [["install"]],
+  [["service"]],
+  [["service", "restart"]],
+  [["connect", "now"]],
+  [["status", "now"]],
   [["update", "talos"]],
   [["sessions", "fix-login"]],
   [["sessions", "fix-login", "attach", "now"]],
@@ -52,7 +60,21 @@ test.each([
 });
 
 test("help lists every command", () => {
-  ["  talos  ", "  talos help", "  talos folders  ", "talos folders add <path>", "talos folders remove <folder>", "talos sessions <session> attach", "talos runner stop"].forEach((line) =>
+  [
+    "  talos connect  ",
+    "  talos help",
+    "  talos folders  ",
+    "talos folders add <path>",
+    "talos folders remove <folder>",
+    "talos sessions <session> attach",
+    "talos runner stop",
+    "talos service install",
+    "talos service start",
+    "talos service stop",
+    "talos service uninstall",
+    "talos status",
+    "talos update",
+  ].forEach((line) =>
     expect(HELP_TEXT).toContain(line),
   );
 });

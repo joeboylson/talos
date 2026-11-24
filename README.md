@@ -89,7 +89,9 @@ talos service install
 ```
 
 The script downloads main from GitHub into `~/.talos/app` (only talos and
-`talos-shared`), installs Bun if it's missing, saves the server's address in
+`talos-shared`), puts talos's own Bun 1.4.4 in `~/.talos/bun` (checked against
+Bun's checksums; an older Bun gives sessions no terminal, and Claude Code quits
+at once), saves the server's address in
 `~/.talos/talos.env`, and puts a `talos` command in `~/.local/bin`.
 `talos service install` pairs the machine (the code shows in the terminal),
 then runs talos in the background and at every login, and again if it stops: a

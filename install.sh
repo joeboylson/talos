@@ -36,12 +36,38 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# Bun runs talos. Its own installer puts it in ~/.bun if it isn't here.
-if ! command -v bun >/dev/null 2>&1; then
-  [ -x "$HOME/.bun/bin/bun" ] || curl -fsSL https://bun.sh/install | bash >/dev/null
-  PATH="$HOME/.bun/bin:$PATH"
+# talos runs on its own copy of the one Bun it's tested with, kept in
+# ~/.talos/bun, whatever Bun the machine has: an older Bun gives sessions no
+# terminal, and Claude Code then quits at once. It's checked against Bun's own
+# published checksums. Bun's installer isn't used: it edits shell start-up files.
+BUN_VERSION="1.4.4"
+BUN_HOME="$TALOS_HOME/bun"
+BUN="$BUN_HOME/bun"
+BUN_CHANGED=0
+if [ ! -x "$BUN" ] || [ "$("$BUN" --version 2>/dev/null)" != "$BUN_VERSION" ]; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) BUN_BUILD="bun-darwin-aarch64" ;;
+    Darwin-x86_64) BUN_BUILD="bun-darwin-x64" ;;
+    Linux-x86_64) BUN_BUILD="bun-linux-x64" ;;
+    Linux-aarch64 | Linux-arm64) BUN_BUILD="bun-linux-aarch64" ;;
+    *) say "no Bun build for $(uname -s) $(uname -m)" >&2; exit 1 ;;
+  esac
+  BUN_RELEASE="https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION"
+  BUN_DOWNLOAD="$TALOS_HOME/$BUN_BUILD.zip"
+  curl -fsSL --retry 3 -o "$BUN_DOWNLOAD" "$BUN_RELEASE/$BUN_BUILD.zip"
+  EXPECTED="$(curl -fsSL --retry 3 "$BUN_RELEASE/SHASUMS256.txt" | grep " $BUN_BUILD.zip\$" | cut -d' ' -f1)"
+  if command -v sha256sum >/dev/null 2>&1; then ACTUAL="$(sha256sum "$BUN_DOWNLOAD" | cut -d' ' -f1)"; else ACTUAL="$(shasum -a 256 "$BUN_DOWNLOAD" | cut -d' ' -f1)"; fi
+  if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
+    rm -f "$BUN_DOWNLOAD"
+    say "the Bun download didn't match Bun's checksum; nothing changed" >&2
+    exit 1
+  fi
+  rm -rf "$BUN_HOME" "$TALOS_HOME/$BUN_BUILD"
+  unzip -q "$BUN_DOWNLOAD" -d "$TALOS_HOME"
+  mv "$TALOS_HOME/$BUN_BUILD" "$BUN_HOME"
+  rm -f "$BUN_DOWNLOAD"
+  BUN_CHANGED=1
 fi
-BUN="$(command -v bun)"
 
 # The commit main is at, so the download is exactly that one, and `talos
 # update` can say which it's on. Unknown (GitHub's API is down or rate
@@ -104,7 +130,7 @@ install_service() {
   if (: </dev/tty) 2>/dev/null; then "$BIN_DIR/talos" service install </dev/tty; else "$BIN_DIR/talos" service install; fi
 }
 if [ "${TALOS_INSTALL_SERVICE:-}" = "1" ] || has_service; then
-  if [ "$OLD_VERSION" != "none" ] && [ "$OLD_SESSIONS" != "$NEW_SESSIONS" ]; then
+  if [ "$OLD_VERSION" != "none" ] && { [ "$OLD_SESSIONS" != "$NEW_SESSIONS" ] || [ "$BUN_CHANGED" = "1" ]; }; then
     say "the session runner changed; restarting it ends its sessions"
     "$BIN_DIR/talos" runner stop || true
   fi

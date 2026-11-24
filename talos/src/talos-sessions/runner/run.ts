@@ -14,6 +14,7 @@ import {
   CLAUDE_COMMAND,
   CLAUDE_VERSIONS_FOLDER,
   HOME_MODE,
+  MIN_BUN_VERSION,
   MOD_FOLDER,
   PINNED_CLAUDE_CODE_VERSION,
   RUNNER_SOCKET_MODE,
@@ -161,6 +162,10 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
     process.exit(0);
   }
   await endLeftSessionGroups(paths().sessionGroups);
+  if (!Bun.semver.satisfies(Bun.version, `>=${MIN_BUN_VERSION}`)) {
+    runnerState.cannotStartWhy = `talos needs Bun ${MIN_BUN_VERSION} or later to give sessions a terminal; this is Bun ${Bun.version}`;
+    log.warn(`runner: ${runnerState.cannotStartWhy}`);
+  }
   // Tests pass their own Claude Code (a stand-in), which isn't pinned.
   if (!inputs.claudeCommand) useRunnerInputs({ ...inputs, claudeCommand: pinClaudeCodeOrRefuse(pinnedClaudeCode) });
   runnerState.modSnapshotFolder = snapshotMod(MOD_FOLDER, modSnapshots, PINNED_CLAUDE_CODE_VERSION).folder;

@@ -35,6 +35,9 @@ export const SESSION_ENV_KEYS = { sessionName: "TALOS_SESSION_NAME", runnerSocke
 // manifest's engines range names.
 export const MOD_FOLDER = new URL("./mod/", import.meta.url).pathname;
 export const PINNED_CLAUDE_CODE_VERSION = "2.1.330";
+// The oldest Bun that gives a session its terminal (Bun.spawn's terminal
+// option); on an older one Claude Code sees no terminal and quits at once.
+export const MIN_BUN_VERSION = "1.4.4";
 // Where an installer keeps each version, when `claude` on the path is another.
 export const CLAUDE_VERSIONS_FOLDER = join(homedir(), ".local", "share", "claude", "versions");
 // Claude Code names a plugin loaded from a folder `<name>@inline`.

@@ -2,8 +2,8 @@
 import { mergeSessionEntries, type SessionEntry, type SessionState, type SessionSummary } from "../shapes";
 import { INTERRUPTED_NOTE, steadyNow } from "../constants";
 import { findKind } from "../kinds";
-import { stepLane, type LaneEvent, type LaneStep } from "../lanes/lane";
-import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
+import { onlyToolOf, stepLane, type LaneEvent, type LaneReply, type LaneStep } from "../lanes/lane";
+import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type TakenOutput } from "../lanes/outputs";
 import { SESSION_LIMITS } from "../limits";
 import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
 import { catalog, log } from "./inputs";
@@ -29,7 +29,7 @@ const withOpenOutputs = (summary: SessionSummary, outputs: Outputs): SessionSumm
   return { ...summary, openOutputs: firstShown === -1 ? [] : shown.slice(firstShown) };
 };
 
-const toOutputEntry = ({ output: { id, kind, fields }, position }: { output: PendingOutput; position: number }): SessionEntry => ({
+const toOutputEntry = ({ output: { id, kind, fields }, position }: { output: TakenOutput; position: number }): SessionEntry => ({
   kind: "output",
   entryId: id,
   outputKind: kind,
@@ -38,7 +38,7 @@ const toOutputEntry = ({ output: { id, kind, fields }, position }: { output: Pen
 });
 
 // Adds outputs to the conversation once both halves are in (see placeOutputs).
-export const placeOutputEntries = (sessionName: string, arrivedOutputs: PendingOutput[], arrivedPlaces: CallPlace[]): void => {
+export const placeOutputEntries = (sessionName: string, arrivedOutputs: TakenOutput[], arrivedPlaces: CallPlace[]): void => {
   const session = heldSessions.get(sessionName);
   if (!session || (arrivedOutputs.length === 0 && arrivedPlaces.length === 0)) return;
   const { placing, placed } = placeOutputs(session.placing, arrivedOutputs, arrivedPlaces);
@@ -61,9 +61,9 @@ const saveSession = (sessionName: string, session: HeldSession, changes: Partial
 // nothing else talos holds goes in until the next turn ends.
 const submitTalosText = (sessionName: string, session: HeldSession, text: string): boolean => {
   const current = heldSessions.get(sessionName);
-  const sendInFlight = current?.hookToken === session.hookToken ? submitThroughMod(current, text, false) : null;
+  const sendInFlight = current?.heldId === session.heldId ? submitThroughMod(current, text, false) : null;
   if (!sendInFlight) return false;
-  updateHeldSession(sessionName, session.hookToken, { isTalosTypedNext: true, isTurnOver: false, sendInFlight });
+  updateHeldSession(sessionName, session.heldId, { isTurnOver: false, sendInFlight });
   return true;
 };
 
@@ -72,35 +72,37 @@ const notify = (sessionName: string, dropped: readonly HeldAnswer[]): void => {
 };
 
 // Every lane change goes through here: step the lane, then apply what the step
-// says (an output sent, an ask's change, a typed request) and return the hook's reply.
-export const applyLaneEvent = (sessionName: string, event: LaneEvent): string => {
+// says (an output taken, an ask's change, a request to send) and return the
+// mod's answer. The mod hears of a change to the one tool allowed before the
+// request goes in, on the same stream.
+export const applyLaneEvent = (sessionName: string, event: LaneEvent): LaneReply => {
   const session = heldSessions.get(sessionName);
-  if (!session) return "";
+  if (!session) return null;
   const nowMs = steadyNow();
   const step = stepLane(session.lane, event, nowMs, catalog());
-  const outputs = step.sent ? stepOutputs(session.outputs, { type: "sent", output: step.sent }).outputs : session.outputs;
   const heldAnswers = event.type === "tick" ? keptHeld(session.heldAnswers, [], nowMs) : session.heldAnswers;
-  const isPersonTurn = event.type === "person-typed" && event.isTurnChanging;
-  const isTalosTypedNext = session.isTalosTypedNext && !isPersonTurn;
-  saveSession(sessionName, session, { lane: step.lane, outputs, heldAnswers, isTalosTypedNext, summary: withAsk(session.summary, step.askChange) });
+  saveSession(sessionName, session, { lane: step.lane, heldAnswers, summary: withAsk(session.summary, step.askChange) });
   notify(sessionName, session.heldAnswers.filter((answer) => !heldAnswers.includes(answer)));
+  const onlyTool = onlyToolOf(step.lane, catalog());
+  if (onlyTool !== onlyToolOf(session.lane, catalog())) sendCommand(session, { type: "only-tool", tool: onlyTool });
+  if (step.sent) applyOutputsEvent(sessionName, { type: "sent", output: step.sent });
   // A request that can't go in (no link) ends its ask.
   if (step.requestToType && !submitTalosText(sessionName, session, step.requestToType)) {
     applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   }
   // A lane or answer left waiting to settle while the turn is already over gets
   // its wait now, not only when the session's state next changes.
-  if (isWaitingToSettle(heldSessions.get(sessionName)) && session.isTurnOver) stepLaneWhenSettled(sessionName, session.hookToken);
-  return step.hookReply;
+  if (isWaitingToSettle(heldSessions.get(sessionName)) && session.isTurnOver) stepLaneWhenSettled(sessionName, session.heldId);
+  return step.reply;
 };
 
-// Every change to the outputs goes through here. One that went through tells the
+// Every change to the outputs goes through here. One just taken tells the
 // lane, which counts it as an asked-for turn's answer.
 export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): void => {
   const session = heldSessions.get(sessionName);
   if (!session) return;
   const step = stepOutputs(session.outputs, event);
-  if (step.outputs === session.outputs) return;
+  if (step.outputs === session.outputs && !step.opened) return;
   const summary = step.outputs.open === session.outputs.open ? session.summary : withOpenOutputs(session.summary, step.outputs);
   const heldAnswers = keptHeld(session.heldAnswers, step.closedIds, steadyNow());
   saveSession(sessionName, session, { outputs: step.outputs, summary, heldAnswers });
@@ -108,7 +110,7 @@ export const applyOutputsEvent = (sessionName: string, event: OutputsEvent): voi
   // kind's answer shows in the summary only.
   if (step.opened && !findKind(catalog(), step.opened.kind)?.requestText) placeOutputEntries(sessionName, [step.opened], []);
   notify(sessionName, session.heldAnswers.filter((answer) => !heldAnswers.includes(answer)));
-  if (step.opened) applyLaneEvent(sessionName, { type: "went-through", output: step.opened });
+  if (step.opened) applyLaneEvent(sessionName, { type: "taken", output: step.opened });
 };
 
 // isTurnOver says the turn ended (idle, or waiting on a decision's answer); a
@@ -119,7 +121,7 @@ export const setSessionState = (sessionName: string, state: SessionState, isTurn
   heldSessions.set(sessionName, { ...session, isTurnOver, summary: { ...session.summary, state, isTurnOver } });
   log.detail(`runner: ${sessionName} is ${state}`);
   broadcastSessions();
-  if (isTurnOver) stepLaneWhenSettled(sessionName, session.hookToken);
+  if (isTurnOver) stepLaneWhenSettled(sessionName, session.heldId);
 };
 
 // Messages sent while it started wait for the start.
@@ -135,7 +137,7 @@ const submitWaitingMessage = (sessionName: string, session: HeldSession): void =
   const sendInFlight = text ? submitThroughMod(session, text, true) : null;
   if (!next || !sendInFlight) return;
   setWaitingMessages(sessionName, session, rest);
-  updateHeldSession(sessionName, session.hookToken, { isTurnOver: false, sendInFlight, wasInterrupted: false });
+  updateHeldSession(sessionName, session.heldId, { isTurnOver: false, sendInFlight, wasInterrupted: false });
   applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   void dropOldImages(sessionName, next.imagePaths).catch(() => {});
 };
@@ -169,14 +171,14 @@ const sendNextWhenSettled = (sessionName: string): void => {
 // it, at the terminal.
 const stepLaneWhenSettled = (sessionName: string, token: string): void => {
   const session = heldSessions.get(sessionName);
-  const isReady = session?.hookToken === token && session.isTurnOver && session.summary.state !== "stopped" && !session.sendInFlight;
+  const isReady = session?.heldId === token && session.isTurnOver && session.summary.state !== "stopped" && !session.sendInFlight;
   if (!isReady || !isWaitingToSettle(session)) return;
   sendNextWhenSettled(sessionName);
 };
 
 export const sendWhenSettled = (sessionName: string): void => {
   const session = heldSessions.get(sessionName);
-  if (session) stepLaneWhenSettled(sessionName, session.hookToken);
+  if (session) stepLaneWhenSettled(sessionName, session.heldId);
 };
 
 export const askForOutput = (sessionName: string, kind: unknown): Response => {
@@ -198,7 +200,7 @@ export const answerOutput = (sessionName: string, outputId: unknown, choice: unk
   const answer = readAnswer(session.outputs, session.heldAnswers, catalog(), outputId, Number(choice), steadyNow());
   if ("code" in answer) return refuse(answer.code, answer.reason);
   saveSession(sessionName, session, { heldAnswers: [...session.heldAnswers, answer] });
-  if (session.isTurnOver) stepLaneWhenSettled(sessionName, session.hookToken);
+  if (session.isTurnOver) stepLaneWhenSettled(sessionName, session.heldId);
   return new Response(null, { status: 204 });
 };
 
@@ -211,7 +213,7 @@ export const interruptSession = (sessionName: string): Response => {
   if (session.summary.link === "lost") return refuseLinkLost();
   if (session.link.factView.isTurnOver) return refuse("not-running", "It isn't working on anything");
   if (!sendCommand(session, { type: "abort" })) return refuseLinkLost();
-  updateHeldSession(sessionName, session.hookToken, { isInterrupting: true });
+  updateHeldSession(sessionName, session.heldId, { isInterrupting: true });
   giveBackWaitingMessages(sessionName);
   return new Response(null, { status: 204 });
 };

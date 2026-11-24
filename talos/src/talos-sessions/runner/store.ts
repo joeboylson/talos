@@ -57,8 +57,9 @@ export type HeldSession = {
   nextPosition: number;
   placing: OutputPlacing;
   heldAnswers: HeldAnswer[];
-  // Proves a hook POST on the shared hooks socket came from this session.
-  hookToken: string;
+  // Which held session this is: a new one started under the same name gets
+  // a new one.
+  heldId: string;
   link: SessionLink;
   // When it started, on the wall clock: saved with its process group, so a
   // later runner can tell a recent group from a number reused since.
@@ -76,7 +77,6 @@ export type HeldSession = {
   isTurnOver: boolean;
   // talos typed the next turn (an answer, an asked-for request), until it
   // starts or the person types over it.
-  isTalosTypedNext: boolean;
   // The send talos made that Claude Code hasn't taken yet (its submit-done
   // fact hasn't come). Nothing else goes in until it has: a send Claude Code
   // queues behind a turn it started on its own can't be taken back.
@@ -108,12 +108,12 @@ export const startingSessions = new Map<string, Promise<Response>>();
 // the pinned copy (a test's stand-in reports its own).
 export const runnerState = { isStopping: false, modSnapshotFolder: "", cannotStartWhy: null as string | null, expectedClaudeVersion: null as string | null };
 
-// Changes a held session only while it's the same instance (same hook token),
+// Changes a held session only while it's the same instance (same heldId),
 // so a loop or read left over from a session that ended never touches a new
 // one started under its name.
 export const updateHeldSession = (sessionName: string, token: string, change: Partial<HeldSession>) => {
   const session = heldSessions.get(sessionName);
-  if (session?.hookToken === token) heldSessions.set(sessionName, { ...session, ...change });
+  if (session?.heldId === token) heldSessions.set(sessionName, { ...session, ...change });
 };
 
 export const listSessions = (): SessionSummary[] => [...heldSessions.values()].map((session) => session.summary);

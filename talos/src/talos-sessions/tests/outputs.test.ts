@@ -1,132 +1,58 @@
 import { describe, expect, test } from "bun:test";
-import { NO_OUTPUTS, NO_PLACING, placeOutputs, readOutputsEvent, stepOutputs, type Outputs, type PendingOutput } from "../lanes/outputs";
+import { NO_OUTPUTS, NO_PLACING, placeOutputs, stepOutputs, type Outputs, type TakenOutput } from "../lanes/outputs";
 import { SESSION_LIMITS } from "../limits";
 
-const pendingOf = (id: string, toolUseId = `tu-${id}`, waits = true): PendingOutput => ({ id, toolUseId, kind: "note", fields: { text: id }, atMs: 1, waits });
-const sent = (outputs: Outputs, output: PendingOutput) => stepOutputs(outputs, { type: "sent", output }).outputs;
-const through = (outputs: Outputs, output: PendingOutput, id = output.id) =>
-  stepOutputs(outputs, { type: "went-through", toolUseId: output.toolUseId, toolInput: { text: "x", id } });
+const takenOf = (id: string, toolUseId = `tu-${id}`, waits = true): TakenOutput => ({ id, toolUseId, kind: "note", fields: { text: id }, atMs: 1, waits });
+const take = (outputs: Outputs, output: TakenOutput) => stepOutputs(outputs, { type: "sent", output });
+const sent = (outputs: Outputs, output: TakenOutput) => take(outputs, output).outputs;
 const openIds = (outputs: Outputs) => outputs.open.map(({ id }) => id);
+const started = (outputs: Outputs, isPersonTurn: boolean) => stepOutputs(outputs, { type: "turn-started", isPersonTurn }).outputs;
+const ended = (outputs: Outputs) => stepOutputs(outputs, { type: "turn-ended" }).outputs;
 
-describe("an output opens only if the session saw its id", () => {
-  test("it opens when its call goes through with its id", () => {
-    const a = pendingOf("a");
-    const step = through(sent(NO_OUTPUTS, a), a);
+describe("an output is taken when its call is answered", () => {
+  test("one that waits opens", () => {
+    const a = takenOf("a");
+    const step = take(NO_OUTPUTS, a);
     expect(openIds(step.outputs)).toEqual(["a"]);
     expect(step.opened).toEqual(a);
   });
-  test("an input whose id another hook replaced or dropped opens nothing", () => {
-    const a = pendingOf("a");
-    expect(through(sent(NO_OUTPUTS, a), a, "other").outputs).toEqual(NO_OUTPUTS);
-    expect(stepOutputs(sent(NO_OUTPUTS, a), { type: "went-through", toolUseId: a.toolUseId, toolInput: { text: "x" } }).opened).toBeNull();
-  });
-  test("a failed call opens nothing", () => {
-    const a = pendingOf("a");
-    expect(stepOutputs(sent(NO_OUTPUTS, a), { type: "failed", toolUseId: a.toolUseId }).outputs).toEqual(NO_OUTPUTS);
-  });
-  test("a call with no PostToolUse by its turn's end is dropped", () => {
-    const a = pendingOf("a");
-    const next = stepOutputs(sent(NO_OUTPUTS, a), { type: "turn-ended" }).outputs;
-    expect(next.pending).toEqual([]);
-    expect(through(next, a).opened).toBeNull();
-  });
-  test("a message typed mid-turn (a start with no end before it) keeps the turn's calls and its count", () => {
-    const a = pendingOf("a");
-    const midTurn = stepOutputs(sent(NO_OUTPUTS, a), { type: "turn-started", isTalosTurn: false }).outputs;
-    expect(openIds(through(midTurn, a).outputs)).toEqual(["a"]);
-    const endOfThatTurn = stepOutputs(through(midTurn, a).outputs, { type: "turn-ended" }).outputs;
-    expect(openIds(endOfThatTurn)).toEqual(["a"]);
-  });
-  test("one that doesn't wait counts once it goes through, but isn't left open", () => {
-    const a = pendingOf("a", "tu-a", false);
-    const step = through(sent(NO_OUTPUTS, a), a);
+  test("one that doesn't wait counts, but isn't left open", () => {
+    const a = takenOf("a", "tu-a", false);
+    const step = take(NO_OUTPUTS, a);
     expect(step.opened).toEqual(a);
     expect(step.outputs.open).toEqual([]);
   });
 });
 
 describe("a question lasts one turn", () => {
-  const asked = (() => {
-    const a = pendingOf("a");
-    const inTurn = stepOutputs(NO_OUTPUTS, { type: "turn-started", isTalosTurn: false }).outputs;
-    return through(sent(inTurn, a), a).outputs;
-  })();
+  const asked = sent(started(NO_OUTPUTS, true), takenOf("a"));
   test("the turn that asked it ending leaves it open", () => {
-    expect(openIds(stepOutputs(asked, { type: "turn-ended" }).outputs)).toEqual(["a"]);
+    expect(openIds(ended(asked))).toEqual(["a"]);
   });
-  test("the next turn ending closes it, however that turn started", () => {
-    const next = stepOutputs(stepOutputs(asked, { type: "turn-ended" }).outputs, { type: "turn-started", isTalosTurn: false }).outputs;
-    const step = stepOutputs(next, { type: "turn-ended" });
+  test("the person's next turn ending closes it", () => {
+    const step = stepOutputs(started(ended(asked), true), { type: "turn-ended" });
     expect(step.outputs.open).toEqual([]);
     expect(step.closedIds).toEqual(["a"]);
   });
-  test("a turn talos typed, like an answer or a status request, doesn't count as its next turn", () => {
-    const afterAsk = [{ type: "turn-started", isTalosTurn: true }, { type: "turn-ended" }] as const;
-    const kept = afterAsk.reduce((outputs, event) => stepOutputs(outputs, event).outputs, stepOutputs(asked, { type: "turn-ended" }).outputs);
-    expect(openIds(kept)).toEqual(["a"]);
+  test("a turn talos sent, or one Claude Code started on its own, doesn't count as its next turn", () => {
+    expect(openIds(ended(started(ended(asked), false)))).toEqual(["a"]);
   });
   test("an answer closes just its own question", () => {
-    const b = pendingOf("b");
-    const both = through(sent(asked, b), b).outputs;
+    const both = sent(asked, takenOf("b"));
     expect(openIds(stepOutputs(both, { type: "answered", id: "a" }).outputs)).toEqual(["b"]);
   });
 });
 
 describe("open outputs are capped", () => {
   test("past the cap, the oldest closes", () => {
-    const outputs = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 1 }, (_unused, i) => pendingOf(`o${i}`)).reduce(
-      (kept, output) => through(sent(kept, output), output).outputs,
-      NO_OUTPUTS,
-    );
+    const outputs = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 1 }, (_unused, i) => takenOf(`o${i}`)).reduce(sent, NO_OUTPUTS);
     expect(outputs.open.length).toBe(SESSION_LIMITS.maxOpenOutputs);
     expect(openIds(outputs)[0]).toBe("o1");
   });
 });
 
-describe("readOutputsEvent", () => {
-  test.each([
-    ["a call that went through", { hook_event_name: "PostToolUse", tool_use_id: "t", tool_input: { id: "a" } }, false, { type: "went-through", toolUseId: "t", toolInput: { id: "a" } }],
-    ["a call that failed", { hook_event_name: "PostToolUseFailure", tool_use_id: "t" }, false, { type: "failed", toolUseId: "t" }],
-    ["a submitted prompt", { hook_event_name: "UserPromptSubmit" }, false, { type: "turn-started", isTalosTurn: false }],
-    ["a Stop", { hook_event_name: "Stop" }, false, { type: "turn-ended" }],
-    ["a Stop the lane blocked", { hook_event_name: "Stop" }, true, null],
-    ["another event", { hook_event_name: "Notification" }, false, null],
-  ] as [string, unknown, boolean, unknown][])("%s", (_name, hookDetails, isBlockedStop, expected) => {
-    expect(readOutputsEvent(hookDetails, isBlockedStop, false)).toEqual(expected as ReturnType<typeof readOutputsEvent>);
-  });
-});
-
-describe("several calls at once", () => {
-  const a = pendingOf("a");
-  const b = pendingOf("b");
-  const both = sent(sent(NO_OUTPUTS, a), b);
-  test("each call goes through as itself, and the other stays pending", () => {
-    const step = through(both, b);
-    expect(openIds(step.outputs)).toEqual(["b"]);
-    expect(step.outputs.pending).toEqual([a]);
-  });
-  test("a failed call drops only its own pending output", () => {
-    const afterFailure = stepOutputs(both, { type: "failed", toolUseId: a.toolUseId }).outputs;
-    expect(afterFailure.pending).toEqual([b]);
-    expect(openIds(through(afterFailure, b).outputs)).toEqual(["b"]);
-  });
-  test("more calls in flight than can be left open all stay pending", () => {
-    const many = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 1 }, (_unused, index) => pendingOf(`p${index}`));
-    expect(many.reduce(sent, NO_OUTPUTS).pending).toEqual(many);
-  });
-  test("pending calls are capped, newest kept", () => {
-    const many = Array.from({ length: SESSION_LIMITS.maxOutputsInFlight + 3 }, (_unused, index) => pendingOf(`p${index}`));
-    const outputs = many.reduce(sent, NO_OUTPUTS);
-    expect(outputs.pending).toEqual(many.slice(-SESSION_LIMITS.maxOutputsInFlight));
-  });
-  test("a call whose input is missing opens nothing, and a hook with no body is no event", () => {
-    expect(stepOutputs(sent(NO_OUTPUTS, a), { type: "went-through", toolUseId: a.toolUseId, toolInput: null }).opened).toBeNull();
-    expect(readOutputsEvent(null, false, false)).toBeNull();
-  });
-});
-
 describe("an output's place in the conversation", () => {
-  const output = pendingOf("a", "tu-a");
+  const output = takenOf("a", "tu-a");
   test("an output that went through waits for its call's place, then takes it", () => {
     const first = placeOutputs(NO_PLACING, [output], []);
     expect(first.placed).toEqual([]);
@@ -138,7 +64,7 @@ describe("an output's place in the conversation", () => {
   });
   const placesOf = (count: number, prefix: string) => Array.from({ length: count }, (_unused, index) => ({ toolUseId: `${prefix}${index}`, position: index }));
   test("more outputs than can be left open, in one message or one read, all find their place", () => {
-    const outputs = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 1 }, (_unused, index) => pendingOf(`o${index}`, `t${index}`));
+    const outputs = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 1 }, (_unused, index) => takenOf(`o${index}`, `t${index}`));
     const places = placesOf(outputs.length, "t");
     expect(placeOutputs(placeOutputs(NO_PLACING, [], places).placing, outputs, []).placed).toHaveLength(outputs.length);
     expect(placeOutputs(placeOutputs(NO_PLACING, outputs, []).placing, [], places).placed).toHaveLength(outputs.length);
@@ -150,7 +76,7 @@ describe("an output's place in the conversation", () => {
   });
   test("what waits is capped", () => {
     const places = placesOf(SESSION_LIMITS.maxWaitingPlaces + 5, "t");
-    const outputs = Array.from({ length: SESSION_LIMITS.maxOutputsInFlight + 5 }, (_unused, index) => pendingOf(`o${index}`, `u${index}`));
+    const outputs = Array.from({ length: SESSION_LIMITS.maxOutputsInFlight + 5 }, (_unused, index) => takenOf(`o${index}`, `u${index}`));
     const { placing } = placeOutputs(NO_PLACING, outputs, places);
     expect([placing.waitingPlaces.length, placing.waitingOutputs.length]).toEqual([SESSION_LIMITS.maxWaitingPlaces, SESSION_LIMITS.maxOutputsInFlight]);
   });

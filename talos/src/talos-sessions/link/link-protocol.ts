@@ -3,7 +3,7 @@
 // fails if the copies drift (link-protocol.test.ts).
 import { SESSION_LIMITS } from "../limits";
 
-export const LINK_ROUTES = { checkIn: "/check-in", facts: "/facts", commands: "/commands" } as const;
+export const LINK_ROUTES = { checkIn: "/check-in", facts: "/facts", commands: "/commands", toolCall: "/tool-call", stop: "/stop" } as const;
 
 // Set in the session's env. The token is good for one check-in; the mod
 // unsets it, and swaps it for the secret, which it hands only to its helper.
@@ -24,6 +24,7 @@ export const FACT_TYPES = [
   "permission-asked",
   "permission-settled",
   "submit-done",
+  "transcript",
 ] as const;
 export type FactType = (typeof FACT_TYPES)[number];
 
@@ -80,7 +81,23 @@ export const TURN_STARTERS = ["person", "talos", "self"] as const;
 export type TurnStarter = (typeof TURN_STARTERS)[number];
 
 export type FactsAnswer = { acked: number };
-export type CheckInAnswer = { secret: string };
+// The tools the mod gives the session, each named mcp__talos__<name>.
+export type OfferedTool = { name: string; description: string; inputSchema: object };
+export type CheckInAnswer = { secret: string; tools: OfferedTool[] };
+
+// A call to one of talos's tools, for the runner to check. agentId marks a
+// sub-agent's call. The answer is the reply the session reads, or why not.
+export type ToolCallAsk = { tool: string; toolUseId: string; isSubagent: boolean; input: unknown };
+export type ToolCallAnswer = { result: string } | { deny: string };
+// A Stop in an asked-for turn: block says to keep going, and why.
+export type StopAnswer = { block?: string };
+
+export const readToolCallAsk = (body: unknown): ToolCallAsk | null => {
+  if (!isPlainObject(body)) return null;
+  const { tool, toolUseId, agentId, input } = body;
+  if (!isShortText(tool) || !isShortText(toolUseId)) return null;
+  return { tool, toolUseId, isSubagent: agentId !== undefined && agentId !== null, input };
+};
 // One line per command on the helper's stream. A submit goes in as the
 // person's own words (isPerson: what they typed on the page) or framed as the
 // talos mod's (an ask, an answer); the mod reports its outcome as a
@@ -89,9 +106,12 @@ export type CheckInAnswer = { secret: string };
 // to take sends.
 // A permission answer settles the prompt showing for that tool call, as the
 // person answering it in the terminal would.
+// only-tool names the one tool the session's own turn may call while talos
+// asks for an answer, or null once that's over.
 export type LinkCommand =
   | { type: "heartbeat" }
   | { type: "submit"; sendId: string; text: string; isPerson: boolean }
   | { type: "abort" }
-  | { type: "permission-answer"; toolUseId: string; isAllowed: boolean };
+  | { type: "permission-answer"; toolUseId: string; isAllowed: boolean }
+  | { type: "only-tool"; tool: string | null };
 export const encodeLinkCommand = (command: LinkCommand): string => `${JSON.stringify(command)}\n`;

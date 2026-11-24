@@ -4,8 +4,8 @@ import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
 import { cleanLine, hasCommandMarker } from "../clean";
 import { mcpToolName, type Catalog, type OutputKind } from "../kinds";
-import { NO_LANE, stepLane, type Lane, type LaneEvent } from "../lanes/lane";
-import { NO_OUTPUTS, stepOutputs, type Outputs, type OutputsEvent, type PendingOutput } from "../lanes/outputs";
+import { NO_LANE, onlyToolOf, stepLane, type Lane, type LaneEvent } from "../lanes/lane";
+import { NO_OUTPUTS, stepOutputs, type Outputs, type OutputsEvent, type TakenOutput } from "../lanes/outputs";
 import { readAnswer } from "../lanes/held";
 import { SESSION_LIMITS } from "../limits";
 import { capDroppedMarkers, mergeSessionEntries, readSessionEntries, readSessionEntry, type SessionEntry } from "../shapes";
@@ -69,10 +69,10 @@ describe("a choice typed into the session never holds a command", () => {
     const choices = fc.uniqueArray(anyText, { minLength: 2, maxLength: 4 });
     fc.assert(
       fc.property(choices, fc.nat(3), (picked, index) => {
-        const event: LaneEvent = { type: "pre-tool-use", toolName: PICK_TOOL, toolInput: { choices: picked }, isSubagent: false, toolUseId: "tu", outputId: "out-1" };
+        const event: LaneEvent = { type: "tool-call", toolName: PICK_TOOL, toolInput: { choices: picked }, isSubagent: false, toolUseId: "tu", outputId: "out-1" };
         const step = stepLane(NO_LANE, event, 0, CATALOG);
         if (!step.sent) return true;
-        const outputs: Outputs = { turn: 1, isTalosTurn: false, pending: [], open: [{ id: "out-1", kind: "pick", fields: step.sent.fields, atMs: 0, askedInTurn: 1 }] };
+        const outputs: Outputs = { turn: 1, isPersonTurn: true, open: [{ id: "out-1", kind: "pick", fields: step.sent.fields, atMs: 0, askedInTurn: 1 }] };
         const answer = readAnswer(outputs, [], CATALOG, "out-1", index, 0);
         if ("code" in answer) return true;
         const typedChoice = answer.text.slice("Answer to out-1: ".length);
@@ -83,15 +83,16 @@ describe("a choice typed into the session never holds a command", () => {
   });
 });
 
-// Random lane events, with the clock moving forward by random steps.
-const TOOLS = ["Bash", "Edit", "Task", "ToolSearch", PICK_TOOL, POLL_TOOL, "mcp__talos__other", "mcp__other__send_poll"];
+// Random lane events, with the clock moving forward by random steps. The lane
+// hears only calls to talos's tools; its mod denies the rest by onlyToolOf.
+const TOOLS = [PICK_TOOL, POLL_TOOL, "mcp__talos__other"];
 const laneEvent: fc.Arbitrary<{ event: LaneEvent; advanceMs: number }> = fc.record({
   advanceMs: fc.oneof(fc.constant(0), fc.nat(5_000), fc.constant(SESSION_LIMITS.askTimeoutMs + 1), fc.constant(SESSION_LIMITS.queuedAskTimeoutMs + 1)),
   event: fc.oneof(
     fc.record({ type: fc.constant("ask" as const), kind: fc.constantFrom("poll", "pick", "nope") }),
     fc.record({ type: fc.constant("settled" as const), hasDraft: fc.boolean() }),
     fc.record({
-      type: fc.constant("pre-tool-use" as const),
+      type: fc.constant("tool-call" as const),
       toolName: fc.constantFrom(...TOOLS),
       toolInput: fc.constantFrom({}, { choices: ["Yes", "No"] }, { choices: ["/x"] }, null),
       isSubagent: fc.constant(false),
@@ -99,8 +100,8 @@ const laneEvent: fc.Arbitrary<{ event: LaneEvent; advanceMs: number }> = fc.reco
       outputId: fc.constant("out"),
     }),
     fc.record({
-      type: fc.constant("went-through" as const),
-      output: fc.constantFrom("poll", "pick").map((kind): PendingOutput => ({ id: "out", toolUseId: "tu", kind, fields: {}, atMs: 0, waits: kind === "pick" })),
+      type: fc.constant("taken" as const),
+      output: fc.constantFrom("poll", "pick").map((kind): TakenOutput => ({ id: "out", toolUseId: "tu", kind, fields: {}, atMs: 0, waits: kind === "pick" })),
     }),
     fc.constant({ type: "stop" as const }),
     fc.record({ type: fc.constant("person-typed" as const), isTurnChanging: fc.boolean() }),
@@ -108,7 +109,6 @@ const laneEvent: fc.Arbitrary<{ event: LaneEvent; advanceMs: number }> = fc.reco
   ),
 });
 const isRunning = (lane: Lane) => lane.stage === "asking" || lane.stage === "answered";
-const decisionOf = (reply: string): string => (reply ? (JSON.parse(reply).hookSpecificOutput?.permissionDecision ?? "") : "");
 
 describe("the lane", () => {
   test("no event sequence lets another tool run in an asked-for turn before it ends", () => {
@@ -120,11 +120,12 @@ describe("the lane", () => {
           nowMs += advanceMs;
           const before = lane;
           const step = stepLane(lane, event, nowMs, CATALOG);
-          if (event.type === "pre-tool-use" && isRunning(before)) {
+          if (isRunning(before)) {
             const askedTool = mcpToolName(CATALOG.kinds.find(({ kind }) => kind === before.output)!.toolName);
-            const mayRun = event.toolName === "ToolSearch" || event.toolName === askedTool;
-            if (!mayRun && decisionOf(step.hookReply) !== "deny") return false;
-          }
+            if (onlyToolOf(before, CATALOG) !== askedTool) return false;
+            const isAllowed = step.reply !== null && "result" in step.reply;
+            if (event.type === "tool-call" && event.toolName !== askedTool && isAllowed) return false;
+          } else if (onlyToolOf(before, CATALOG) !== null) return false;
           // Only the settle, a turn-changing key or the long backstop ends a running turn.
           // A running turn ends only on a turn-changing key, the long backstop, or
           // (once answered) the settle. A Stop or the short timeout never ends it.
@@ -149,18 +150,16 @@ const outputsEvent: fc.Arbitrary<OutputsEvent> = fc.oneof(
   fc.record({
     type: fc.constant("sent" as const),
     output: fc.record({ id: fc.constantFrom(...IDS), toolUseId: fc.constantFrom(...IDS), waits: fc.boolean() }).map(
-      ({ id, toolUseId, waits }): PendingOutput => ({ id, toolUseId: `tu-${toolUseId}`, kind: "pick", fields: {}, atMs: 0, waits }),
+      ({ id, toolUseId, waits }): TakenOutput => ({ id, toolUseId: `tu-${toolUseId}`, kind: "pick", fields: {}, atMs: 0, waits }),
     ),
   }),
-  fc.record({ type: fc.constant("went-through" as const), toolUseId: fc.constantFrom(...IDS).map((id) => `tu-${id}`), toolInput: fc.constantFrom(...IDS, "x").map((id) => ({ id })) }),
-  fc.record({ type: fc.constant("failed" as const), toolUseId: fc.constantFrom(...IDS).map((id) => `tu-${id}`) }),
-  fc.record({ type: fc.constant("turn-started" as const), isTalosTurn: fc.boolean() }),
+  fc.record({ type: fc.constant("turn-started" as const), isPersonTurn: fc.boolean() }),
   fc.constant({ type: "turn-ended" as const }),
   fc.record({ type: fc.constant("answered" as const), id: fc.constantFrom(...IDS) }),
 );
 
 describe("outputs", () => {
-  test("an output opens only with its own id, stays its own turn, and closes when the person's next turn ends", () => {
+  test("an output opens when it's taken, stays its own turn, and closes when the person's next turn ends", () => {
     fc.assert(
       fc.property(fc.array(outputsEvent, { minLength: 10, maxLength: 60, size: "max" }), (events) => {
         let outputs: Outputs = NO_OUTPUTS;
@@ -170,22 +169,17 @@ describe("outputs", () => {
           outputs = step.outputs;
           const newlyOpen = outputs.open.filter((output) => !before.open.includes(output));
           if (newlyOpen.length > 0) {
-            if (event.type !== "went-through" || newlyOpen.length !== 1) return false;
-            const sent = before.pending.find(({ toolUseId }) => toolUseId === event.toolUseId);
-            if (!sent || newlyOpen[0].id !== sent.id || (event.toolInput as { id: string }).id !== sent.id) return false;
+            if (event.type !== "sent" || newlyOpen.length !== 1 || newlyOpen[0].id !== event.output.id || !event.output.waits) return false;
           }
-          // A failed call drops only its own pending output.
-          if (event.type === "failed" && outputs.pending.length !== before.pending.filter(({ toolUseId }) => toolUseId !== event.toolUseId).length) return false;
           if (step.closedIds.some((id) => !before.open.some((output) => output.id === id))) return false;
-          if (event.type === "turn-ended" && outputs.pending.length > 0) return false;
-          if (event.type === "turn-ended" && before.isTalosTurn && outputs.open !== before.open) return false;
-          if (event.type === "turn-ended" && !before.isTalosTurn) {
+          if (event.type === "turn-ended" && !before.isPersonTurn && outputs.open !== before.open) return false;
+          if (event.type === "turn-ended" && before.isPersonTurn) {
             if (outputs.open.some(({ askedInTurn }) => askedInTurn < before.turn)) return false;
             if (before.open.some((output) => output.askedInTurn === before.turn && !outputs.open.includes(output))) return false;
           }
           // A start mid-turn never closes or drops anything.
-          if (event.type === "turn-started" && (outputs.open !== before.open || outputs.pending !== before.pending)) return false;
-          if (outputs.open.length > SESSION_LIMITS.maxOpenOutputs || outputs.pending.length > SESSION_LIMITS.maxOutputsInFlight) return false;
+          if (event.type === "turn-started" && outputs.open !== before.open) return false;
+          if (outputs.open.length > SESSION_LIMITS.maxOpenOutputs) return false;
         }
         return true;
       }),

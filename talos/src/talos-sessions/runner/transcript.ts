@@ -77,9 +77,9 @@ const readSessionEntries = async (sessionName: string, paths: readonly string[])
 export const readAllNewEntries = () =>
   [...heldSessions.values()]
     .filter((session) => !session.isBeingRead)
-    .forEach(({ summary: { sessionName }, hookToken, transcripts }) => {
-      updateHeldSession(sessionName, hookToken, { isBeingRead: true });
+    .forEach(({ summary: { sessionName }, heldId, transcripts }) => {
+      updateHeldSession(sessionName, heldId, { isBeingRead: true });
       readSessionEntries(sessionName, transcripts.map(({ path }) => path))
         .catch((error: unknown) => log.warn(`runner: couldn't read ${sessionName}'s conversation: ${error}`))
-        .finally(() => updateHeldSession(sessionName, hookToken, { isBeingRead: false }));
+        .finally(() => updateHeldSession(sessionName, heldId, { isBeingRead: false }));
     });

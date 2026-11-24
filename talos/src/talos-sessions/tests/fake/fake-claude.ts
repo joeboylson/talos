@@ -1,16 +1,17 @@
-// A stand-in for Claude Code, for the fake-runner tests: it reports to the
-// session runner through the same hooks, and saves its conversation the same
-// way, but follows a fixed script instead of thinking.
+// A stand-in for Claude Code, for the fake-runner tests: it reaches the
+// session runner over the link as talos's mod does, and saves its conversation
+// the same way, but follows a fixed script instead of thinking.
 // - "go": a line of text, a note (an output that doesn't wait) and a question.
 // - "go2": two questions.
-// - the status request: sends a status.
+// - the status request: sends a status. In a folder named nosy… it tries Bash
+//   first, which talos's mod denies in an asked-for turn.
 // - an answer: runs Bash, as a normal turn would.
 // - "prompt": a permission prompt before a Bash call ("go-prompt": a question
 //   first, "slow-prompt": 300 ms of work first): Enter or "1" approves it
 //   (APPROVED), Esc refuses it and ends the turn with no Stop (REFUSED), as
 //   Claude Code does.
-// - "rate-limit": a turn that ends on an API error, with StopFailure and no
-//   Stop, as Claude Code does.
+// - "rate-limit": a turn that ends on an API error, with no Stop, as Claude
+//   Code does.
 // - "stop-me": the person pressing Esc mid-turn: a stop, then the turn ends
 //   aborted, as Claude Code reports it.
 // - "deaf": a turn that works for 1 s and ends on its own, an abort or not.
@@ -30,20 +31,15 @@
 // being told to stop; in one named spawner… it starts a process that ignores
 // the terminal closing, and saves that one's id in child.pid. Text typed while
 // a turn runs joins it (see below) and is also saved as a "BUSY" line, and a
-// tool talos denies as a "DENIED" line, so a test can see both.
+// tool talos's mod denies as a "DENIED" line, so a test can see both.
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { askRunner } from "../../client/hook-client";
-import { SESSION_ENV_KEYS } from "../../constants";
-import { linkLikeTheMod, reportFact, type SubmitCommand } from "./fake-mod";
+import { allowedTool, callTalosTool, linkLikeTheMod, reportFact, stopTurn, type SubmitCommand } from "./fake-mod";
 import type { Fact } from "../../link/link-protocol";
 
 // fake-runner.ts gives the status kind this request.
 const STATUS_REQUEST = "please send status";
 
-const sessionName = process.env[SESSION_ENV_KEYS.sessionName] ?? "";
-const runnerSocket = process.env[SESSION_ENV_KEYS.runnerSocket] ?? "";
-const token = process.env[SESSION_ENV_KEYS.hookToken] ?? "";
 const firstTranscript = join(process.cwd(), "transcript.jsonl");
 const secondTranscript = join(process.cwd(), "transcript-2.jsonl");
 let transcriptPath = firstTranscript;
@@ -55,22 +51,16 @@ const saveLine = (line: object) => {
 };
 const saveText = (text: string) => saveLine({ type: "assistant", message: { content: [{ type: "text", text }] } });
 
-const hook = async (details: object): Promise<string> => {
-  const answer = await askRunner(runnerSocket, { sessionName, token, details: JSON.stringify({ transcript_path: transcriptPath, ...details }) });
-  return answer?.kind === "reply" ? answer.reply : "";
-};
-
-// Calls one tool as Claude Code would: its PreToolUse, then (if allowed) its
-// call saved in the conversation and its PostToolUse with the input the hook
-// handed back. Only structured tools are saved, the rest only need the hook.
+// Calls one tool as Claude Code with talos's mod would: a call to talos's
+// own tool is the runner's to answer, any other is denied while talos asks
+// for one kind of answer. Only talos's tools are saved in the conversation.
 let toolCount = 0;
 const callTool = async (toolName: string, input: object, toolUseId = `tool-${++toolCount}`) => {
-  const reply = JSON.parse((await hook({ hook_event_name: "PreToolUse", tool_name: toolName, tool_input: input, tool_use_id: toolUseId })) || "{}");
-  const decision = reply.hookSpecificOutput?.permissionDecision;
-  if (decision === "deny") return saveText(`DENIED ${toolName}`);
-  if (!toolName.startsWith("mcp__")) return;
+  const only = allowedTool();
+  if (!toolName.startsWith("mcp__")) return only && only !== toolName ? saveText(`DENIED ${toolName}`) : undefined;
   saveLine({ type: "assistant", message: { content: [{ type: "tool_use", id: toolUseId, name: toolName, input }] } });
-  await hook({ hook_event_name: "PostToolUse", tool_name: toolName, tool_input: reply.hookSpecificOutput.updatedInput, tool_use_id: toolUseId });
+  const answer = await callTalosTool(toolName, toolUseId, input);
+  if (typeof answer.result !== "string") saveText(`DENIED ${toolName}`);
 };
 
 // An image's path, as talos types it, must be there when the message arrives.
@@ -94,7 +84,6 @@ const askPermission = async (): Promise<string> => {
   const toolUseId = `perm-${++permissionCount}`;
   promptToolUseId = toolUseId;
   await reportFact("permission-asked", { toolUseId, tool: "Bash", summary: "ls" });
-  await hook({ hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command: "ls" } });
   const key = await new Promise<string>((resolve) => (answerPrompt = resolve));
   await reportFact("permission-settled", { toolUseId });
   return key;
@@ -133,7 +122,6 @@ const runTurn = async (text: string, { origin, startedBy } = TYPED) => {
 };
 
 const runTurnSteps = async (text: string): Promise<string> => {
-  await hook({ hook_event_name: "UserPromptSubmit", prompt: text });
   saveLine({ type: "user", message: { content: text } });
   notePastedImages(text);
   if (text === "go") {
@@ -145,12 +133,13 @@ const runTurnSteps = async (text: string): Promise<string> => {
     await callTool("mcp__talos__ask_question", { question: "First?", choices: ["A", "B"] });
     await callTool("mcp__talos__ask_question", { question: "Second?", choices: ["C", "D"] });
   }
+  if (text === STATUS_REQUEST && basename(process.cwd()).startsWith("nosy")) await callTool("Bash", { command: "ls" });
   if (text === STATUS_REQUEST) await callTool("mcp__talos__send_status", { text: "all good" });
   if (text.startsWith("Answer to")) await callTool("Bash", { command: "ls" });
-  // A question, then Claude Code compacting the conversation (a SessionStart mid-turn).
+  // A question, then Claude Code compacting the conversation (its file stays).
   if (text === "go-compact") {
     await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
-    await hook({ hook_event_name: "SessionStart", source: "compact" });
+    await reportFact("transcript", { path: transcriptPath });
   }
   if (text === "go-prompt") await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
   if (text === "slow-prompt") await Bun.sleep(300);
@@ -166,16 +155,13 @@ const runTurnSteps = async (text: string): Promise<string> => {
     saveText(`said before ${text}`);
     transcriptPath = text === "clear" ? secondTranscript : firstTranscript;
     await reportFact("session-end", { reason: text });
-    await hook({ hook_event_name: "SessionStart", source: text });
+    await reportFact("transcript", { path: transcriptPath });
   }
   // A turn takes a moment, so text typed into it would be seen as busy.
   await Bun.sleep(300);
-  if (text === "rate-limit") {
-    await hook({ hook_event_name: "StopFailure", error: "rate_limit" });
-    return "error";
-  }
-  // A Stop the lane blocks keeps the turn going, as Claude Code does.
-  if (await hook({ hook_event_name: "Stop" })) await hook({ hook_event_name: "Stop" });
+  if (text === "rate-limit") return "error";
+  // A Stop sent back keeps the turn going, as Claude Code does.
+  if (await stopTurn()) await stopTurn();
   process.stdout.write("done\n");
   return "answer";
 };
@@ -209,9 +195,6 @@ writeFileSync(firstTranscript, "");
 writeFileSync(secondTranscript, "");
 // In a folder named late… it reports its start after 1.5 s.
 if (basename(process.cwd()).startsWith("late")) await Bun.sleep(1500);
-// In a folder named mute… it never reports its start, like a Claude Code stuck
-// on a screen before its hooks run.
-if (!basename(process.cwd()).startsWith("mute")) await hook({ hook_event_name: "SessionStart" });
 // What talos sends through its mod: a turn of its own after any running one,
 // as Claude Code queues a submit. "drop-me" is dropped, as Claude Code drops a
 // submit after Esc.
@@ -234,12 +217,17 @@ const runSubmit = ({ sendId, text, isPerson }: SubmitCommand) => {
 };
 
 // The prompting… folder's turn is under way, its prompt up, before the start.
-const startingFacts: [Fact["type"], Record<string, unknown>][] = isPromptingFolder()
-  ? [
-      ["turn-start", { turnId: "turn-0", startedBy: "self" }],
-      ["permission-asked", { toolUseId: "perm-0" }],
-    ]
-  : [];
+const startingFacts: [Fact["type"], Record<string, unknown>][] = [
+  ["transcript", { path: firstTranscript }],
+  ...(isPromptingFolder()
+    ? ([
+        ["turn-start", { turnId: "turn-0", startedBy: "self" }],
+        ["permission-asked", { toolUseId: "perm-0" }],
+      ] as [Fact["type"], Record<string, unknown>][])
+    : []),
+];
+// In a folder named mute… it never reports its start, like a Claude Code stuck
+// on a screen before its mod loads.
 if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod(startingFacts, { onSubmit: runSubmit, onAbort: () => abortTurn?.(), onPermissionAnswer: answerFromPage });
 process.stdout.write("ready\n");
 
@@ -270,7 +258,6 @@ process.stdin.on("data", (chunk: Buffer) => {
     if (turnsWaiting > 0) {
       saveText(`BUSY ${text}`);
       void reportFact("prompt-submit", { origin: { kind: "composer" } });
-      void hook({ hook_event_name: "UserPromptSubmit", prompt: text });
       saveLine({ type: "attachment", attachment: { type: "queued_command", prompt: text, commandMode: "prompt" } });
       continue;
     }
@@ -281,10 +268,8 @@ process.stdin.on("data", (chunk: Buffer) => {
 
 // The prompting… folder's prompt: a key answers it, and its turn ends.
 if (isPrompting) {
-  await hook({ hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command: "ls" } });
   await new Promise<string>((resolve) => (answerPrompt = resolve));
   await reportFact("permission-settled", { toolUseId: "perm-0" });
   saveText("APPROVED");
-  await hook({ hook_event_name: "Stop" });
   await reportFact("turn-complete", { turnId: "turn-0", reason: "answer" });
 }

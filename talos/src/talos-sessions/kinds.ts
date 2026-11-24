@@ -2,11 +2,11 @@
 // of them: talos passes its list in (see talos/src/session-outputs.ts), and the
 // module runs the same machinery for each.
 import { cleanLine, hasCommandMarker } from "./clean";
-import { TALOS_MCP_SERVER_KEY } from "./constants";
+import { MOD_NAME } from "./constants";
 
 export type OutputKind = {
   kind: string;
-  // The tool the session calls, as its MCP server lists it.
+  // The tool the session calls, as the mod names it (mcp__talos__<toolName>).
   toolName: string;
   description: string;
   inputSchema: object;
@@ -33,24 +33,16 @@ export const askedTurn = (kind: string): TurnShape => ({ output: kind, optional:
 
 export type Catalog = { kinds: readonly OutputKind[]; proseTurn: TurnShape };
 
-export const mcpToolName = (toolName: string): string => `mcp__${TALOS_MCP_SERVER_KEY}__${toolName}`;
+export const mcpToolName = (toolName: string): string => `mcp__${MOD_NAME}__${toolName}`;
 export const STRUCTURED_TOOL_PREFIX = mcpToolName("");
 
-export const findKindByTool = (catalog: Catalog, hookToolName: string): OutputKind | undefined =>
-  catalog.kinds.find((kind) => mcpToolName(kind.toolName) === hookToolName);
+export const findKindByTool = (catalog: Catalog, calledName: string): OutputKind | undefined =>
+  catalog.kinds.find((kind) => mcpToolName(kind.toolName) === calledName);
 
 // What the session reads back once its output is taken, with the id talos gave it.
 export const ID_PLACEHOLDER = "<id>";
 export const replyWording = (kind: OutputKind): string =>
   kind.waits ? `Asked as ${ID_PLACEHOLDER}. End your turn and wait.` : `Recorded as ${ID_PLACEHOLDER}.`;
-
-// The id talos adds to the call's input. Declared (optional) in the listed schema
-// so Claude Code passes it through to the MCP server.
-export const OUTPUT_ID_FIELD = "id";
-export const listedSchema = (kind: OutputKind): object => {
-  const schema = kind.inputSchema as { properties?: Record<string, unknown> };
-  return { ...schema, properties: { ...schema.properties, [OUTPUT_ID_FIELD]: { type: "string", description: "set by talos; leave it out" } } };
-};
 
 export const findKind = (catalog: Catalog, kindName: string): OutputKind | undefined =>
   catalog.kinds.find((kind) => kind.kind === kindName);

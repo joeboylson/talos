@@ -50,54 +50,6 @@ export const RUNNER_ROUTES = {
   stop: "/stop",
 } as const;
 
-// The hooks socket speaks one JSON line each way, not HTTP, so the session runner can
-// count and close its connections (a flood of idle ones would otherwise use up
-// its files). The hook sends its session, token and Claude Code's details; the
-// session runner answers with the hook's reply, or says the request was too big to read.
-// The session's MCP server asks the same way for the tools to list ("kinds"),
-// and gets them, or "refused" for a bad token.
-export type HookRequest =
-  | { sessionName: string; token: string; details: string }
-  | { sessionName: string; token: string; wants: "kinds" };
-export type ListedTool = { name: string; description: string; inputSchema: object; reply: string };
-export type HookAnswer =
-  | { kind: "reply"; reply: string }
-  | { kind: "too-big" }
-  | { kind: "tools"; tools: ListedTool[] }
-  | { kind: "refused" };
-
-export const encodeHookLine = (value: HookRequest | HookAnswer): string => `${JSON.stringify(value)}\n`;
-
-const fieldOf = (value: unknown, field: string): unknown =>
-  typeof value === "object" && value !== null ? Reflect.get(value, field) : undefined;
-
-export const readHookRequest = (line: string): HookRequest | null => {
-  const value = parseJsonOrNull(line);
-  const [sessionName, token, details, wants] = ["sessionName", "token", "details", "wants"].map((field) => fieldOf(value, field));
-  if (typeof sessionName !== "string" || typeof token !== "string") return null;
-  if (wants === "kinds") return { sessionName, token, wants };
-  return typeof details === "string" ? { sessionName, token, details } : null;
-};
-
-const readListedTool = (value: unknown): ListedTool | null => {
-  const [name, description, inputSchema, reply] = ["name", "description", "inputSchema", "reply"].map((field) => fieldOf(value, field));
-  const isTool = typeof name === "string" && typeof description === "string" && typeof reply === "string" && typeof inputSchema === "object" && inputSchema !== null;
-  return isTool ? { name, description, inputSchema, reply } : null;
-};
-
-export const readHookAnswer = (line: string): HookAnswer | null => {
-  const value = parseJsonOrNull(line);
-  const kind = fieldOf(value, "kind");
-  if (kind === "too-big" || kind === "refused") return { kind };
-  if (kind === "tools") {
-    const tools = fieldOf(value, "tools");
-    const listed = Array.isArray(tools) ? tools.map(readListedTool) : [null];
-    return listed.every((tool) => tool !== null) ? { kind, tools: listed as ListedTool[] } : null;
-  }
-  const reply = fieldOf(value, "reply");
-  return kind === "reply" && typeof reply === "string" ? { kind, reply } : null;
-};
-
 export const sessionRoute = (
   sessionName: string,
   action: "send" | "stop" | "interrupt" | "ask" | "answer" | "answer-permission" | "output" | "input" | "resize",

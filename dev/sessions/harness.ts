@@ -1,15 +1,14 @@
 // Shared pieces for the live session checks: a session runner in a throwaway
 // talos folder, real Claude Code sessions in throwaway work folders, and a way
-// to act as a session (with its own hook token) to try what a hostile one could.
+// to act as a session's mod (with its link secret) to try what a hostile one could.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDecisionOf, statusOf } from "../../talos-shared/src";
 import { connectToSessions, type SessionSummary } from "../../talos/src/talos-sessions";
-import { askRunner } from "../../talos/src/talos-sessions/client/hook-client";
 import { runnerFetch } from "../../talos/src/talos-sessions/client/runner-client";
 import { RUNNER_ROUTES } from "../../talos/src/talos-sessions/client/runner-protocol";
-import { HOOK_SCRIPT, homePaths } from "../../talos/src/talos-sessions/constants";
+import { homePaths } from "../../talos/src/talos-sessions/constants";
 
 // The talos folder lives here too: the session runner talos spawns reads its
 // folder list from TALOS_HOME, which it inherits.
@@ -19,8 +18,7 @@ process.env.TALOS_HOME = HOME;
 export const calls = connectToSessions({ home: HOME, runnerScript: new URL("./runner.ts", import.meta.url).pathname });
 export const isRunnerRunning = calls.isRunning;
 // Reach-ins: what a hostile session does, which no plain call offers.
-export const RUNNER_HOOKS_SOCKET: string = homePaths(HOME).hooksSocket;
-export { HOOK_SCRIPT };
+const LINK_SOCKET: string = homePaths(HOME).linkSocket;
 export const rawEvents = (init: RequestInit) => runnerFetch(HOME, RUNNER_ROUTES.events, init);
 
 // Each check gets its own folder; extra Claude Code settings go in its .claude.
@@ -95,26 +93,25 @@ export const savedConversation = async (folderPath: string): Promise<string> => 
   return (await Promise.all(files.map((file) => Bun.file(join(folder, file)).text()))).join("\n");
 };
 
-// A session's own hook token, read from its Claude Code process: what a hostile
-// session (or anything it runs) has.
-export const tokenOf = async (sessionName: string): Promise<string> => {
+// The link secret of the one session running, read from its mod's helper
+// process: what a hostile session (or anything it runs) can read, as the
+// same user.
+export const secretOf = async (): Promise<string> => {
   const listing = await new Response(Bun.spawn(["ps", "-AEww", "-o", "command"]).stdout).text();
-  const line = listing.split("\n").find((row) => row.includes(`TALOS_SESSION_NAME=${sessionName} `) && row.includes(HOME));
-  const token = line?.match(/TALOS_HOOK_TOKEN=(\S+)/)?.[1];
-  if (!token) throw new Error(`no token found for ${sessionName}`);
-  return token;
+  const line = listing.split("\n").find((row) => row.includes(`TALOS_LINK_SOCKET=${LINK_SOCKET}`) && row.includes("TALOS_LINK_SECRET="));
+  const secret = line?.match(/TALOS_LINK_SECRET=(\S+)/)?.[1];
+  if (!secret) throw new Error("no link secret found");
+  return secret;
 };
 
-// Sends a hook as the session would, and returns the runner's answer.
-export const forgeHook = (sessionName: string, token: string, details: object) =>
-  askRunner(RUNNER_HOOKS_SOCKET, { sessionName, token, details: JSON.stringify(details) });
-
-// Runs the real hook script, as Claude Code does, and returns what it prints.
-export const runHookScript = async (env: Record<string, string>, details: object): Promise<string> => {
-  const child = Bun.spawn([process.execPath, HOOK_SCRIPT], { env: { ...process.env, ...env }, stdin: "pipe", stdout: "pipe" });
-  child.stdin.write(JSON.stringify(details));
-  child.stdin.end();
-  return new Response(child.stdout).text();
+export const forgeLink = async (secret: string, route: string, body: unknown): Promise<{ status: number; body: unknown }> => {
+  const answer = await fetch(`http://talos${route}`, {
+    method: "POST",
+    unix: LINK_SOCKET,
+    headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  return { status: answer.status, body: await answer.json().catch(() => null) };
 };
 
 const results: { name: string; passed: boolean; detail: string }[] = [];

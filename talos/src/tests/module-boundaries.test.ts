@@ -130,11 +130,10 @@ const linksIn = (folder: string): string[] =>
 const TALOS_SESSIONS: ModuleLayout = {
   moduleFolder: join(SOURCE_ROOT, "talos-sessions"),
   utilsFolder: join(SOURCE_ROOT, "talos-utils"),
-  // The live checks do what a hostile session does (forge hooks, flood the
-  // hooks socket, stall a reader), which no plain call offers.
+  // The live checks do what a hostile session does (post to the link as its
+  // mod, stall a reader), which no plain call offers.
   reachIns: {
     [LIVE_CHECKS]: [
-      join(SOURCE_ROOT, "talos-sessions", "client", "hook-client.ts"),
       join(SOURCE_ROOT, "talos-sessions", "client", "runner-client.ts"),
       join(SOURCE_ROOT, "talos-sessions", "client", "runner-protocol.ts"),
       join(SOURCE_ROOT, "talos-sessions", "constants.ts"),
@@ -142,8 +141,6 @@ const TALOS_SESSIONS: ModuleLayout = {
   },
   scripts: [
     join(SOURCE_ROOT, "session-runner.ts"),
-    join(SOURCE_ROOT, "talos-sessions", "hook.ts"),
-    join(SOURCE_ROOT, "talos-sessions", "tools-server.ts"),
   ],
 };
 

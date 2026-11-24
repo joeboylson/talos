@@ -12,6 +12,9 @@ const token = process.env[LINK_ENV_KEYS.token] ?? "";
 let secret = "";
 const HEARTBEAT_MS = 1000;
 let seq = 0;
+// The one tool the session may call while talos asks for an answer.
+let onlyTool: string | null = null;
+export const allowedTool = (): string | null => onlyTool;
 
 const postJson = (route: string, body: unknown, headers: Record<string, string> = {}) =>
   fetch(`http://talos${route}`, { method: "POST", unix: socket, headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -24,6 +27,19 @@ export const reportFact = async (type: Fact["type"], details: Record<string, unk
   const fact = { seq, type, atMs: Date.now(), sessionId: "fake-session", details };
   await postJson(LINK_ROUTES.facts, { facts: [fact] }, { authorization: `Bearer ${secret}` });
 };
+
+const askWithSecret = async (route: string, body: unknown): Promise<Record<string, unknown>> => {
+  const answer = await postJson(route, body, { authorization: `Bearer ${secret}` });
+  return answer.ok ? ((await answer.json()) as Record<string, unknown>) : {};
+};
+
+// A call to one of talos's tools, as the mod's tool.call guard asks about it:
+// the reply the session reads, or why it's denied.
+export const callTalosTool = (tool: string, toolUseId: string, input: unknown): Promise<Record<string, unknown>> =>
+  askWithSecret(LINK_ROUTES.toolCall, { tool, toolUseId, input });
+
+// A Stop: the mod asks only while talos asks for an answer. True: keep going.
+export const stopTurn = async (): Promise<boolean> => onlyTool !== null && typeof (await askWithSecret(LINK_ROUTES.stop, {})).block === "string";
 
 export type SubmitCommand = { sendId: string; text: string; isPerson: boolean };
 export type CommandHandlers = {
@@ -44,6 +60,7 @@ const readCommands = async (output: ReadableStream<Uint8Array>, { onSubmit, onAb
       .forEach((command) => {
         if (command.type === "submit") onSubmit(command);
         if (command.type === "abort") onAbort();
+        if (command.type === "only-tool") onlyTool = command.tool;
         if (command.type === "permission-answer") onPermissionAnswer(command.toolUseId, command.isAllowed);
       });
   }

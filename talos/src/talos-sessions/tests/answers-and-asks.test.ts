@@ -88,6 +88,25 @@ test(
   30_000,
 );
 
+test(
+  "while a status is asked for, the session's other tools are denied, and allowed again once it's over",
+  async () => {
+    const name = "nosy";
+    mkdirSync(join(home, name));
+    expect(await calls.start(name, name, join(home, name))).toEqual({ ok: true });
+    await waitUntil(() => latest[name]?.state === "idle", "the session to be ready");
+    expect(await calls.ask(name, "status")).toEqual({ ok: true });
+    await waitUntil(() => latest[name]?.asks.status?.state === "answered" && latest[name]?.state === "idle", "the status");
+    expect(texts(name).filter((text) => text.startsWith("DENIED"))).toEqual(["DENIED Bash"]);
+    // A normal turn that runs Bash ("Answer to" in the fake) isn't held back.
+    expect(await calls.send(name, "Answer to nothing")).toEqual({ ok: true });
+    await waitUntil(() => userTexts(name).includes("Answer to nothing") && latest[name]?.state === "idle", "the normal turn");
+    await Bun.sleep(300);
+    expect(texts(name).filter((text) => text.startsWith("DENIED"))).toEqual(["DENIED Bash"]);
+  },
+  30_000,
+);
+
 // talos sets the session working just before its Esc, so waiting for that lands
 // in its pause before the paste.
 const inTalosPause = async (name: string) => waitUntil(() => latest[name]?.state === "working", "talos to start typing", 10_000);

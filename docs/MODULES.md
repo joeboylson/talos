@@ -82,30 +82,27 @@ Each block below is listed as what goes in → what comes out.
     one Claude Code version talos runs) and `not-running` (an interrupt with
     no turn running). A malformed
     request, or a session runner that can't be reached, throws instead.
-  - Its home holds: `runner.sock` (the plain calls), `runner-hooks.sock`
-    (the sessions' hooks) and `runner-link.sock` (the sessions' mods),
+  - Its home holds: `runner.sock` (the plain calls) and `runner-link.sock`
+    (the sessions' mods),
     `mod/<hash>/` (the mod's snapshot), `claude-code/<version>/claude` (the
     pinned Claude Code, a hard link to the installer's copy), `runner.lock` (the one runner holding the home),
     `runner.log` (moved to `runner.log.1` past 10 MB when a runner starts),
-    `mcp-config.json` (the sessions' structured tools), `uploads/<session>/`
+    `uploads/<session>/`
     (a session's newest 20 images), `quarantine.log` (dropped items' data),
     `trust-changes.json` (trust to put back, even after a crash) and
     `session-groups.json` (what a runner that dies outright leaves to end).
   - Holds: the session runner, the mod (`mod/`, run inside every session's
     Claude Code, with its helper and its own tests under Claude Code's kit;
-    it refuses every other mod's hooks and the `/fork` command in its
-    session),
-    the link server, the hook script, the MCP server, the lane and output
-    rules, held answers, the transcript reader, and its own copies of the
+    it gives the session talos's tools and answers their calls through the
+    runner, and refuses every other mod's hooks and the `/fork` command in
+    its session), the link server, the lane and output rules, held answers, the transcript reader, and its own copies of the
     shapes and limits it shares with `talos-shared`.
   - Known limit: it trusts everything that runs as the same user. A session's
-    hook token is in its environment, so anything with Bash in that session (a
-    sub-agent, a prompt-injected command) can send hooks as the session: put
-    up questions with buttons, answer an asked-for turn, or flood the shared
-    hooks socket so other sessions' hooks go unanswered (then denied, so
-    talos's tools stop working). It can't read another session's token, but
-    it can open the control socket, which is this user's like the rest, and
-    drive every session through it. The fix is running sessions as a separate
+    link secret is in its mod's helper's environment, so anything with Bash
+    in that session (a sub-agent, a prompt-injected command) can read it and
+    post to the link as the mod: put up questions with buttons, or answer an
+    asked-for turn. It can also open the control socket, which is this
+    user's like the rest, and drive every session through it. The fix is running sessions as a separate
     OS user, left until talos runs for more than its one owner.
   - Shown by: `examples/receipts`, `examples/recipes`, `examples/explorer`.
   - Lives in: `talos/src/talos-sessions/`, tests in its own `tests/` and each

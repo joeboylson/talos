@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { trustFolder, type TrustChange } from "../claude/claude-trust";
 import { LINK_ENV_KEYS } from "../link/link-protocol";
 import { NO_FACTS } from "../link/fact-state";
-import { HOOK_SCRIPT, SESSION_ENV_KEYS, TERMINAL_SIZE } from "../constants";
+import { TERMINAL_SIZE } from "../constants";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
-import { buildHookSettings } from "../claude/session-hooks";
+import { buildSessionSettings } from "../claude/session-settings";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
 import { appendOutput } from "../terminal";
@@ -24,7 +24,7 @@ import { SESSION_LIMITS } from "../limits";
 
 const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
   const session = heldSessions.get(sessionName);
-  if (session?.hookToken !== token) return;
+  if (session?.heldId !== token) return;
   updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, SESSION_LIMITS.maxOutputBytes) });
   sendToListeners(session.outputListeners, chunk);
 };
@@ -43,7 +43,7 @@ const saveSessionGroups = (): void => {
 
 const forgetSession = (sessionName: string, token: string) => {
   const session = heldSessions.get(sessionName);
-  if (session?.hookToken !== token) return;
+  if (session?.heldId !== token) return;
   heldSessions.delete(sessionName);
   forgetTypedImages(sessionName);
   saveSessionGroups();
@@ -96,14 +96,11 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   if (trustChange && restoresTrust()) keepTrustChange(trustChange);
   if (runnerState.isStopping) return STOPPING();
 
-  const hookCommand = `"${process.execPath}" "${HOOK_SCRIPT}"`;
-  const hookToken = crypto.randomUUID();
-  // The hook reads these from its env to reach the session runner; pin them in --settings
-  // (below) as well as the spawn env so a project's own settings can't poison them.
-  const hookEnv = {
-    [SESSION_ENV_KEYS.sessionName]: sessionName,
-    [SESSION_ENV_KEYS.runnerSocket]: paths().hooksSocket,
-    [SESSION_ENV_KEYS.hookToken]: hookToken,
+  const heldId = crypto.randomUUID();
+  // The mod reads these from its env to reach the session runner; pinned in
+  // --settings (below) as well as the spawn env so a project's own settings
+  // can't change them.
+  const sessionEnv = {
     [LINK_ENV_KEYS.socket]: paths().linkSocket,
     [LINK_ENV_KEYS.bun]: process.execPath,
     // An edit to the mod never reloads it mid-session (the snapshot can't
@@ -113,8 +110,6 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   };
   // In the spawn env only: the mod unsets it once it has checked in.
   const linkToken = crypto.randomUUID();
-  // --mcp-config gives every session talos's structured tools (tools-server.ts);
-  // the PreToolUse hook decides when each may be called.
   // Auto mode: Claude Code approves what it judges safe itself, and asks the
   // person (on the page or in the terminal) only about the rest.
   const claudeArgs = [
@@ -122,9 +117,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     "--session-id",
     crypto.randomUUID(),
     "--settings",
-    buildHookSettings(hookCommand, hookEnv, join(paths().uploads, sessionName)),
-    "--mcp-config",
-    paths().mcpConfig,
+    buildSessionSettings(sessionEnv, join(paths().uploads, sessionName)),
     "--plugin-dir",
     runnerState.modSnapshotFolder,
     "--permission-mode",
@@ -134,8 +127,8 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     [...withOpenFileLimit(SESSION_LIMITS.maxSessionOpenFiles), ...claudeArgs],
     {
       cwd: path,
-      env: buildSessionEnv(process.env, { ...hookEnv, [LINK_ENV_KEYS.token]: linkToken }),
-      terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, hookToken, chunk) },
+      env: buildSessionEnv(process.env, { ...sessionEnv, [LINK_ENV_KEYS.token]: linkToken }),
+      terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, heldId, chunk) },
     } as Parameters<typeof Bun.spawn>[1],
   );
   // Bun's terminal option adds this to the spawned process; its types don't list it yet.
@@ -154,13 +147,12 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     nextPosition: 0,
     placing: NO_PLACING,
     heldAnswers: [],
-    hookToken,
+    heldId,
     link: { token: linkToken, isCheckedIn: false, secret: null, lastSeq: 0, commands: null, factView: NO_FACTS, lastHeardAtMs: 0 },
     startedAtMs: Date.now(),
     hasDraft: false,
     draftAtMs: 0,
     isTurnOver: false,
-    isTalosTypedNext: false,
     sendInFlight: null,
     isInterrupting: false,
     wasInterrupted: false,
@@ -169,8 +161,8 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     isBeingRead: false,
   });
   saveSessionGroups();
-  setTimeout(() => showStuckStart(sessionName, hookToken), startLongestWaitMs()).unref();
-  void child.exited.then(() => forgetSession(sessionName, hookToken)).catch((error: unknown) => log.warn(`runner: couldn't clean up ${sessionName}: ${error}`));
+  setTimeout(() => showStuckStart(sessionName, heldId), startLongestWaitMs()).unref();
+  void child.exited.then(() => forgetSession(sessionName, heldId)).catch((error: unknown) => log.warn(`runner: couldn't clean up ${sessionName}: ${error}`));
   log.event(`runner: started session ${sessionName} in ${path}`);
   broadcastSessions();
   return new Response(null, { status: 201 });
@@ -182,7 +174,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
 // goes in once it starts) and the page says to answer in the terminal.
 const showStuckStart = (sessionName: string, token: string): void => {
   const session = heldSessions.get(sessionName);
-  if (session?.hookToken !== token || session.link.factView.activity !== "starting") return;
+  if (session?.heldId !== token || session.link.factView.activity !== "starting") return;
   log.warn(`runner: ${sessionName} hasn't started; it may be showing a screen only its terminal can answer`);
   setSessionState(sessionName, "needs-you", false);
 };

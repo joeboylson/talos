@@ -88,10 +88,10 @@ export const stopRunner = async (): Promise<Response> => {
     const isPutBack = await putTrustBack(trustChanges);
     // The sockets, lock and trust record go only if they're still this
     // runner's: a home deleted and started again belongs to the new runner now.
-    const { runnerSocket, hooksSocket, linkSocket, runnerLock } = paths();
+    const { runnerSocket, linkSocket, runnerLock } = paths();
     const isOurs = await Bun.file(runnerLock).text().then((pid) => Number(pid) === process.pid, () => false);
     if (isOurs && isPutBack) await forgetTrustChanges();
-    if (isOurs) await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true }), rm(linkSocket, { force: true }), rm(runnerLock, { force: true })]);
+    if (isOurs) await Promise.all([rm(runnerSocket, { force: true }), rm(linkSocket, { force: true }), rm(runnerLock, { force: true })]);
     setTimeout(() => process.exit(0), 50);
   })();
   await stopping;

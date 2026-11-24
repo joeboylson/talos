@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mcpToolName, type Catalog, type OutputKind } from "../kinds";
-import { NO_LANE, hookReplyFromRunner, hookReplyWhenRunnerUnreachable, hookReplyWhenTooBig, readLaneEvent, stepLane, type Lane, type LaneEvent } from "../lanes/lane";
+import { NO_LANE, onlyToolOf, stepLane, type Lane, type LaneEvent, type LaneReply } from "../lanes/lane";
 import { SESSION_LIMITS } from "../limits";
 
 // Made-up kinds, so the lane is tested without talos's own:
@@ -30,7 +30,7 @@ const answered: Lane = { stage: "answered", output: "poll", askedAtMs: NOW };
 
 const OUTPUT_ID = "0f4c6a52-1b2d-4e8f-9a3b-5c6d7e8f9a0b";
 const toolCall = (toolName: string, toolInput: unknown = {}, isSubagent = false): LaneEvent => ({
-  type: "pre-tool-use",
+  type: "tool-call",
   toolName,
   toolInput,
   isSubagent,
@@ -38,18 +38,19 @@ const toolCall = (toolName: string, toolInput: unknown = {}, isSubagent = false)
   outputId: OUTPUT_ID,
 });
 const send = (kind: OutputKind, text: unknown = "hi", isSubagent = false) => toolCall(mcpToolName(kind.toolName), { text }, isSubagent);
-const bash = toolCall("Bash", { command: "ls" });
 
-// The hook's decision in one word: "" (none), allow, deny or block.
-const decisionOf = (hookReply: string): string => {
-  if (!hookReply) return "";
-  const reply = JSON.parse(hookReply);
-  return reply.hookSpecificOutput?.permissionDecision ?? reply.decision;
+// The mod's answer in one word: "" (none), allow, deny or block.
+const decisionOf = (reply: LaneReply): string => {
+  if (!reply) return "";
+  if ("result" in reply) return "allow";
+  return "deny" in reply ? "deny" : "block";
 };
+// The one tool the session's own turn may call, as the mod is told.
+const onlyTool = (lane: Lane) => onlyToolOf(lane, CATALOG);
 
 const step = (lane: Lane, event: LaneEvent, nowMs = NOW) => {
   const result = stepLane(lane, event, nowMs, CATALOG);
-  return { lane: result.lane, decision: decisionOf(result.hookReply), ask: result.askChange?.state ?? null, typed: result.requestToType };
+  return { lane: result.lane, decision: decisionOf(result.reply), ask: result.askChange?.state ?? null, typed: result.requestToType };
 };
 const unchanged = (lane: Lane, decision = "") => ({ lane, decision, ask: null, typed: null });
 
@@ -57,34 +58,19 @@ describe("1. an asked-for turn runs no tool but its kind's", () => {
   test.each([
     ["asking", asking],
     ["answered", answered],
-  ])("%s denies any other tool, and other kinds", (_name, lane) => {
-    expect(step(lane, bash)).toEqual(unchanged(lane, "deny"));
+  ])("%s allows only its kind's tool, and denies other kinds", (_name, lane) => {
+    expect(onlyTool(lane)).toBe(mcpToolName(POLL.toolName));
     expect(step(lane, send(NOTE))).toEqual(unchanged(lane, "deny"));
     expect(step(lane, send(TALLY))).toEqual(unchanged(lane, "deny"));
   });
 });
 
-describe("1b. an asked-for turn may look up its tool's fields", () => {
-  test.each([
-    ["asking", asking],
-    ["answered", answered],
-  ])("ToolSearch runs while %s", (_name, lane) => {
-    expect(step(lane, toolCall("ToolSearch", { query: "select:mcp__talos__send_poll" }))).toEqual(unchanged(lane));
-  });
-});
-
 describe("2. a prose turn runs everything but what its shape leaves out", () => {
-  test.each([
-    ["asking", asking],
-    ["answered", answered],
-  ])("a background sub-agent's tools keep running while %s", (_name, lane) => {
-    expect(step(lane, toolCall("Bash", { command: "ls" }, true))).toEqual(unchanged(lane));
-  });
   test.each([
     ["no ask", NO_LANE],
     ["an ask queued", queued],
   ])("%s lets other tools through and denies a kind only asked for", (_name, lane) => {
-    expect(step(lane, bash)).toEqual(unchanged(lane));
+    expect(onlyTool(lane)).toBeNull();
     expect(step(lane, send(POLL))).toEqual(unchanged(lane, "deny"));
     expect(step(lane, send(TALLY))).toEqual(unchanged(lane, "deny"));
   });
@@ -93,6 +79,10 @@ describe("2. a prose turn runs everything but what its shape leaves out", () => 
 describe("3. nothing but an answer or the timeout ends an asked-for turn", () => {
   test("the first unanswered Stop is blocked to force the answer", () => {
     expect(step(asking, { type: "stop" })).toEqual(unchanged(askingForced, "block"));
+  });
+  test("a Stop with no ask, or queued, isn't sent back", () => {
+    expect(step(NO_LANE, { type: "stop" })).toEqual(unchanged(NO_LANE));
+    expect(step(queued, { type: "stop" })).toEqual(unchanged(queued));
   });
   test("a later unanswered Stop goes through, but the turn stays open", () => {
     expect(step(askingForced, { type: "stop" })).toEqual(unchanged(askingForced));
@@ -110,7 +100,7 @@ describe("3. nothing but an answer or the timeout ends an asked-for turn", () =>
   });
   test("the person typing ends an unanswered turn, so their message's tools run", () => {
     expect(step(askingForced, { type: "person-typed", isTurnChanging: true })).toEqual({ lane: NO_LANE, decision: "", ask: "no-response", typed: null });
-    expect(step(NO_LANE, bash)).toEqual(unchanged(NO_LANE));
+    expect(onlyTool(NO_LANE)).toBeNull();
   });
   test("the person typing after an answer keeps the answer", () => {
     expect(step(answered, { type: "person-typed", isTurnChanging: true })).toEqual(unchanged(NO_LANE));
@@ -127,9 +117,9 @@ describe("3. nothing but an answer or the timeout ends an asked-for turn", () =>
   test("any key ends a queued ask, so a draft isn't sent with the request", () => {
     expect(step(queued, { type: "person-typed", isTurnChanging: false }).lane).toEqual(NO_LANE);
   });
-  test("a Stop after the answer doesn't end it: a session can forge one mid-turn", () => {
+  test("a Stop after the answer doesn't end it: the turn may still be running", () => {
     expect(step(answered, { type: "stop" })).toEqual(unchanged(answered));
-    expect(step(answered, bash)).toEqual(unchanged(answered, "deny"));
+    expect(onlyTool(answered)).toBe(mcpToolName(POLL.toolName));
   });
   test("the turn ends once it's over and the screen has settled", () => {
     expect(step(answered, { type: "settled", hasDraft: false })).toEqual(unchanged(NO_LANE));
@@ -137,15 +127,15 @@ describe("3. nothing but an answer or the timeout ends an asked-for turn", () =>
 });
 
 describe("4. an answer is only this session's own, in its turn", () => {
-  test("a valid answer is allowed with a fresh id, and stays pending until it goes through", () => {
+  test("a valid answer is taken with a fresh id, which its reply names", () => {
     const result = stepLane(asking, send(POLL, "yes"), NOW, CATALOG);
     expect(step(asking, send(POLL, "yes"))).toEqual(unchanged(asking, "allow"));
-    expect(JSON.parse(result.hookReply).hookSpecificOutput.updatedInput).toEqual({ text: "yes", id: OUTPUT_ID });
+    expect(result.reply).toEqual({ result: `Recorded as ${OUTPUT_ID}.` });
     expect(result.sent).toEqual({ id: OUTPUT_ID, toolUseId: "tu-1", kind: "poll", fields: { text: "yes" }, atMs: NOW, waits: false });
   });
   test("it answers the turn once it goes through", () => {
     const sent = stepLane(asking, send(POLL, "yes"), NOW, CATALOG).sent!;
-    const result = stepLane(asking, { type: "went-through", output: sent }, NOW, CATALOG);
+    const result = stepLane(asking, { type: "taken", output: sent }, NOW, CATALOG);
     expect(result.lane).toEqual(answered);
     expect(result.askChange).toEqual({ kind: "poll", state: "answered", atMs: NOW, latest: { text: "yes" } });
   });
@@ -154,14 +144,17 @@ describe("4. an answer is only this session's own, in its turn", () => {
   });
   test("a later answer in the same turn replaces the first", () => {
     const sent = stepLane(answered, send(POLL, "no"), NOW, CATALOG).sent!;
-    expect(stepLane(answered, { type: "went-through", output: sent }, NOW, CATALOG).askChange?.latest).toEqual({ text: "no" });
+    expect(stepLane(answered, { type: "taken", output: sent }, NOW, CATALOG).askChange?.latest).toEqual({ text: "no" });
   });
   test("another kind going through doesn't answer it", () => {
     const sent = stepLane(NO_LANE, send(NOTE, "x"), NOW, CATALOG).sent!;
-    expect(stepLane(asking, { type: "went-through", output: sent }, NOW, CATALOG).askChange).toBeNull();
+    expect(stepLane(asking, { type: "taken", output: sent }, NOW, CATALOG).askChange).toBeNull();
   });
   test("a sub-agent's answer is denied and not recorded", () => {
     expect(step(asking, send(POLL, "forged", true))).toEqual(unchanged(asking, "deny"));
+  });
+  test("a tool talos doesn't have is denied", () => {
+    expect(step(NO_LANE, toolCall(mcpToolName("nope")))).toEqual(unchanged(NO_LANE, "deny"));
   });
 });
 
@@ -174,7 +167,7 @@ describe("5. a bad or missing answer fails safe", () => {
   });
   test("an unanswered turn becomes no-response at the timeout, but stays limited until it settles", () => {
     expect(step(asking, { type: "tick" }, NOW + SESSION_LIMITS.askTimeoutMs + 1)).toEqual({ lane: answered, decision: "", ask: "no-response", typed: null });
-    expect(step(answered, bash, NOW + SESSION_LIMITS.askTimeoutMs + 2)).toEqual(unchanged(answered, "deny"));
+    expect(onlyTool(answered)).not.toBeNull();
   });
   test("a queued ask waits for long work to finish", () => {
     expect(step(queued, { type: "tick" }, NOW + SESSION_LIMITS.queuedAskTimeoutMs)).toEqual(unchanged(queued));
@@ -213,21 +206,21 @@ describe("an optional output in a prose turn", () => {
     ["an ask queued", queued],
   ])("may be sent (%s): allowed with an id, lane unchanged, no ask touched", (_name, lane) => {
     const result = stepLane(lane, send(NOTE, "which?"), NOW, CATALOG);
-    expect(decisionOf(result.hookReply)).toBe("allow");
+    expect(result.reply).toEqual({ result: `Asked as ${OUTPUT_ID}. End your turn and wait.` });
     expect(result.sent).toEqual({ id: OUTPUT_ID, toolUseId: "tu-1", kind: "note", fields: { text: "which?" }, atMs: NOW, waits: true });
     expect(result.lane).toEqual(lane);
     expect(result.askChange).toBeNull();
   });
   test("a sub-agent may not send one: it isn't the session asking", () => {
     const result = stepLane(NO_LANE, send(NOTE, "x", true), NOW, CATALOG);
-    expect(decisionOf(result.hookReply)).toBe("deny");
+    expect(decisionOf(result.reply)).toBe("deny");
     expect(result.sent).toBeNull();
   });
   test("fields its kind turns down are denied", () => {
-    expect(decisionOf(stepLane(NO_LANE, send(NOTE, 5), NOW, CATALOG).hookReply)).toBe("deny");
+    expect(decisionOf(stepLane(NO_LANE, send(NOTE, 5), NOW, CATALOG).reply)).toBe("deny");
   });
   test("fields too big for the session list are denied", () => {
-    expect(decisionOf(stepLane(NO_LANE, send(NOTE, "x".repeat(SESSION_LIMITS.maxOutputFieldsBytes)), NOW, CATALOG).hookReply)).toBe("deny");
+    expect(decisionOf(stepLane(NO_LANE, send(NOTE, "x".repeat(SESSION_LIMITS.maxOutputFieldsBytes)), NOW, CATALOG).reply)).toBe("deny");
   });
 });
 
@@ -242,93 +235,28 @@ describe("commands only come through prose", () => {
     ["a Hangul filler before a command", "\u3164/clear"],
     ["a soft hyphen before a command", "\u00ad/clear"],
   ])("a typed-in field holding %s is turned down", (_name, text) => {
-    expect(decisionOf(stepLane(NO_LANE, send(NOTE, text), NOW, CATALOG).hookReply)).toBe("deny");
+    expect(decisionOf(stepLane(NO_LANE, send(NOTE, text), NOW, CATALOG).reply)).toBe("deny");
   });
   test("each item of a typed-in list is checked", () => {
     const listKind = kindOf("list", { typedFields: { items: { allowCommands: false } }, readFields: (input) => input as Record<string, unknown> });
     const catalog: Catalog = { kinds: [listKind], proseTurn: { output: "prose", optional: ["list"] } };
     const call = (items: unknown) => toolCall(mcpToolName(listKind.toolName), { items });
-    expect(decisionOf(stepLane(NO_LANE, call(["fine", "also fine"]), NOW, catalog).hookReply)).toBe("allow");
-    expect(decisionOf(stepLane(NO_LANE, call(["fine", "/clear"]), NOW, catalog).hookReply)).toBe("deny");
-    expect(decisionOf(stepLane(NO_LANE, call([5]), NOW, catalog).hookReply)).toBe("deny");
+    expect(decisionOf(stepLane(NO_LANE, call(["fine", "also fine"]), NOW, catalog).reply)).toBe("allow");
+    expect(decisionOf(stepLane(NO_LANE, call(["fine", "/clear"]), NOW, catalog).reply)).toBe("deny");
+    expect(decisionOf(stepLane(NO_LANE, call([5]), NOW, catalog).reply)).toBe("deny");
   });
   test("a field that allows commands, or isn't typed in, may hold one", () => {
     const shown = kindOf("shown", { requestText: "Show." });
-    expect(decisionOf(stepLane({ ...asking, output: "shown" }, toolCall(mcpToolName(shown.toolName), { text: "see /tmp/log" }), NOW, { ...CATALOG, kinds: [shown] }).hookReply)).toBe("allow");
-  });
-});
-
-describe("readLaneEvent", () => {
-  test.each([
-    ["a tool call", { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "tu-1" }, bash],
-    ["a sub-agent's tool call", { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "tu-1", agent_id: "a1" }, { ...bash, isSubagent: true }],
-    ["a Stop", { hook_event_name: "Stop", stop_hook_active: true }, { type: "stop" }],
-    ["a submitted prompt", { hook_event_name: "UserPromptSubmit", prompt: "hi" }, null],
-    ["another event", { hook_event_name: "PostToolUse" }, null],
-    ["not an object", 5, null],
-  ] as [string, unknown, LaneEvent | null][])("%s", (_name, hookDetails, expected) => {
-    expect(readLaneEvent(hookDetails, OUTPUT_ID)).toEqual(expected);
-  });
-});
-
-describe("hookReplyWhenRunnerUnreachable", () => {
-  test.each([
-    ["a known structured tool", mcpToolName(POLL.toolName)],
-    ["any tool under talos's name", mcpToolName("anything")],
-  ])("denies %s: nothing would record it", (_name, toolName) => {
-    expect(decisionOf(hookReplyWhenRunnerUnreachable({ hook_event_name: "PreToolUse", tool_name: toolName }))).toBe("deny");
-  });
-  test.each([
-    ["another tool", { hook_event_name: "PreToolUse", tool_name: "Bash" }],
-    ["a Stop", { hook_event_name: "Stop" }],
-    ["unreadable details", null],
-  ] as [string, unknown][])("lets %s through", (_name, hookDetails) => {
-    expect(hookReplyWhenRunnerUnreachable(hookDetails)).toBe("");
-  });
-});
-
-describe("hookReplyFromRunner", () => {
-  const structuredCall = { hook_event_name: "PreToolUse", tool_name: mcpToolName(POLL.toolName) };
-  test("a structured call runs only on an explicit allow with an id", () => {
-    const allowed = stepLane(asking, send(POLL, "yes"), NOW, CATALOG).hookReply;
-    expect(hookReplyFromRunner(structuredCall, allowed)).toBe(allowed);
-  });
-  test.each([
-    ["no reply (a bad token or an error)", ""],
-    ["an allow with no id", JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } })],
-    ["nonsense", "{"],
-  ])("%s denies a structured call", (_name, reply) => {
-    expect(decisionOf(hookReplyFromRunner(structuredCall, reply))).toBe("deny");
-  });
-  test("other tools keep the runner's reply, even none", () => {
-    expect(hookReplyFromRunner({ hook_event_name: "PreToolUse", tool_name: "Bash" }, "")).toBe("");
-  });
-});
-
-describe("hookReplyWhenTooBig", () => {
-  test("denies any tool call talos couldn't read", () => {
-    expect(decisionOf(hookReplyWhenTooBig({ hook_event_name: "PreToolUse", tool_name: "Bash" }))).toBe("deny");
-  });
-  test("leaves other events alone", () => {
-    expect(hookReplyWhenTooBig({ hook_event_name: "Stop" })).toBe("");
+    expect(decisionOf(stepLane({ ...asking, output: "shown" }, toolCall(mcpToolName(shown.toolName), { text: "see /tmp/log" }), NOW, { ...CATALOG, kinds: [shown] }).reply)).toBe("allow");
   });
 });
 
 describe("edges the lane must hold", () => {
-  const structuredCall = { hook_event_name: "PreToolUse", tool_name: mcpToolName(POLL.toolName) };
-  test("hookReplyFromRunner denies an allow whose id is empty", () => {
-    const emptyId = JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { id: "" } } });
-    expect(decisionOf(hookReplyFromRunner(structuredCall, emptyId))).toBe("deny");
-  });
-  test("hookReplyFromRunner passes a Stop's block through unchanged", () => {
-    const block = JSON.stringify({ decision: "block", reason: "Call send_poll before finishing." });
-    expect(hookReplyFromRunner({ hook_event_name: "Stop" }, block)).toBe(block);
-  });
   test("a typed field holding a list with something other than text is denied", () => {
     const LIST = kindOf("list", { readFields: (toolInput) => toolInput as Record<string, unknown>, typedFields: { items: { allowCommands: false } } });
     const listCatalog: Catalog = { kinds: [LIST], proseTurn: { output: "prose", optional: ["list"] } };
     const call = toolCall(mcpToolName(LIST.toolName), { items: ["fine", 5] });
-    expect(decisionOf(stepLane(NO_LANE, call, NOW, listCatalog).hookReply)).toBe("deny");
+    expect(decisionOf(stepLane(NO_LANE, call, NOW, listCatalog).reply)).toBe("deny");
   });
   test("fields at the size limit are allowed, and one byte over is denied", () => {
     const sizedText = (bytes: number) => "x".repeat(bytes - JSON.stringify({ text: "" }).length);
@@ -349,6 +277,6 @@ test.each([["a list", ["a"]], ["a string", "hi"], ["true", true], ["a number", 5
   (_name, fields) => {
     const odd = kindOf("note", { readFields: () => fields as never });
     const catalog: Catalog = { kinds: [odd], proseTurn: { output: "prose", optional: ["note"] } };
-    expect(decisionOf(stepLane(NO_LANE, send(odd), NOW, catalog).hookReply)).toBe("deny");
+    expect(decisionOf(stepLane(NO_LANE, send(odd), NOW, catalog).reply)).toBe("deny");
   },
 );

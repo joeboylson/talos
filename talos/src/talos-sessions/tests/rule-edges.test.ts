@@ -1,7 +1,7 @@
 // The edges of the rules that a plausible slip in the code would get past the
 // other tests: each fails if its rule is broken the way its name says.
 import { describe, expect, test } from "bun:test";
-import { NO_OUTPUTS, NO_PLACING, placeOutputs, stepOutputs, type Outputs, type PendingOutput } from "../lanes/outputs";
+import { NO_OUTPUTS, NO_PLACING, placeOutputs, stepOutputs, type Outputs, type TakenOutput } from "../lanes/outputs";
 import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
 import { NO_LANE, stepLane, type Lane } from "../lanes/lane";
 import { SESSION_LIMITS } from "../limits";
@@ -11,9 +11,9 @@ import { capDroppedMarkers, mergeSessionEntries, readSessionList, type SessionEn
 import { mcpToolName, type Catalog, type OutputKind } from "../kinds";
 
 const keys = (text: string) => new TextEncoder().encode(text);
-const pending = (id: string, waits = true): PendingOutput => ({ id, toolUseId: `tu-${id}`, kind: "pick", fields: {}, atMs: 0, waits });
+const pending = (id: string, waits = true): TakenOutput => ({ id, toolUseId: `tu-${id}`, kind: "pick", fields: {}, atMs: 0, waits });
 const run = (events: Parameters<typeof stepOutputs>[1][], from: Outputs = NO_OUTPUTS) => events.reduce((o, e) => stepOutputs(o, e).outputs, from);
-const open = (id: string) => [{ type: "sent" as const, output: pending(id) }, { type: "went-through" as const, toolUseId: `tu-${id}`, toolInput: { id } }];
+const open = (id: string) => [{ type: "sent" as const, output: pending(id) }];
 
 const objectOrNull = (value: unknown) => (typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null);
 const kindOf = (kind: string, extra: Partial<OutputKind>): OutputKind => ({ kind, toolName: `send_${kind}`, description: kind, inputSchema: { type: "object" }, readFields: objectOrNull, badInputReason: "bad", typedFields: {}, waits: false, ...extra });
@@ -24,31 +24,21 @@ const CATALOG: Catalog = { kinds: [POLL, PICK], proseTurn: { output: "prose", op
 describe("outputs", () => {
   test("a talos turn's end doesn't close a question (flag must be read from the start)", () => {
     // person turn asks a; person turn ends (turn 1); talos turn starts and ends: a stays open.
-    const outputs = run([{ type: "turn-started", isTalosTurn: false }, ...open("a"), { type: "turn-ended" }, { type: "turn-started", isTalosTurn: true }, { type: "turn-ended" }]);
+    const outputs = run([{ type: "turn-started", isPersonTurn: true }, ...open("a"), { type: "turn-ended" }, { type: "turn-started", isPersonTurn: false }, { type: "turn-ended" }]);
     expect(outputs.open.map(({ id }) => id)).toEqual(["a"]);
   });
   test("a question sent in a talos turn (an answer) isn't closed by the person's next turn's end", () => {
-    const outputs = run([{ type: "turn-started", isTalosTurn: true }, ...open("a"), { type: "turn-ended" }, { type: "turn-started", isTalosTurn: false }, { type: "turn-ended" }]);
+    const outputs = run([{ type: "turn-started", isPersonTurn: false }, ...open("a"), { type: "turn-ended" }, { type: "turn-started", isPersonTurn: true }, { type: "turn-ended" }]);
     expect(outputs.open.map(({ id }) => id)).toEqual(["a"]);
   });
   test("a question asked this turn closes at the end of the person's next turn", () => {
-    const outputs = run([{ type: "turn-started", isTalosTurn: false }, ...open("a"), { type: "turn-ended" }, { type: "turn-started", isTalosTurn: false }, { type: "turn-ended" }]);
+    const outputs = run([{ type: "turn-started", isPersonTurn: true }, ...open("a"), { type: "turn-ended" }, { type: "turn-started", isPersonTurn: true }, { type: "turn-ended" }]);
     expect(outputs.open).toEqual([]);
-  });
-  test("past maxOutputsInFlight the oldest call is dropped, and up to the cap are kept", () => {
-    const sent = Array.from({ length: SESSION_LIMITS.maxOutputsInFlight + 1 }, (_, i) => ({ type: "sent" as const, output: pending(`p${i}`) }));
-    const outputs = run(sent);
-    expect(outputs.pending.length).toBe(SESSION_LIMITS.maxOutputsInFlight);
-    expect(outputs.pending[0].id).toBe("p1");
   });
   test("past maxOpenOutputs the oldest open output closes", () => {
     const events = Array.from({ length: SESSION_LIMITS.maxOpenOutputs + 1 }, (_, i) => open(`q${i}`)).flat();
     const outputs = run(events);
     expect(outputs.open[0].id).toBe("q1");
-  });
-  test("a call whose id was replaced is dropped, so a later PostToolUse can't open it", () => {
-    const outputs = run([{ type: "sent", output: pending("a") }, { type: "went-through", toolUseId: "tu-a", toolInput: { id: "x" } }]);
-    expect(outputs.pending).toEqual([]);
   });
   test("past maxWaitingPlaces the oldest place is dropped", () => {
     const places = Array.from({ length: SESSION_LIMITS.maxWaitingPlaces + 1 }, (_, i) => ({ toolUseId: `tu-w${i}`, position: i }));
@@ -89,15 +79,15 @@ describe("held", () => {
 describe("lane", () => {
   const asking: Lane = { stage: "asking", output: "poll", askedAtMs: 0, hasForcedStop: false };
   test("answering doesn't restart the long backstop", () => {
-    const answered = stepLane(asking, { type: "went-through", output: { ...pending("a"), kind: "poll" } }, 5_000, CATALOG).lane;
+    const answered = stepLane(asking, { type: "taken", output: { ...pending("a"), kind: "poll" } }, 5_000, CATALOG).lane;
     expect(stepLane(answered, { type: "tick" }, SESSION_LIMITS.queuedAskTimeoutMs + 1, CATALOG).lane).toEqual(NO_LANE);
   });
   test("another kind going through doesn't answer the ask", () => {
-    expect(stepLane(asking, { type: "went-through", output: pending("a") }, 1, CATALOG).lane.stage).toBe("asking");
+    expect(stepLane(asking, { type: "taken", output: pending("a") }, 1, CATALOG).lane.stage).toBe("asking");
   });
   test("a sub-agent's structured call is denied", () => {
-    const step = stepLane(NO_LANE, { type: "pre-tool-use", toolName: mcpToolName(PICK.toolName), toolInput: { choices: ["Yes"] }, isSubagent: true, toolUseId: "tu", outputId: "a" }, 0, CATALOG);
-    expect(step.hookReply).toContain("deny");
+    const step = stepLane(NO_LANE, { type: "tool-call", toolName: mcpToolName(PICK.toolName), toolInput: { choices: ["Yes"] }, isSubagent: true, toolUseId: "tu", outputId: "a" }, 0, CATALOG);
+    expect(step.reply).toEqual({ deny: expect.any(String) });
   });
 });
 

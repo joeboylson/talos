@@ -64,6 +64,7 @@ export const stepFactView = (view: FactView, fact: Fact): FactView => {
       return { ...view, waitingPermissions: view.waitingPermissions.filter((ask) => ask.toolUseId !== toolUseId) };
     case "session-end":
     case "submit-done":
+    case "transcript":
       return view;
   }
 };

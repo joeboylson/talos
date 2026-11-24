@@ -70,14 +70,15 @@ something.
   passes commands on to the session runner. It restarts freely (on every save,
   in development).
 - **session runner**: the background program on each machine that keeps the
-  sessions running, answers their hooks and reads their conversations. It
+  sessions running, answers their mods and reads their conversations. It
   outlives `talos` restarts. In code, "runner" is short for it.
-- **hook**: a check Claude Code makes with the session runner at set moments,
-  such as before each tool runs and when a turn stops. The session runner's
-  answer can allow or deny the tool, or keep the turn going.
+- **hook**: code Claude Code runs at set moments, such as before each tool
+  runs and when a turn stops. talos's hooks are its mod's: through them the
+  session runner allows or denies a tool, or keeps a turn going.
 - **mod**: talos's plugin with code that runs inside every session's Claude
-  Code. It tells the session runner what Claude Code is doing and sends the
-  session its messages. Its code lives in `talos-sessions/mod/`.
+  Code. It tells the session runner what Claude Code is doing, gives the
+  session talos's structured tools, and sends the session its messages. Its
+  code lives in `talos-sessions/mod/`.
 - **link**: the connection between a session's mod and the session runner.
   The mod sends facts over it; the runner sends messages back.
 - **helper**: the small program the mod starts so the session runner can

@@ -1,4 +1,4 @@
-// The caps and safety timeouts the session runner and its hooks keep, in one place.
+// The caps and safety timeouts the session runner keeps, in one place.
 
 // The module's own copies of limits talos-shared also checks. A talos test
 // (session-limits.test.ts) fails if a copy drifts from talos-shared's value.
@@ -27,11 +27,6 @@ const LIMITS = COPIED_LIMITS;
 
 export const SESSION_LIMITS = {
   ...COPIED_LIMITS,
-  // A hook request is parsed synchronously on the session runner's one thread, so cap it:
-  // a session can't send a huge body that JSON.parse blocks on for seconds (which
-  // would make every other session's hook time out and fail open). Real hook requests
-  // are small; this leaves generous room for a large tool input.
-  maxHookBodyBytes: 4 * 1024 * 1024,
   // Most a single transcript poll reads and parses at once, so one session's large
   // transcript is drained over several polls instead of blocking the session runner in one go.
   // It must hold one whole line, and a prompt's line carries its images.
@@ -52,23 +47,16 @@ export const SESSION_LIMITS = {
   // Rapid session state and ask changes collapse into one roster broadcast per this
   // window, so a session flapping its state can't flood the runner → talos uplink.
   sessionsBroadcastCoalesceMs: 100,
-  // The hook script must never hold Claude up. A hook connection that hasn't
-  // sent its whole request in this time is closed too, so idle ones can't pile up.
-  hookTimeoutMs: 2000,
-  // Hook connections the session runner holds at once; past it, the oldest is closed.
-  // Well under the session runner's own file limit, so a flood of connections can't use
-  // up the files it needs for the control socket and sessions.
-  maxHookConnections: 256,
   // Open files each Claude session (and everything it starts) may have: plenty
   // for real work, and it can't be raised from inside, so one session can't open
   // enough connections to use up the session runner's.
   maxSessionOpenFiles: 2048,
-  // Outputs a session has in flight (allowed, not yet in the conversation). Well
-  // past maxOpenOutputs, since one message can send many at once; each carries
-  // its fields, so not unbounded.
+  // Outputs taken that wait for their call to be read from the conversation.
+  // Well past maxOpenOutputs, since one message can send many at once; each
+  // carries its fields, so not unbounded.
   maxOutputsInFlight: 100,
   // Calls read from the conversation that wait for their output. Each is only an
-  // id and a number, and calls that never go through (denied, failed) wait too.
+  // id and a number, and calls that were denied wait too.
   maxWaitingPlaces: 500,
   // Images kept per session: the newest, since Claude Code reads one when it's
   // pasted; the rest go once there are more.
@@ -78,14 +66,12 @@ export const SESSION_LIMITS = {
   draftForgetMs: 60_000,
   // The runner's log is moved to runner.log.1 past this, when a runner starts.
   maxRunnerLogBytes: 10 * 1024 * 1024,
-  // A hook with a bad token is logged at most this often, so a flood can't fill the log.
-  badTokenLogEveryMs: 1000,
   // Most a session's open outputs add to the session list it sends.
   maxSummaryOutputsBytes: 32 * 1024,
   // The file that keeps items dropped for failing their check.
   maxQuarantineBytes: 1024 * 1024,
   // A session whose Claude Code hasn't reported its start by this long after it
-  // was spawned is shown as needing the person (a screen before its hooks run,
+  // was spawned is shown as needing the person (a screen before its mod loads,
   // like a dialog to approve a folder's MCP servers).
   startLongestWaitMs: 60_000,
   // An asked-for turn that goes unanswered this long becomes "no response".
@@ -94,8 +80,8 @@ export const SESSION_LIMITS = {
   // enough for real work, short enough that a session stuck waiting on the person
   // doesn't block asks for good.
   queuedAskTimeoutMs: 30 * 60_000,
-  // A post from a session's mod is parsed on the runner's one thread, like a
-  // hook, so it's capped the same way; a prompt's text is the big part.
+  // A post from a session's mod is parsed on the runner's one thread, so it's
+  // capped: a prompt's text or a tool call's input is the big part.
   maxLinkBodyBytes: 4 * 1024 * 1024,
   maxFactsPerPost: 200,
   // The runner writes to each helper this often, so a helper that's gone shows

@@ -19,15 +19,12 @@ import {
   PINNED_CLAUDE_CODE_VERSION,
   RUNNER_SOCKET_MODE,
   steadyNow,
-  TALOS_MCP_SERVER_KEY,
-  TOOLS_SERVER_SCRIPT,
   TRANSCRIPT_CHECK_MS,
 } from "../constants";
 import { pinClaudeCode } from "../claude/pinned-claude";
 import { linkServeOptions, sendHeartbeats } from "./link-server";
 import { snapshotMod } from "./mod-snapshot";
 import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } from "./control-server";
-import { startHookServer } from "./hook-server";
 import { log, paths, useRunnerInputs, type RunnerInputs } from "./inputs";
 import { applyLaneEvent } from "./session-state";
 import { heldSessions, runnerState, trustChanges as keptTrustChanges, updateHeldSession } from "./store";
@@ -155,7 +152,7 @@ const pinClaudeCodeOrRefuse = (pinnedFolder: string): readonly string[] => {
 export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   checkCatalog({ kinds: inputs.kinds, proseTurn: inputs.proseTurn });
   useRunnerInputs(inputs);
-  const { home, runnerSocket, hooksSocket, linkSocket, mcpConfig, runnerLock, trustChanges, modSnapshots, pinnedClaudeCode } = paths();
+  const { home, runnerSocket, linkSocket, runnerLock, trustChanges, modSnapshots, pinnedClaudeCode } = paths();
   await claimHome(home);
   if (!takeRunnerLock(runnerLock)) {
     log.event("runner: another session runner holds this home; leaving it be");
@@ -177,18 +174,10 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   // A stop from the system (logout, kill) ends the sessions and puts trust back,
   // the same as stopRunner.
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(signal, () => void stopRunner());
-  await Promise.all([rm(runnerSocket, { force: true }), rm(hooksSocket, { force: true }), rm(linkSocket, { force: true })]);
-  // The MCP config that gives every session talos's structured tools.
-  await Bun.write(
-    mcpConfig,
-    JSON.stringify({ mcpServers: { [TALOS_MCP_SERVER_KEY]: { command: process.execPath, args: [TOOLS_SERVER_SCRIPT] } } }),
-  );
-  
+  await Promise.all([rm(runnerSocket, { force: true }), rm(linkSocket, { force: true })]);
   Bun.serve(controlServeOptions(runnerSocket) as unknown as Parameters<typeof Bun.serve>[0]);
-  startHookServer(hooksSocket);
   Bun.serve(linkServeOptions(linkSocket) as unknown as Parameters<typeof Bun.serve>[0]);
   await chmod(runnerSocket, RUNNER_SOCKET_MODE);
-  await chmod(hooksSocket, RUNNER_SOCKET_MODE);
   await chmod(linkSocket, RUNNER_SOCKET_MODE);
   setInterval(sendHeartbeats, SESSION_LIMITS.linkHeartbeatMs);
   setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
@@ -196,7 +185,7 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
     if (!holdsLock(runnerLock)) return void stopRunner();
     [...heldSessions.values()]
       .filter(({ hasDraft, draftAtMs }) => hasDraft && steadyNow() - draftAtMs > SESSION_LIMITS.draftForgetMs)
-      .forEach(({ summary, hookToken }) => updateHeldSession(summary.sessionName, hookToken, { hasDraft: false }));
+      .forEach(({ summary, heldId }) => updateHeldSession(summary.sessionName, heldId, { hasDraft: false }));
     [...heldSessions.keys()].forEach((sessionName) => applyLaneEvent(sessionName, { type: "tick" }));
   }, ASK_CHECK_MS);
   log.event(`runner: listening on ${runnerSocket}`);

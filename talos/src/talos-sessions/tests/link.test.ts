@@ -4,8 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectToSessions, type RunnerEvent, type SessionSummary } from "../index";
 
-// The real session runner and the fake Claude, which links as talos's mod does
-// and runs the mod's real helper.
+// The real session runner and the fake Claude, which links as talos's mod does.
 const home = mkdtempSync(join(tmpdir(), "talos-link-"));
 // A mod quiet for 2 s counts as gone, so a test can see it.
 process.env.FAKE_LINK_SILENCE_MS = "2000";
@@ -52,33 +51,18 @@ test("a session's mod checks in and its link shows as up", async () => {
   await waitUntil(() => linkOf("linked") === "linked", "the check-in");
 });
 
-test("a session whose helper is gone shows its link lost, and keeps running", async () => {
-  const folder = await startIn("helperless", "helperless");
-  await waitUntil(() => linkOf("helperless") === "linked", "the check-in");
-  await waitUntil(() => {
-    try {
-      return readFileSync(join(folder, "helper.pid"), "utf8").length > 0;
-    } catch {
-      return false;
-    }
-  }, "the helper");
-  process.kill(Number(readFileSync(join(folder, "helper.pid"), "utf8")), "SIGKILL");
-  await waitUntil(() => linkOf("helperless") === "lost", "the link to be lost", 15_000);
-  expect(sessions.some((session) => session.sessionName === "helperless")).toBe(true);
-  // Messages still go in; an ask needs the mod, which is gone.
-  expect(await calls.send("helperless", "hello")).toEqual({ ok: true });
-  expect(await calls.ask("helperless", "status")).toMatchObject({ ok: false, code: "link-lost" });
-}, 20_000);
-
 test("a second check-in, from a mod that started over, loses the link", async () => {
   await startIn("relinked", "relink");
   await waitUntil(() => linkOf("relinked") === "lost", "the second check-in");
 });
 
-test("a session whose mod goes quiet shows its link lost", async () => {
+test("a session whose mod goes quiet shows its link lost, and still takes messages but not asks", async () => {
   await startIn("quiet", "quiet");
   await waitUntil(() => linkOf("quiet") === "linked", "the check-in");
   await waitUntil(() => linkOf("quiet") === "lost", "the link to be lost", 15_000);
+  expect(sessions.some((session) => session.sessionName === "quiet")).toBe(true);
+  expect(await calls.send("quiet", "hello")).toEqual({ ok: true });
+  expect(await calls.ask("quiet", "status")).toMatchObject({ ok: false, code: "link-lost" });
 }, 20_000);
 
 test("a session that keeps sending word keeps its link", async () => {

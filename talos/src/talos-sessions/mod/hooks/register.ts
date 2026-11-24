@@ -1,119 +1,45 @@
-// talos's mod: checks in with the session runner when the session starts, then
-// reports what Claude Code does as numbered facts. The runner reaches it back
-// through the helper (../helper.ts). See talos-sessions/link/link-protocol.ts
-// for the other side; the names here are copies of its.
+// talos's mod: checks in with the session runner when the session starts,
+// gives the session talos's tools, and asks the runner about each tool call
+// and each Stop. Everything else talos needs comes on Claude Code's own
+// stream. See talos-sessions/link/link-protocol.ts for the other side; the
+// names here are copies of its.
 import type { EngineInterface, Register } from 'claude-code'
 
-const ROUTES = { checkIn: 'http://talos/check-in', facts: 'http://talos/facts', toolCall: 'http://talos/tool-call', toolCheck: 'http://talos/tool-check', stop: 'http://talos/stop' }
-// talos's own tools: Claude Code names a mod's tool mcp__<mod>__<name>.
-const TOOL_PREFIX = 'mcp__talos__'
+const ROUTES = {
+  checkIn: 'http://talos/check-in',
+  heartbeat: 'http://talos/heartbeat',
+  toolCall: 'http://talos/tool-call',
+  toolCheck: 'http://talos/tool-check',
+  stop: 'http://talos/stop',
+}
+// The runner counts a mod it hasn't heard from in a while as gone: a hook
+// stuck in a loop leaves the mod dead while the session runs on.
+const HEARTBEAT_MS = 5000
 // How long a guard waits on the runner before it decides alone.
 const GUARD_WAIT_MS = 2000
 const NOT_RECORDED = "talos can't record that right now."
 // What a tool call carries beside the tool's own fields.
 const CALL_KEYS = ['tool', 'tool_use_id', 'consent', 'agentId', 'requestMeta']
-const RETRY_MS = 1000
-// The runner counts a mod it hasn't heard from in a while as gone: a hook
-// stuck in a loop leaves the mod dead while its helper stays up.
-const HEARTBEAT_MS = 5000
-// Prompts kept to match to their turns; one that never starts a turn ages out.
-const MAX_PENDING_PROMPTS = 20
-// The runner turns down a bigger post (SESSION_LIMITS.maxFactsPerPost).
-const MAX_FACTS_PER_POST = 200
 
 // Kept in the module, not $.state: other mods can read $.state. A reload
 // starts these over. The token is gone from the env by then, so the new copy
-// can't check in, and the runner sees the old helper's stream close: the link
-// is lost.
+// can't check in, and the runner hears nothing more: the link is lost.
 let socketPath = ''
 let secret = ''
-let sentSeq = 0
-let unacked: Fact[] = []
-let isSending = false
-let lastSessionId = ''
-// Prompts submitted but not yet started, with who sent each, so a turn can say
-// who started it (see TURN_STARTERS in link-protocol.ts).
-let pendingPrompts: { text: string; startedBy: TurnStarter }[] = []
-// Tool calls whose permission prompt shows, so their end can be reported and
-// an answer from the page can reach their dialog: each with its tool and
-// input (the dialog's hook gets no call id), and, once its dialog shows, how
-// to answer it (null: the call settled some other way).
-type WaitingPermission = { toolUseId: string; tool: string; inputKey: string; answer?: (decision: PermissionDecision | null) => void }
-type PermissionDecision = { behavior: 'allow' } | { behavior: 'deny'; message: string }
-let waitingPermissions: WaitingPermission[] = []
-// The main conversation's running turn, for an interrupt from the page.
-let runningTurnId: string | null = null
 
-type TurnStarter = 'person' | 'talos' | 'self'
-
-type Fact = { seq: number; type: string; atMs: number; sessionId: string; details: Record<string, unknown> }
 type Calls = EngineInterface
 
-const post = (path: string, body: unknown, headers: Record<string, string> = {}) => ({
+const post = (body: unknown) => ({
   method: 'POST',
   socketPath,
-  headers: { 'content-type': 'application/json', ...headers },
+  headers: { 'content-type': 'application/json', ...(secret && { authorization: `Bearer ${secret}` }) },
   body: JSON.stringify(body),
 })
 
-// The seq the runner acked, or null for a reply that isn't one.
-const readAcked = (text: string): number | null => {
-  try {
-    const acked = Number(JSON.parse(text).acked)
-    return Number.isSafeInteger(acked) ? acked : null
-  } catch {
-    return null
-  }
-}
-
-// Sends the facts not yet acked, oldest first and a post's worth at a time,
-// until none are left. One sender at a time; a failed post is tried again,
-// and a resend is how a gap gets filled.
-const sendFacts = async ($: Calls): Promise<void> => {
-  if (isSending || !secret || unacked.length === 0) return
-  isSending = true
-  const sent = unacked.slice(0, MAX_FACTS_PER_POST)
-  const answer = await $.http
-    .fetch(ROUTES.facts, post(ROUTES.facts, { facts: sent }, { authorization: `Bearer ${secret}` }))
-    .catch(() => null)
-  const acked = answer?.ok ? readAcked(answer.text) : null
-  if (acked !== null) unacked = unacked.filter(fact => fact.seq > acked)
-  isSending = false
-  // Also when nothing was taken: a fact still being made leaves a gap.
-  const isStuck = acked === null || acked < sent[0]!.seq
-  if (isStuck) await $.clock.sleep(RETRY_MS)
-  return sendFacts($)
-}
-
-// The seq is taken at once, in the order the events came, and never lost: a
-// fact whose time or id can't be read goes with the last ones known. The
-// runner takes facts only in seq order, so a gap would hold up every later one.
-const report = ($: Calls, type: string, details: Record<string, unknown>): void => {
-  if (!secret) return
-  sentSeq += 1
-  const seq = sentSeq
-  void Promise.all([$.clock.now(), $.session.id()])
-    .catch(() => [0, lastSessionId] as const)
-    .then(([atMs, sessionId]) => {
-      lastSessionId = sessionId || lastSessionId
-      unacked = [...unacked, { seq, type, atMs, sessionId: sessionId || 'unknown', details }].sort((a, b) => a.seq - b.seq)
-      return sendFacts($)
-    })
-    .catch(() => undefined)
-}
-
-// An empty post: the runner counts it as word from the mod.
-const sendHeartbeat = ($: Calls) => {
-  if (!secret || isSending) return
-  void $.http.fetch(ROUTES.facts, post(ROUTES.facts, { facts: [] }, { authorization: `Bearer ${secret}` })).catch(() => undefined)
-}
-
-// A guard's question to the runner, or null if it doesn't answer in time.
+// A question to the runner, or null if it doesn't answer in time.
 const askRunner = async ($: Calls, route: string, body: unknown): Promise<Record<string, unknown> | null> => {
   if (!secret) return null
-  const asked = $.http
-    .fetch(route, post(route, body, { authorization: `Bearer ${secret}` }))
-    .then(answer => (answer.ok ? (JSON.parse(answer.text) as Record<string, unknown>) : null))
+  const asked = $.http.fetch(route, post(body)).then(answer => (answer.ok ? (JSON.parse(answer.text) as Record<string, unknown>) : null))
   return Promise.race([asked, $.clock.sleep(GUARD_WAIT_MS).then(() => null)]).catch(() => null)
 }
 
@@ -126,89 +52,6 @@ const answerTalosTool = async ($: Calls, e: Record<string, unknown>) => {
   return { deny: typeof answer?.deny === 'string' ? answer.deny : NOT_RECORDED }
 }
 
-const starterOf = (origin: unknown): TurnStarter => {
-  const kind = typeof origin === 'object' && origin !== null ? Reflect.get(origin, 'kind') : undefined
-  if (kind === 'composer' || kind === 'bridge') return 'person'
-  const isTalos = kind === 'plugin' && Reflect.get(origin as object, 'name') === 'talos'
-  return isTalos ? 'talos' : 'self'
-}
-
-// A turn's text is its prompt's: a plugin's submit always gets a turn of its
-// own. A turn no prompt matches, Claude Code started on its own.
-const takeStarter = (text: string): TurnStarter => {
-  const index = pendingPrompts.findIndex(prompt => prompt.text === text)
-  if (index === -1) return 'self'
-  const { startedBy } = pendingPrompts[index]!
-  pendingPrompts = pendingPrompts.filter((_, at) => at !== index)
-  return startedBy
-}
-
-// A submit resolves once its turn starts or Claude Code queues it, or drops
-// with a reason (after Esc: until the person enters something).
-// Claude Code skips a plugin's own hooks for its own calls, so this mod's
-// prompt.submit hook never sees these: the prompt is noted here instead, so
-// its turn says who started it.
-const submit = async ($: Calls, sendId: string, text: string, isPerson: boolean) => {
-  const startedBy: TurnStarter = isPerson ? 'person' : 'talos'
-  pendingPrompts = [...pendingPrompts, { text, startedBy }].slice(-MAX_PENDING_PROMPTS)
-  const submitted = await $.prompt.submit(isPerson ? { text, asUser: true } : { text }).catch((error: unknown) => ({ drop: String(error) }))
-  report($, 'submit-done', { sendId, ...(submitted.drop !== undefined && { drop: submitted.drop }) })
-}
-
-// An abort that fails (the turn ended meanwhile) changes nothing: the turn's
-// own end is reported anyway.
-const DENIED_FROM_PAGE = 'The person said no from the talos page'
-
-// What a tool call would do, in a line, for the page to ask about: its
-// command, its file or its address.
-const SUMMARY_FIELDS = ['command', 'file_path', 'path', 'url', 'pattern', 'description', 'prompt']
-const SUMMARY_LENGTH = 300
-const summaryOf = (input: unknown): string => {
-  if (typeof input !== 'object' || input === null) return ''
-  const telling = SUMMARY_FIELDS.map(field => Reflect.get(input, field)).find((value): value is string => typeof value === 'string' && value.trim() !== '')
-  return (telling ?? '').replace(/\s+/g, ' ').trim().slice(0, SUMMARY_LENGTH)
-}
-const inputKeyOf = (input: unknown): string => JSON.stringify(input ?? null)
-
-const answerPermission = (toolUseId: string, decision: PermissionDecision | null) =>
-  waitingPermissions.find(waiting => waiting.toolUseId === toolUseId)?.answer?.(decision)
-
-const actOn = ($: Calls, line: string) => {
-  const command = JSON.parse(line)
-  if (command.type === 'submit') void submit($, String(command.sendId), String(command.text), command.isPerson === true)
-  if (command.type === 'abort' && runningTurnId) void $.turn.abort({ turnId: runningTurnId }).catch(() => undefined)
-  if (command.type === 'permission-answer') {
-    const decision: PermissionDecision = command.isAllowed === true ? { behavior: 'allow' } : { behavior: 'deny', message: DENIED_FROM_PAGE }
-    answerPermission(String(command.toolUseId), decision)
-  }
-}
-
-// The helper is the runner's way in: it holds a stream open to the runner and
-// writes each command to its output as a line. Output comes in pieces, not
-// lines, so they're joined here. Its loop is its life, so it ends with the
-// session or this module.
-const startHelper = async ($: Calls) => {
-  const bun = await $.env.get('TALOS_BUN')
-  if (!bun) return
-  const helper = $.process.spawn({
-    argv: [bun, `${$.plugin.root}/helper.ts`],
-    env: { TALOS_LINK_SOCKET: socketPath, TALOS_LINK_SECRET: secret },
-  })
-  let unread = ''
-  for await (const { stream, text } of helper) {
-    if (stream !== 'stdout') continue
-    const lines = (unread + text).split('\n')
-    unread = lines.pop() ?? ''
-    lines.filter(line => line.trim()).forEach(line => {
-      try {
-        actOn($, line)
-      } catch {
-        // A line that isn't a command is skipped; the runner sends only whole ones.
-      }
-    })
-  }
-}
-
 const checkIn = async ($: Calls) => {
   const token = await $.env.get('TALOS_LINK_TOKEN')
   socketPath = (await $.env.get('TALOS_LINK_SOCKET')) ?? ''
@@ -219,7 +62,7 @@ const checkIn = async ($: Calls) => {
   const { version } = await $.session.version()
   const answer = await $.http.fetch(
     ROUTES.checkIn,
-    post(ROUTES.checkIn, { token, sessionId: await $.session.id(), version, snapshot: $.plugin.root.split('/').at(-1) }),
+    post({ token, sessionId: await $.session.id(), version, snapshot: $.plugin.root.split('/').at(-1) }),
   )
   if (!answer.ok) return
   const { secret: given, tools } = JSON.parse(answer.text)
@@ -229,68 +72,15 @@ const checkIn = async ($: Calls) => {
   for (const tool of Array.isArray(tools) ? tools : []) {
     await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema, isDeferred: false }).catch(() => undefined)
   }
-  void startHelper($)
-  $.clock.every(HEARTBEAT_MS, () => sendHeartbeat($))
+  $.clock.every(HEARTBEAT_MS, () => void $.http.fetch(ROUTES.heartbeat, post({})).catch(() => undefined))
 }
 
-// Observers call next first, so a slow runner never holds Claude Code up.
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await checkIn($).catch(() => undefined)
-    report($, 'session-start', {})
-    const { transcriptPath } = await $.session.info().catch(() => ({ transcriptPath: '' }))
-    if (transcriptPath) report($, 'transcript', { path: transcriptPath })
     return started
   })
-  // /clear, /resume and the like move the conversation to another file, with
-  // no new session.start.
-  on('classic.SessionStart', async ($, e, next) => {
-    const started = await next(e)
-    if (e.transcript_path) report($, 'transcript', { path: e.transcript_path })
-    return started
-  })
-  on('session.end', async ($, e, next) => {
-    const ended = await next(e)
-    report($, 'session-end', { reason: e.reason })
-    return ended
-  })
-  on('session.stop', async ($, e, next) => {
-    const stopped = await next(e)
-    report($, 'session-stop', { isTurnRunning: e.isTurnRunning })
-    return stopped
-  })
-  // Before next: the turn it starts can begin before next resolves.
-  on('prompt.submit', ($, e, next) => {
-    const startedBy = starterOf(e.origin)
-    pendingPrompts = [...pendingPrompts, { text: e.text, startedBy }].slice(-MAX_PENDING_PROMPTS)
-    report($, 'prompt-submit', { origin: e.origin })
-    return next(e)
-  })
-  on('turn.start', ($, e, next) => {
-    const started = next(e)
-    const startedBy = e.agentId === undefined ? takeStarter(e.text) : 'self'
-    if (e.agentId === undefined) runningTurnId = e.turnId
-    report($, 'turn-start', { turnId: e.turnId, agentId: e.agentId, startedBy })
-    return started
-  })
-  on('turn.complete', async ($, e, next) => {
-    const completed = await next(e)
-    if (e.agentId === undefined) {
-      waitingPermissions.forEach(waiting => waiting.answer?.(null))
-      waitingPermissions = []
-    }
-    if (e.agentId === undefined && runningTurnId === e.turnId) runningTurnId = null
-    report($, 'turn-complete', { turnId: e.turnId, agentId: e.agentId, reason: e.reason })
-    return completed
-  })
-  // An asked-for turn that ends unanswered is sent back once to answer.
-  on('classic.Stop', async ($, e, next) => {
-    const answer = await askRunner($, ROUTES.stop, {})
-    return typeof answer?.block === 'string' ? { block: answer.block } : next(e)
-  }).catch(($, e, next) => next(e))
-  // The verdict is read after next, and nothing waits on the runner: a
-  // tool.check that waits holds the permission dialog back.
   // While talos asks for one kind of answer, the session's own turn may call
   // nothing else: the runner says, at the moment of the call, since its rule
   // changes as a message goes in. A sub-agent already running keeps its
@@ -298,52 +88,21 @@ export const register: Register = on => {
   // slow runner never stops a session's work.
   on('tool.check', async ($, e, next) => {
     const check = e.agentId === undefined ? await askRunner($, ROUTES.toolCheck, { tool: e.tool }) : null
-    if (typeof check?.deny === 'string') return { decision: 'deny', reason: check.deny }
-    const verdict = await next(e)
-    const isPersonAsked = verdict.decision === 'ask' && e.approver === 'person' && e.tool_use_id !== undefined
-    if (isPersonAsked) {
-      waitingPermissions = [...waitingPermissions, { toolUseId: e.tool_use_id!, tool: e.tool, inputKey: inputKeyOf(e.input) }]
-      report($, 'permission-asked', { toolUseId: e.tool_use_id, agentId: e.agentId, tool: e.tool, summary: summaryOf(e.input) })
-    }
-    return verdict
+    return typeof check?.deny === 'string' ? { decision: 'deny', reason: check.deny } : next(e)
   }).catch(($, e, next) => next(e))
-  // The dialog is showing, in the terminal: whichever answers first wins, the
-  // person there or a click on the page. The page's answer is this hook's;
-  // an answer there settles the call and leaves this hook to step aside.
-  on('classic.PermissionRequest', async ($, e, next) => {
-    const inputKey = inputKeyOf(e.tool_input)
-    const waiting =
-      waitingPermissions.find(permission => !permission.answer && permission.tool === e.tool_name && permission.inputKey === inputKey) ??
-      waitingPermissions.find(permission => !permission.answer && permission.tool === e.tool_name)
-    if (!waiting) return next(e)
-    const decision = await new Promise<PermissionDecision | null>(resolve => {
-      waitingPermissions = waitingPermissions.map(permission => (permission === waiting ? { ...permission, answer: resolve } : permission))
-    })
-    return decision ? { decision } : next(e)
-  })
   // A call to talos's own tool is the runner's to allow, and one that can't be
-  // checked doesn't run. Any other, allowed or declined (Esc or "No"),
-  // resolves here.
-  on('tool.call', async ($, e, next) => {
-    if (e.tool.startsWith(TOOL_PREFIX)) return answerTalosTool($, e as Record<string, unknown>)
-    const called = await next(e)
-    const toolUseId = e.tool_use_id
-    if (toolUseId && waitingPermissions.some(waiting => waiting.toolUseId === toolUseId)) {
-      answerPermission(toolUseId, null)
-      waitingPermissions = waitingPermissions.filter(waiting => waiting.toolUseId !== toolUseId)
-      report($, 'permission-settled', { toolUseId })
-    }
-    return called
-  }).catch(($, e, next) => (e.tool.startsWith(TOOL_PREFIX) ? { deny: NOT_RECORDED } : next(e)))
+  // checked doesn't run.
+  on('tool.call', { tool: /^mcp__talos__/ }, ($, e) => answerTalosTool($, e as Record<string, unknown>)).catch(() => ({ deny: NOT_RECORDED }))
+  // An asked-for turn that ends unanswered is sent back once to answer.
+  on('classic.Stop', async ($, e, next) => {
+    const answer = await askRunner($, ROUTES.stop, {})
+    return typeof answer?.block === 'string' ? { block: answer.block } : next(e)
+  }).catch(($, e, next) => next(e))
   // No other mod's code runs in a talos session: any hook of another mod hears
-  // every call talos makes, and could read or rewrite its link and its
-  // submits. Other plugins keep their skills and commands; only their hooks
-  // modules are refused. A judge that fails refuses too.
+  // every call talos makes, and could read or rewrite its link. Other plugins
+  // keep their skills and commands; only their hooks modules are refused. A
+  // judge that fails refuses too.
   on('plugin.register', ($, e, next) => (e.name === 'talos' ? next(e) : { refuse: 'talos sessions run no other mods' })).catch(
     () => ({ refuse: "talos couldn't check this mod" }),
   )
-  // A fork runs in a background process that outlives the session talos ends.
-  on('command.run', { command: 'fork' }, () => ({ text: "talos sessions can't fork; start a new session instead" })).catch(() => ({
-    text: "talos sessions can't fork",
-  }))
 }

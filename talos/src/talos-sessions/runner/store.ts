@@ -22,13 +22,11 @@ export type WaitingMessage = { text: string; images: readonly SentImage[]; reque
 export type WaitingPermission = { requestId: string; toolUseId: string; tool: string; input: unknown; summary: string };
 
 // A session's link to its mod (see link-server.ts). The token is good for one
-// check-in, which gives the secret; commands is the helper's open stream.
+// check-in, which gives the secret.
 export type SessionLink = {
   token: string;
   isCheckedIn: boolean;
   secret: string | null;
-  lastSeq: number;
-  commands: ReadableStreamDefaultController<string> | null;
   // When the mod last sent anything (a heartbeat included), on the steady clock.
   lastHeardAtMs: number;
 };

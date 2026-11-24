@@ -1,6 +1,8 @@
 {
   "name": "talos",
   "version": "0.1.0",
-  "description": "Tells talos's session runner what this session's Claude Code is doing.",
-  "network": { "hosts": [] }
+  "description": "Gives talos's tools to this session's Claude Code, and checks its tool calls with talos's session runner.",
+  "network": {
+    "hosts": []
+  }
 }

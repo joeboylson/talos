@@ -86,7 +86,6 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   // can't change them.
   const sessionEnv = {
     [LINK_ENV_KEYS.socket]: paths().linkSocket,
-    [LINK_ENV_KEYS.bun]: process.execPath,
     // An edit to the mod never reloads it mid-session (the snapshot can't
     // change anyway), and the pinned Claude Code never updates itself.
     CLAUDE_CODE_PLUGIN_DIR_WATCH: "0",
@@ -146,7 +145,7 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     placing: NO_PLACING,
     heldAnswers: [],
     heldId,
-    link: { token: linkToken, isCheckedIn: false, secret: null, lastSeq: 0, commands: null, lastHeardAtMs: 0 },
+    link: { token: linkToken, isCheckedIn: false, secret: null, lastHeardAtMs: 0 },
     startedAtMs: Date.now(),
     isTurnOver: false,
     isInterrupting: false,

@@ -19,7 +19,7 @@ import {
   RUNNER_SOCKET_MODE,
 } from "../constants";
 import { pinClaudeCode } from "../claude/pinned-claude";
-import { linkServeOptions, sendHeartbeats } from "./link-server";
+import { checkLinkSilence, linkServeOptions } from "./link-server";
 import { snapshotMod } from "./mod-snapshot";
 import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } from "./control-server";
 import { log, paths, useRunnerInputs, type RunnerInputs } from "./inputs";
@@ -171,7 +171,7 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   Bun.serve(linkServeOptions(linkSocket) as unknown as Parameters<typeof Bun.serve>[0]);
   await chmod(runnerSocket, RUNNER_SOCKET_MODE);
   await chmod(linkSocket, RUNNER_SOCKET_MODE);
-  setInterval(sendHeartbeats, SESSION_LIMITS.linkHeartbeatMs);
+  setInterval(checkLinkSilence, SESSION_LIMITS.linkCheckMs);
   setInterval(() => {
     if (!holdsLock(runnerLock)) return void stopRunner();
     [...heldSessions.keys()].forEach((sessionName) => applyLaneEvent(sessionName, { type: "tick" }));

@@ -1,17 +1,12 @@
-// The link socket: where each session's mod checks in, sends its facts, and
-// keeps its helper's stream open. The facts are the session's state (see
-// fact-state.ts), and the summary says whether the link is up.
+// The link socket: where each session's mod checks in, gets talos's tools, and
+// asks about each tool call and Stop. The summary says whether the link is up.
 import { steadyNow } from "../constants";
 import {
-  encodeLinkCommand,
   LINK_ROUTES,
   readCheckIn,
-  readFacts,
   readToolCallAsk,
   readToolCheckAsk,
-  takeNextFacts,
   type CheckInAnswer,
-  type FactsAnswer,
   type OfferedTool,
   type StopAnswer,
   type ToolCallAnswer,
@@ -44,7 +39,7 @@ const changeLink = (session: HeldSession, change: Partial<SessionLink>, linkStat
 const loseLink = (session: HeldSession, why: string): void => {
   if (heldSessions.get(session.summary.sessionName)?.summary.link === "lost") return;
   log.warn(`runner: lost the link to ${session.summary.sessionName}: ${why}`);
-  changeLink(session, { secret: null, commands: null }, "lost");
+  changeLink(session, { secret: null }, "lost");
 };
 
 const bearerSecret = (request: Request): string | null => /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1] ?? null;
@@ -109,34 +104,15 @@ const answerStop = (session: HeldSession): Response => {
   return Response.json((reply && "block" in reply ? { block: reply.block } : {}) satisfies StopAnswer);
 };
 
-const answerFacts = async (session: HeldSession, request: Request): Promise<Response> => {
-  const facts = readFacts(await readBody(request));
-  if (!facts) return BAD_REQUEST();
-  // Read after the body: another post (a heartbeat) may have moved the count
-  // meanwhile, and a stale one would undo it.
-  const current = heldSessions.get(session.summary.sessionName)?.link ?? session.link;
-  const { taken, lastSeq } = takeNextFacts(current.lastSeq, facts);
-  changeLink(session, { lastSeq, lastHeardAtMs: steadyNow() });
-  taken.forEach((fact) => log.detail(`runner: ${session.summary.sessionName} fact ${fact.seq} ${fact.type} ${JSON.stringify(fact.details)}`));
-  return Response.json({ acked: lastSeq } satisfies FactsAnswer);
-};
-
-const openCommands = (session: HeldSession): Response => {
-  const stream = new ReadableStream<string>({
-    start: (controller) => changeLink(session, { commands: controller }),
-    cancel: () => loseLink(session, "its helper is gone"),
-  });
-  return new Response(stream, { headers: { "content-type": "application/x-ndjson" } });
-};
-
 const answerLinkRequest = async (request: Request): Promise<Response> => {
   const { pathname } = new URL(request.url);
   if (request.method === "POST" && pathname === LINK_ROUTES.checkIn) return answerCheckIn(request);
   const secret = bearerSecret(request);
   const session = secret ? findSession((link) => link.secret === secret) : undefined;
   if (!session) return FORBIDDEN();
-  if (request.method === "POST" && pathname === LINK_ROUTES.facts) return answerFacts(session, request);
-  if (request.method === "GET" && pathname === LINK_ROUTES.commands) return openCommands(session);
+  // Any request from the mod counts as word from it; a heartbeat says nothing else.
+  changeLink(session, { lastHeardAtMs: steadyNow() });
+  if (request.method === "POST" && pathname === LINK_ROUTES.heartbeat) return new Response(null, { status: 204 });
   if (request.method === "POST" && pathname === LINK_ROUTES.toolCall) return answerToolCall(session, request);
   if (request.method === "POST" && pathname === LINK_ROUTES.toolCheck) return answerToolCheck(session, request);
   if (request.method === "POST" && pathname === LINK_ROUTES.stop) return answerStop(session);
@@ -145,23 +121,14 @@ const answerLinkRequest = async (request: Request): Promise<Response> => {
 
 export const linkServeOptions = (linkSocket: string) => ({
   unix: linkSocket,
-  idleTimeout: SESSION_LIMITS.linkIdleTimeoutSeconds,
   maxRequestBodySize: SESSION_LIMITS.maxLinkBodyBytes,
   fetch: answerLinkRequest,
 });
 
-// A write to a helper that's gone throws: that's the link lost too. So is a
-// mod gone quiet: a hook stuck in a loop leaves it dead while its helper
-// stays up.
-export const sendHeartbeats = (): void =>
+// A mod gone quiet is gone: a hook stuck in a loop leaves it dead while the
+// session runs on.
+export const checkLinkSilence = (): void =>
   [...heldSessions.values()].forEach((session) => {
-    const { commands, secret, lastHeardAtMs } = session.link;
-    const isQuiet = secret !== null && steadyNow() - lastHeardAtMs > linkSilenceMs();
-    if (isQuiet) return loseLink(session, "its mod went quiet");
-    if (!commands) return;
-    try {
-      commands.enqueue(encodeLinkCommand({ type: "heartbeat" }));
-    } catch {
-      loseLink(session, "its helper stopped reading");
-    }
+    const { secret, lastHeardAtMs } = session.link;
+    if (secret !== null && steadyNow() - lastHeardAtMs > linkSilenceMs()) loseLink(session, "its mod went quiet");
   });

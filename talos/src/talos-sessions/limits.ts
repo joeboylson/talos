@@ -68,11 +68,8 @@ export const SESSION_LIMITS = {
   // A post from a session's mod is parsed on the runner's one thread, so it's
   // capped: a prompt's text or a tool call's input is the big part.
   maxLinkBodyBytes: 4 * 1024 * 1024,
-  maxFactsPerPost: 200,
-  // The runner writes to each helper this often, so a helper that's gone shows
-  // as a failed write, and the link socket's idle timeout never closes one.
-  linkHeartbeatMs: 5_000,
-  linkIdleTimeoutSeconds: 30,
+  // How often the runner looks for a mod gone quiet.
+  linkCheckMs: 5_000,
   // A mod that sends nothing for this long counts as gone. It sends word every
   // 5 s, so this allows for a few missed.
   linkSilenceMs: 20_000,

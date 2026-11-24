@@ -63,7 +63,7 @@ Each block below is listed as what goes in → what comes out.
     its id, attach a terminal, list the sessions, follow events, and start,
     check or stop the session runner itself.
   - Out: results and refusals for each call; each session's state (from its
-    mod's facts), whether its mod's link is up or lost, whether its running
+    stream), whether its mod's link is up or lost, whether its running
     turn was started by Claude Code on its own, its asks
     (state and latest answer per kind), its open outputs, its conversation as
     entries in conversation order (outputs and dropped markers included),
@@ -92,15 +92,13 @@ Each block below is listed as what goes in → what comes out.
     `trust-changes.json` (trust to put back, even after a crash) and
     `session-groups.json` (what a runner that dies outright leaves to end).
   - Holds: the session runner, the mod (`mod/`, run inside every session's
-    Claude Code, with its helper and its own tests under Claude Code's kit;
-    it gives the session talos's tools and answers their calls through the
-    runner, and refuses every other mod's hooks and the `/fork` command in
-    its session), the link server, the lane and output rules, held answers, the transcript reader, and its own copies of the
+    Claude Code, with its own tests under Claude Code's kit; it gives the
+    session talos's tools, asks the runner about each tool call and Stop,
+    and refuses every other mod's hooks), the link server, the lane and output rules, held answers, the transcript reader, and its own copies of the
     shapes and limits it shares with `talos-shared`.
   - Known limit: it trusts everything that runs as the same user. A session's
-    link secret is in its mod's helper's environment, so anything with Bash
-    in that session (a sub-agent, a prompt-injected command) can read it and
-    post to the link as the mod: put up questions with buttons, or answer an
+    link secret is in its Claude Code's memory, which anything running as
+    that user could read, and then post to the link as the mod: put up questions with buttons, or answer an
     asked-for turn. It can also open the control socket, which is this
     user's like the rest, and drive every session through it. The fix is running sessions as a separate
     OS user, left until talos runs for more than its one owner.

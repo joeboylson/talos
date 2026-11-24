@@ -83,9 +83,8 @@ something.
   runs headless (with no terminal): messages and control requests in, the
   conversation, each turn's end and permission questions out.
 - **link**: the connection between a session's mod and the session runner.
-  The mod sends facts over it; the runner sends messages back.
-- **helper**: the small program the mod starts so the session runner can
-  reach it. It ends with the session.
+  Over it the mod gets talos's tools and asks about each tool call and Stop,
+  and sends a heartbeat so the runner knows it's alive.
 - **check-in**: the mod's first word over the link when a session starts:
   which session, which Claude Code version, which snapshot.
 - **snapshot**: a read-only copy of the mod the session runner makes when it

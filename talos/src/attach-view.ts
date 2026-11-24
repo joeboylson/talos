@@ -56,5 +56,16 @@ export const readTyped = (line: string, session: SessionSummary): AttachAction =
   return { do: "send", text };
 };
 
+// The sessions to choose from, numbered, each with its folder and state.
+export const sessionChoiceLines = (sessions: readonly SessionSummary[]): string[] =>
+  sessions.map(({ sessionName, folderName, state }, index) => `  ${index + 1}) ${sessionName}  (${folderName}, ${state === "idle" ? "ready" : state})`);
+
+// The session an answer picks: its number or its name.
+export const readSessionChoice = (answer: string, sessions: readonly SessionSummary[]): SessionSummary | null => {
+  const text = answer.trim();
+  const byNumber = /^\d+$/.test(text) ? sessions[Number(text) - 1] : undefined;
+  return byNumber ?? sessions.find(({ sessionName }) => sessionName === text) ?? null;
+};
+
 // Ctrl-C stops a running turn; with none running it leaves.
 export const isTurnRunning = (session: SessionSummary): boolean => session.state === "working" || (session.state === "needs-you" && session.isTurnOver === false);

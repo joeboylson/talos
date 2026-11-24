@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { entryLines, isTurnRunning, readTyped, stateLine } from "../../attach-view";
+import { entryLines, isTurnRunning, readSessionChoice, readTyped, sessionChoiceLines, stateLine } from "../../attach-view";
 import type { SessionEntry, SessionSummary } from "../../talos-sessions";
 
 const session = (changes: Partial<SessionSummary> = {}): SessionSummary => ({ sessionName: "fix", folderName: "talos", state: "idle", asks: {}, openOutputs: [], isTurnOver: true, ...changes });
@@ -43,6 +43,20 @@ describe("a typed line", () => {
     expect(readTyped("yes please, and add tests", asking)).toEqual({ do: "send", text: "yes please, and add tests" });
     expect(readTyped("y", session())).toEqual({ do: "send", text: "y" });
     expect(readTyped("   ", session())).toEqual({ do: "nothing" });
+  });
+});
+
+describe("choosing a session to attach to", () => {
+  const running = [session({ sessionName: "fix-login" }), session({ sessionName: "website", folderName: "site", state: "working", isTurnOver: false })];
+  test("each is listed with its number, folder and state", () => {
+    expect(sessionChoiceLines(running)).toEqual(["  1) fix-login  (talos, ready)", "  2) website  (site, working)"]);
+  });
+  test("an answer picks one by its number or its name, and anything else none", () => {
+    expect(readSessionChoice("2", running)?.sessionName).toBe("website");
+    expect(readSessionChoice(" fix-login ", running)?.sessionName).toBe("fix-login");
+    expect(readSessionChoice("3", running)).toBeNull();
+    expect(readSessionChoice("0", running)).toBeNull();
+    expect(readSessionChoice("", running)).toBeNull();
   });
 });
 

@@ -12,7 +12,8 @@ export type Command =
   | { name: "sessions-list" }
   | { name: "sessions-start"; folder: string }
   | { name: "sessions-send"; sessionName: string; text: string | null }
-  | { name: "sessions-attach"; sessionName: string }
+  // No session name: choose one of those running.
+  | { name: "sessions-attach"; sessionName: string | null }
   | { name: "sessions-open"; sessionName: string }
   | { name: "sessions-stop"; sessionName: string }
   | { name: "runner-stop" }
@@ -71,7 +72,7 @@ const HELP_GROUPS: readonly HelpGroup[] = [
       ["talos sessions [--json]", "list this machine's Claude sessions"],
       ["talos sessions start [<folder>] [--name <name>] [--add]", "start a session in a folder, by name or path (here if none); one not added yet is added first"],
       ['talos sessions <session> send "<text>"', "send it a message (or pipe the text in)"],
-      ["talos sessions <session> attach", "follow its conversation and type to it (Ctrl-D leaves it running)"],
+      ["talos sessions [<session>] attach", "follow its conversation and type to it (Ctrl-D leaves it running); with no session, choose one"],
       ["talos sessions <session> open", "open it on the page"],
       ["talos sessions <session> stop", "end a session"],
       ["talos runner stop", "end the session runner and every session in it"],
@@ -124,6 +125,7 @@ const parseSessionsCommand = (args: string[], typed: string): Command => {
   const [first, action, ...rest] = args;
   if (first === undefined) return { name: "sessions-list" };
   if (first === "start" && action === undefined) return { name: "sessions-start", folder: "." };
+  if (first === "attach" && action === undefined) return { name: "sessions-attach", sessionName: null };
   if (first === "start" && action && rest.length === 0 && !SESSION_ACTIONS.some((known) => known === action) && action !== "send") {
     return { name: "sessions-start", folder: action };
   }

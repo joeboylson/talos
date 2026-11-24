@@ -31,6 +31,7 @@ test("session commands", () => {
   expect(parseCommand(["sessions", "homepage", "open"])).toEqual({ name: "sessions-open", sessionName: "homepage" });
   expect(parseCommand(["sessions", "start", "stop"])).toEqual({ name: "sessions-stop", sessionName: "start" });
   expect(parseCommand(["sessions", "fix-login", "attach"])).toEqual({ name: "sessions-attach", sessionName: "fix-login" });
+  expect(parseCommand(["sessions", "attach"])).toEqual({ name: "sessions-attach", sessionName: null });
   expect(parseCommand(["sessions", "fix-login", "stop"])).toEqual({ name: "sessions-stop", sessionName: "fix-login" });
   expect(parseCommand(["runner", "stop"])).toEqual({ name: "runner-stop" });
 });
@@ -78,7 +79,7 @@ test("help lists every command", () => {
     "  talos folders [--json]",
     "talos folders add <path>",
     "talos folders remove <folder>",
-    "talos sessions <session> attach",
+    "talos sessions [<session>] attach",
     "talos runner stop",
     "talos service install",
     "talos service start",

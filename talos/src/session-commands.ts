@@ -6,6 +6,7 @@ import { RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { readCredentials } from "./credentials";
 import { readFolders } from "./folders";
 import { attachToSession } from "./attach";
+import { readSessionChoice, sessionChoiceLines } from "./attach-view";
 import { addFolderAt, realFolderPath, resolveFolderPath } from "./folder-commands";
 import { openPage, pageAddress } from "./machine-commands";
 import { connectToSessions, type Result, type SessionSummary } from "./talos-sessions";
@@ -88,9 +89,23 @@ const sendMessage = async (sessionName: string, text: string | null): Promise<vo
   console.log(`sent to ${sessionName}`);
 };
 
+// Which session to attach to, when none was named: the only one running, or
+// one chosen from a numbered list in the terminal.
+const chooseSession = async (): Promise<string> => {
+  const running = await runningSessions();
+  if (running.length === 0) throw cliError("no sessions are running", "talos sessions start <folder>");
+  if (running.length === 1) return running[0]!.sessionName;
+  if (!process.stdin.isTTY) throw cliError("there's more than one session; name one", "talos sessions <session> attach", 2);
+  console.log(sessionChoiceLines(running).join("\n"));
+  const chosen = readSessionChoice(prompt(`talos: attach to which? [1-${running.length}]`) ?? "", running);
+  if (!chosen) throw cliError("that isn't one of them", "talos sessions <session> attach", 2);
+  return chosen.sessionName;
+};
+
 // The session's conversation in your terminal, and a line to type into,
 // until Ctrl-D (or Ctrl-C with no turn running) leaves it running.
-const attach = async (sessionName: string): Promise<void> => {
+const attach = async (named: string | null): Promise<void> => {
+  const sessionName = named ?? (await chooseSession());
   const isRunning = (await runningSessions()).some((session) => session.sessionName === sessionName);
   if (!isRunning) throw cliError(`there's no session ${sessionName}`, "talos sessions");
   await attachToSession(sessions, sessionName);

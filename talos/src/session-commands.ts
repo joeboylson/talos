@@ -4,6 +4,7 @@ import type { SessionCommand } from "./commands";
 import { RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { readCredentials } from "./credentials";
 import { readFolders } from "./folders";
+import { attachToSession } from "./attach";
 import { openPage, pageAddress } from "./machine-commands";
 import { connectToSessions, type Result, type SessionSummary } from "./talos-sessions";
 
@@ -71,11 +72,12 @@ const sendMessage = async (sessionName: string, text: string | null): Promise<vo
   console.log(`sent to ${sessionName}`);
 };
 
-// Sessions have no terminal any more; a terminal view of the conversation
-// comes later (ref/plan-headless.md, step 4). Until then, the page.
+// The session's conversation in your terminal, and a line to type into,
+// until Ctrl-D (or Ctrl-C with no turn running) leaves it running.
 const attach = async (sessionName: string): Promise<void> => {
-  if (!(await sessions.isRunning())) throw cliError(`there's no session ${sessionName}`, "talos sessions");
-  throw cliError(`${sessionName} has no terminal to attach to`, `talos sessions ${sessionName} open`);
+  const isRunning = (await runningSessions()).some((session) => session.sessionName === sessionName);
+  if (!isRunning) throw cliError(`there's no session ${sessionName}`, "talos sessions");
+  await attachToSession(sessions, sessionName);
 };
 
 const openSession = async (sessionName: string): Promise<void> => {

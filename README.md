@@ -139,7 +139,7 @@ Every command lives here. Names follow the glossary
 | `talos sessions [--json]` | Lists this machine's Claude sessions. |
 | `talos sessions start <folder> [--name <name>]` | Starts a session in a folder, named after it unless `--name` says otherwise. Prints its identifier and page address. |
 | `talos sessions <session> send "<text>"` | Sends a session a message, as from the page; with no text, sends what's piped in. |
-| `talos sessions <session> attach` | Shows a session's terminal in yours, to watch or type. Ctrl-\\ leaves it running. |
+| `talos sessions <session> attach` | Follows a session's conversation in your terminal: type a message, `y`/`n` for a permission question, a number for a question's choice; Ctrl-C stops its turn, Ctrl-D leaves it running. |
 | `talos sessions <session> open` | Prints the session's page address and opens it in the browser. |
 | `talos sessions <session> stop` | Ends a session. |
 | `talos runner stop` | Ends the session runner and every session in it. |

@@ -71,7 +71,7 @@ const HELP_GROUPS: readonly HelpGroup[] = [
       ["talos sessions [--json]", "list this machine's Claude sessions"],
       ["talos sessions start <folder> [--name <name>]", "start a session in a folder"],
       ['talos sessions <session> send "<text>"', "send it a message (or pipe the text in)"],
-      ["talos sessions <session> attach", "watch and type in its terminal (Ctrl-\\ leaves it running)"],
+      ["talos sessions <session> attach", "follow its conversation and type to it (Ctrl-D leaves it running)"],
       ["talos sessions <session> open", "open it on the page"],
       ["talos sessions <session> stop", "end a session"],
       ["talos runner stop", "end the session runner and every session in it"],

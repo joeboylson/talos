@@ -86,9 +86,9 @@ talos install
 The script downloads main from GitHub into `~/.talos/app` (only talos and
 `talos-shared`), installs Bun if it's missing, saves the server's address in
 `~/.talos/talos.env`, and puts a `talos` command in `~/.local/bin`.
-`talos install` pairs the machine (the code shows in the terminal), then has
-macOS run talos at login and again if it stops; its log is
-`~/.talos/talos.log`. After a push to main, `talos update` brings the machine
+`talos install` pairs the machine (the code shows in the terminal), then runs
+talos at login and again if it stops: a launch agent on macOS, a systemd user
+service on Linux. Its log is `~/.talos/talos.log`. After a push to main, `talos update` brings the machine
 up to it and restarts talos. It restarts the session runner, which ends its
 sessions, only when the runner's own code changed.
 
@@ -120,7 +120,7 @@ Every command lives here. Names follow the glossary
 | `talos sessions <session> attach`          | Shows a session's terminal in yours, to watch or type. Ctrl-\\ leaves it running. |
 | `talos sessions <session> stop`            | Ends a session.                                                                   |
 | `talos runner stop`                        | Ends the session runner and every session in it.                                  |
-| `talos install`                            | Pairs this machine if it isn't yet, then runs talos at login and again if it stops (macOS). |
+| `talos install`                            | Pairs this machine if it isn't yet, then runs talos at login and again if it stops (macOS and Linux). |
 | `talos uninstall`                          | Stops running talos at login. Its sessions run on until `talos runner stop`.      |
 | `talos update`                             | Brings a copy put in place by `install.sh` up to main, and restarts it.           |
 | `talos help`                               | Lists these commands.                                                             |

@@ -193,6 +193,18 @@ await takeShot({ name: "machines", path: "/machines", before: clickButton("Ping 
 await takeShot({ name: "machines-dark", path: "/machines", dark: true });
 await takeShot({ name: "machines-phone", path: "/machines", viewport: PHONE });
 await takeShot({ name: "pair-machine-dialog", path: "/machines", before: clickButton("Pair a machine") });
+// A machine waiting to pair: once its code is entered, the dialog says to
+// confirm on it.
+const { userCode: waitingCode } = await postJson("/api/pair/start", { machineName: "laptop" });
+await takeShot({
+  name: "pair-machine-confirm",
+  path: "/machines",
+  before: async (page) => {
+    await clickButton("Pair a machine")(page);
+    await page.getByPlaceholder("ABCD-EFGH").fill(waitingCode);
+    await clickButton("Pair")(page);
+  },
+});
 await takeShot({ name: "rename-machine-dialog", path: "/machines", before: clickButton("Rename atlas") });
 await takeShot({ name: "folders", path: "/folders" });
 await takeShot({ name: "folders-dark", path: "/folders", dark: true });

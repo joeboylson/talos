@@ -1,6 +1,5 @@
-import { watch } from "node:fs";
+import { watchFile } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { basename } from "node:path";
 import { hostname } from "node:os";
 import {
   ENV_KEYS,
@@ -19,7 +18,7 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_FILE, RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
+import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_CHECK_MS, FOLDERS_FILE, RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { readCredentials, saveCredentials } from "./credentials";
 import { changeFolders, readFolders, renameFolder } from "./folders";
 import { connectToSessions, type Result } from "./talos-sessions";
@@ -257,11 +256,14 @@ export const runConnect = async (): Promise<void> => {
     });
   };
 
-  // `talos folders add|remove` edits the folders file from
-  // another terminal; this tells the server as soon as it changes.
+  // `talos folders add|remove` edits the folders file from another terminal;
+  // this tells the server within a second. The file's details are checked,
+  // not the folder watched: on Linux a folder watch opens each new file in it,
+  // and opening the session runner's sockets fails and crashed talos. It also
+  // follows a file replaced whole.
   await mkdir(CREDENTIALS_FOLDER, { recursive: true, mode: CREDENTIALS_FOLDER_MODE });
-  watch(CREDENTIALS_FOLDER, (_event, changedFileName) => {
-    if (changedFileName === basename(FOLDERS_FILE)) sendFoldersOrWarn();
+  watchFile(FOLDERS_FILE, { interval: FOLDERS_CHECK_MS }, (now, before) => {
+    if (now.mtimeMs !== before.mtimeMs) sendFoldersOrWarn();
   });
 
   startLocalStatusServer({

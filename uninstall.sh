@@ -1,5 +1,5 @@
 #!/bin/sh
-# Takes talos off this machine: the launch agent that runs it at login, the
+# Takes talos off this machine: the service that runs it at login, the
 # session runner and every session in it, the `talos` command, and ~/.talos
 # (the machine's key, its folder list, the downloaded copy, logs).
 #
@@ -12,6 +12,8 @@ TALOS_HOME="${TALOS_HOME:-$HOME/.talos}"
 BIN_FILE="$HOME/.local/bin/talos"
 LAUNCH_AGENT_LABEL="local.talos"
 LAUNCH_AGENT="$HOME/Library/LaunchAgents/$LAUNCH_AGENT_LABEL.plist"
+SYSTEMD_UNIT_NAME="talos.service"
+SYSTEMD_UNIT="$HOME/.config/systemd/user/$SYSTEMD_UNIT_NAME"
 
 say() { printf 'talos: %s\n' "$1"; }
 
@@ -24,6 +26,12 @@ esac
 if [ -f "$LAUNCH_AGENT" ]; then
   launchctl bootout "gui/$(id -u)/$LAUNCH_AGENT_LABEL" 2>/dev/null || true
   rm -f "$LAUNCH_AGENT"
+  say "no longer runs at login"
+fi
+if [ -f "$SYSTEMD_UNIT" ]; then
+  systemctl --user disable --now "$SYSTEMD_UNIT_NAME" 2>/dev/null || true
+  rm -f "$SYSTEMD_UNIT"
+  systemctl --user daemon-reload 2>/dev/null || true
   say "no longer runs at login"
 fi
 

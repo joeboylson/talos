@@ -36,7 +36,7 @@ export const HELP_TEXT =`talos: connects this machine to the Talos server
   talos sessions <session> attach           watch and type in a session (Ctrl-\\ leaves it running)
   talos sessions <session> stop             end a session
   talos runner stop                         end the session runner and every session in it
-  talos install                             pair this machine if needed, then run talos at login (macOS)
+  talos install                             pair this machine if needed, then run talos at login
   talos uninstall                           stop running talos at login
   talos update                              update this copy to the latest talos, and restart it
   talos help                                show this list

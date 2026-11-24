@@ -46,7 +46,7 @@ export const MachinesTable = (props: MachinesTableProps) => {
             disabled={!canPing || !hasMachines}
             onClick={() => onPing()}
           />
-          <PairMachineDialog />
+          <PairMachineDialog machines={machines} />
         </div>
       </div>
       <div className="overflow-hidden rounded-lg border">

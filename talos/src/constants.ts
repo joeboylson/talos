@@ -10,6 +10,9 @@ export const CREDENTIALS_FOLDER = TALOS_FOLDER;
 export const CREDENTIALS_FOLDER_MODE = 0o700;
 export const CREDENTIALS_FILE = join(CREDENTIALS_FOLDER, "credentials.json");
 export const FOLDERS_FILE = join(CREDENTIALS_FOLDER, "folders.json");
+// How often a running talos checks the folders file for a change made by
+// another talos command.
+export const FOLDERS_CHECK_MS = 1000;
 
 // Only this user can read the file: it holds the machine's key.
 export const CREDENTIALS_FILE_MODE = 0o600;

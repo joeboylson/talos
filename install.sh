@@ -18,6 +18,8 @@ ENV_FILE="$TALOS_HOME/talos.env"
 BIN_DIR="$HOME/.local/bin"
 LAUNCH_AGENT_LABEL="local.talos"
 LAUNCH_AGENT="$HOME/Library/LaunchAgents/$LAUNCH_AGENT_LABEL.plist"
+SYSTEMD_UNIT_NAME="talos.service"
+SYSTEMD_UNIT="$HOME/.config/systemd/user/$SYSTEMD_UNIT_NAME"
 SERVER_URL="${1:-}"
 
 say() { printf 'talos: %s\n' "$1"; }
@@ -92,14 +94,22 @@ else
   say "updated from $OLD_VERSION to $REF"
 fi
 
-# Running as a service: it restarts on the new code now.
-if [ -f "$LAUNCH_AGENT" ]; then
+# Running as a service (a launch agent on macOS, a systemd user service on
+# Linux): it restarts on the new code now.
+restart_service() {
+  if [ -f "$LAUNCH_AGENT" ]; then
+    launchctl kickstart -k "gui/$(id -u)/$LAUNCH_AGENT_LABEL" 2>/dev/null
+  else
+    systemctl --user restart "$SYSTEMD_UNIT_NAME" 2>/dev/null
+  fi
+}
+if [ -f "$LAUNCH_AGENT" ] || [ -f "$SYSTEMD_UNIT" ]; then
   if [ "$OLD_SESSIONS" != "$NEW_SESSIONS" ]; then
     say "the session runner changed; restarting it ends its sessions"
     "$BIN_DIR/talos" runner stop || true
   fi
   # The update is in place either way; a restart that fails is said as such.
-  if launchctl kickstart -k "gui/$(id -u)/$LAUNCH_AGENT_LABEL" 2>/dev/null; then
+  if restart_service; then
     say "restarted"
   else
     say "updated, but couldn't restart it; run: talos install"

@@ -137,8 +137,10 @@ const readQueuedPrompt = (entryId: string, attachment: unknown): UnnumberedEntry
   return isTypedPrompt ? readPromptLine(entryId, [{ type: "text", text: prompt }]) : [];
 };
 
-export const readTranscriptLine = (lineText: string): TranscriptItem[] => {
-  const line: unknown = parseJsonOrNull(lineText);
+export const readTranscriptLine = (lineText: string): TranscriptItem[] => readTranscriptValue(parseJsonOrNull(lineText));
+
+// The same, for a line already parsed (the headless stream's).
+export const readTranscriptValue = (line: unknown): TranscriptItem[] => {
   if (typeof line !== "object" || line === null) return [];
   const { type, uuid, isMeta, isSidechain, message } = line as TranscriptLine;
   if (typeof uuid !== "string" || isMeta === true || isSidechain === true) return [];

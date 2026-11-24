@@ -79,6 +79,9 @@ something.
   Code. It tells the session runner what Claude Code is doing, gives the
   session talos's structured tools, and sends the session its messages. Its
   code lives in `talos-sessions/mod/`.
+- **stream**: the JSON lines a session's Claude Code reads and writes when it
+  runs headless (with no terminal): messages and control requests in, the
+  conversation, each turn's end and permission questions out.
 - **link**: the connection between a session's mod and the session runner.
   The mod sends facts over it; the runner sends messages back.
 - **helper**: the small program the mod starts so the session runner can

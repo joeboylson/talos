@@ -6,7 +6,7 @@ import { RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { readCredentials } from "./credentials";
 import { readFolders } from "./folders";
 import { attachToSession } from "./attach";
-import { readSessionChoice, sessionChoiceLines } from "./attach-view";
+import { askChoice, askYesNo } from "./ask";
 import { addFolderAt, realFolderPath, resolveFolderPath } from "./folder-commands";
 import { openPage, pageAddress } from "./machine-commands";
 import { connectToSessions, type Result, type SessionSummary } from "./talos-sessions";
@@ -54,8 +54,8 @@ export const sessionNameFor = (folder: Folder, wantedName: string | undefined, t
 const addForStart = async (path: string, typed: string, flags: Flags): Promise<Folder> => {
   if (!flags.add) {
     if (!process.stdin.isTTY) throw cliError(`${path} isn't one of this machine's folders`, `talos sessions start ${typed} --add`);
-    const answer = prompt(`talos: ${path} isn't one of this machine's folders. Add it and start there? [Y/n]`);
-    if (/^n/i.test(answer?.trim() ?? "")) throw cliError("nothing started");
+    const shown = path.startsWith(`${homedir()}/`) ? `~${path.slice(homedir().length)}` : path;
+    if (!(await askYesNo(`${shown} isn't one of this machine's folders. Add it and start there?`, true))) throw cliError("nothing started");
   }
   return addFolderAt(path);
 };
@@ -96,10 +96,10 @@ const chooseSession = async (): Promise<string> => {
   if (running.length === 0) throw cliError("no sessions are running", "talos sessions start <folder>");
   if (running.length === 1) return running[0]!.sessionName;
   if (!process.stdin.isTTY) throw cliError("there's more than one session; name one", "talos sessions <session> attach", 2);
-  console.log(sessionChoiceLines(running).join("\n"));
-  const chosen = readSessionChoice(prompt(`talos: attach to which? [1-${running.length}]`) ?? "", running);
-  if (!chosen) throw cliError("that isn't one of them", "talos sessions <session> attach", 2);
-  return chosen.sessionName;
+  const choices = running.map(({ sessionName, folderName, state }) => ({ value: sessionName, label: sessionName, hint: `${folderName}, ${state === "idle" ? "ready" : state}` }));
+  const chosen = await askChoice("Attach to which session?", choices);
+  if (!chosen) throw cliError("nothing attached");
+  return chosen;
 };
 
 // The session's conversation in your terminal, and a line to type into,

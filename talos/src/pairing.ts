@@ -1,3 +1,4 @@
+import { askYesNo } from "./ask";
 import {
   BEARER_PREFIX,
   buildPagePath,
@@ -56,8 +57,7 @@ const confirmApprover = async (approvedBy: string, expectedOwner: string | undef
     log.warn(`talos: can't ask whether ${approvedBy} is this machine's owner; set ${ENV_KEYS.pairOwner} to your GitHub login`);
     return false;
   }
-  const answer = prompt(`talos: the code was entered by ${approvedBy}. Is that you? [y/N]`);
-  return answer?.trim().toLowerCase() === "y";
+  return askYesNo(`The code was entered by ${approvedBy}. Is that you?`, false);
 };
 
 export const pairingLink = (serverOrigin: string, userCode: string): string =>

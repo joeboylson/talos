@@ -1,6 +1,6 @@
 # Talos: where it's going
 
-The plan for tasks, boards, templates and loops. None of this is built yet; it's the direction for what comes next.
+The plan for tasks, boards, templates and loops. Only the simplest loop is built (one message sent to one session on a schedule: `talos sessions <session> loop`, in the README); the rest is the direction for what comes next.
 
 **This is a brainstorm, and it follows the session design.** It came from
 spitballing ideas with Claude. Its core ideas should stay, but its details change

@@ -16,6 +16,12 @@ export type Command =
   | { name: "sessions-attach"; sessionName: string | null }
   | { name: "sessions-open"; sessionName: string }
   | { name: "sessions-stop"; sessionName: string }
+  | { name: "sessions-loop-start"; sessionName: string; message: string }
+  | { name: "sessions-loop-show"; sessionName: string }
+  // No message: keep the loop's own.
+  | { name: "sessions-loop-edit"; sessionName: string; message: string | null }
+  | { name: "sessions-loop-restart"; sessionName: string }
+  | { name: "sessions-loop-stop"; sessionName: string }
   | { name: "runner-stop" }
   | { name: "service-install" }
   | { name: "service-uninstall" }
@@ -29,10 +35,12 @@ export type Command =
 
 export type FolderCommand = Extract<Command, { name: `folders-${string}` }>;
 export type SessionCommand = Extract<Command, { name: `sessions-${string}` | "runner-stop" }>;
+export type LoopCommand = Extract<Command, { name: `sessions-loop-${string}` }>;
 
 export const isFolderCommand = (command: Command): command is FolderCommand => command.name.startsWith("folders-");
 export const isSessionCommand = (command: Command): command is SessionCommand =>
   command.name.startsWith("sessions-") || command.name === "runner-stop";
+export const isLoopCommand = (command: Command): command is LoopCommand => command.name.startsWith("sessions-loop-");
 
 // The help, grouped by task. `talos help <thing>` (or `talos <thing> --help`)
 // shows the group its first word belongs to.
@@ -72,12 +80,21 @@ const HELP_GROUPS: readonly HelpGroup[] = [
       ["talos sessions [--json]", "list this machine's Claude sessions"],
       ["talos sessions start [<folder>] [--name <name>] [--add]", "start a session in a folder, by name or path (here if none); one not added yet is added first"],
       ['talos sessions <session> send "<text>"', "send it a message (or pipe the text in)"],
-      ["talos sessions [<session>] attach", "follow its conversation and type to it (Ctrl-D leaves it running); with no session, choose one"],
+      ["talos sessions [<session>] attach", "follow its conversation and type to it (Ctrl+P: commands, like its loop; Ctrl-D leaves it running); with no session, choose one"],
       ["talos sessions <session> open", "open it on the page"],
       ["talos sessions <session> stop", "end a session"],
+      ['talos sessions <session> loop "<text>" --cron "<schedule>" --runs <n>|--until <date>', "send it a message on a schedule, until a limit (999 runs or 7 days at most)"],
+      ["talos sessions <session> loop [--json]", "show its loop: next run, runs sent and its history"],
+      ['talos sessions <session> loop edit ["<text>"] [--cron ...] [--runs ...|--until ...]', "change the loop; it counts from the next run"],
+      ["talos sessions <session> loop restart [--runs ...|--until ...]", "start the loop again, as after reaching its limit"],
+      ["talos sessions <session> loop stop", "end the loop (the session keeps running)"],
       ["talos runner stop", "end the session runner and every session in it"],
     ],
-    examples: ["talos sessions start website --name new-homepage", 'talos sessions new-homepage send "use the logo blue"'],
+    examples: [
+      "talos sessions start website --name new-homepage",
+      'talos sessions new-homepage send "use the logo blue"',
+      'talos sessions new-homepage loop "check the build and fix what broke" --cron "0 * * * *" --runs 24',
+    ],
   },
 ];
 const EVERYWHERE = [
@@ -130,11 +147,25 @@ const parseSessionsCommand = (args: string[], typed: string): Command => {
     return { name: "sessions-start", folder: action };
   }
   if (action === "send") return { name: "sessions-send", sessionName: first, text: rest.length > 0 ? rest.join(" ") : null };
+  if (action === "loop") return parseLoopCommand(first, rest, typed);
   if (rest.length > 0) return { name: "unknown", typed };
   if (action === "attach") return { name: "sessions-attach", sessionName: first };
   if (action === "open") return { name: "sessions-open", sessionName: first };
   if (action === "stop") return { name: "sessions-stop", sessionName: first };
   return { name: "unknown", typed };
+};
+
+// `loop` alone shows it; `edit`, `restart` and `stop` act on it; any other
+// words are a new loop's message.
+const parseLoopCommand = (sessionName: string, rest: string[], typed: string): Command => {
+  const [loopAction, ...words] = rest;
+  const text = words.length > 0 ? words.join(" ") : null;
+  if (loopAction === undefined) return { name: "sessions-loop-show", sessionName };
+  if (loopAction === "edit") return { name: "sessions-loop-edit", sessionName, message: text };
+  if (loopAction === "restart" || loopAction === "stop") {
+    return text === null ? { name: loopAction === "stop" ? "sessions-loop-stop" : "sessions-loop-restart", sessionName } : { name: "unknown", typed };
+  }
+  return { name: "sessions-loop-start", sessionName, message: rest.join(" ") };
 };
 
 const WHOLE_COMMANDS: Record<string, Command> = {

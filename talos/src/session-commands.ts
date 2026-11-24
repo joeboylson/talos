@@ -1,7 +1,8 @@
 import { homedir } from "node:os";
 import { ENV_KEYS, buildIdentifier, pickUniqueName, requireEnv, toIdentifierName, type Folder } from "talos-shared";
 import { cliError, formatTable, type Flags } from "./cli";
-import type { SessionCommand } from "./commands";
+import { isLoopCommand, type SessionCommand } from "./commands";
+import { removeLoop, runLoopCommand } from "./loops";
 import { RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { readCredentials } from "./credentials";
 import { readFolders } from "./folders";
@@ -118,6 +119,10 @@ const openSession = async (sessionName: string): Promise<void> => {
 };
 
 export const runSessionCommand = async (command: SessionCommand, flags: Flags): Promise<void> => {
+  if (isLoopCommand(command)) {
+    const isSessionRunning = async () => (await runningSessions()).some((session) => session.sessionName === command.sessionName);
+    return runLoopCommand(command, flags, isSessionRunning);
+  }
   if (command.name === "sessions-list") return listSessions(flags);
   if (command.name === "sessions-start") return startSession(command.folder, flags);
   if (command.name === "sessions-send") return sendMessage(command.sessionName, command.text);
@@ -129,6 +134,8 @@ export const runSessionCommand = async (command: SessionCommand, flags: Flags): 
   }
   if (command.name === "sessions-stop") {
     succeedOrFail(await sessions.stop(command.sessionName), "talos sessions");
+    // Remove it now, not at the next check, so a new session with this name doesn't get it.
+    await removeLoop(command.sessionName);
     return console.log(`stopped ${command.sessionName}`);
   }
   await sessions.stopRunner();

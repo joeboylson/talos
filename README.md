@@ -138,9 +138,14 @@ Every command lives here. Names follow the glossary
 | `talos sessions [--json]` | Lists this machine's Claude sessions. |
 | `talos sessions start [<folder>] [--name <name>] [--add]` | Starts a session in a folder, given by its name or its path (the current folder if none), named after it unless `--name` says otherwise. A folder that isn't added yet is added first, after asking (`--add` says yes without asking). Prints its identifier and page address. |
 | `talos sessions <session> send "<text>"` | Sends a session a message, as from the page; with no text, sends what's piped in. |
-| `talos sessions [<session>] attach` | Follows a session's conversation in your terminal (with no session named, the only one running, or one you choose from a list): type a message, `y`/`n` for a permission question, a number for a question's choice; Ctrl-C stops its turn, Ctrl-D leaves it running. |
+| `talos sessions [<session>] attach` | Follows a session's conversation in your terminal (with no session named, the only one running, or one you choose from a list): type a message, `y`/`n` for a permission question, a number for a question's choice; Ctrl-C stops its turn, Ctrl-D leaves it running; Ctrl+P opens the command list, where Loop shows, starts, changes, restarts or stops the session's loop. |
 | `talos sessions <session> open` | Prints the session's page address and opens it in the browser. |
 | `talos sessions <session> stop` | Ends a session. |
+| `talos sessions <session> loop "<text>" --cron "<schedule>" --runs <n>\|--until <date>` | Starts a loop: sends the session that message on a cron schedule, in the machine's own time, until it has sent it `--runs` times (999 at most) or until `--until` (7 days at most; a date alone means the end of that day). A run due while the session is busy, or while the machine is off, is skipped. A session has one loop at most, and it ends with the session. |
+| `talos sessions <session> loop [--json]` | Shows the session's loop: its message, schedule, limit, runs sent, next run and its latest runs. |
+| `talos sessions <session> loop edit ["<text>"] [--cron ...] [--runs ...\|--until ...]` | Changes a running loop; the change counts from its next run. |
+| `talos sessions <session> loop restart [--runs ...\|--until ...]` | Starts a loop again, counting its runs from now, as after it reaches its limit. |
+| `talos sessions <session> loop stop` | Ends the loop; the session keeps running. |
 | `talos runner stop` | Ends the session runner and every session in it. |
 
 Every command takes `--help` (or `-h`), and `talos --version` says which

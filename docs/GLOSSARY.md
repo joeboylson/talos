@@ -48,12 +48,23 @@ docs. Use these and no others.
   (report_status, ask_decision). Its own call isn't shown in the conversation.
 - **attach**: follow a session's conversation in your terminal and type to
   it (`talos sessions <session> attach`).
+- **command list**: what attach can do besides sending a message, opened with
+  Ctrl+P. For now it holds one item: the session's loop.
 - **waiting message**: a message sent from the page while a session's turn
   runs, held by the session runner and sent once the turn is over, one per
   turn. Every page shows it.
 - **interrupt**: stopping a session's running turn, from the page or Ctrl-C
   in attach. The session goes on taking messages. Waiting messages go back
   to the message box of the page that sent them.
+- **loop**: one message talos sends a session again and again, on a
+  **schedule** (cron, in the machine's own time), until its **limit**: a
+  number of runs (at most 999) or an end time (at most 7 days after it
+  starts). A session has at most one. It ends with its session, and can be
+  edited or **restarted** while it runs. See [TASKS.md](TASKS.md) for where
+  loops go next.
+- **run**: one time a loop's schedule comes due. It's **sent**, or
+  **skipped**: the session was busy, or the machine was off (logged as a
+  warning). Its **history** lists every run.
 
 ## Programs
 

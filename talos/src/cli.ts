@@ -5,8 +5,19 @@
 // The flags any command may take. --json, --help and --version are anyone's;
 // --owner answers pairing's one question, --name names a new session, --add
 // answers yes to adding a session's folder, --runner picks the session
-// runner's log.
-export type Flags = { json: boolean; help: boolean; version: boolean; runner: boolean; add: boolean; owner?: string; name?: string };
+// runner's log; --cron, --runs and --until set a loop's schedule and limit.
+export type Flags = {
+  json: boolean;
+  help: boolean;
+  version: boolean;
+  runner: boolean;
+  add: boolean;
+  owner?: string;
+  name?: string;
+  cron?: string;
+  runs?: string;
+  until?: string;
+};
 export type ParsedArgs = { words: string[]; flags: Flags };
 
 export const EXIT_CODES = { done: 0, failed: 1, usage: 2 } as const;
@@ -19,7 +30,7 @@ export const cliError = (message: string, fix?: string, exitCode: number = EXIT_
 const isCliError = (error: unknown): error is CliError => error instanceof Error && typeof Reflect.get(error, "exitCode") === "number";
 export const usageError = (message: string, fix = "talos help"): CliError => cliError(message, fix, EXIT_CODES.usage);
 
-const VALUE_FLAGS = { "--owner": "owner", "--name": "name" } as const;
+const VALUE_FLAGS = { "--owner": "owner", "--name": "name", "--cron": "cron", "--runs": "runs", "--until": "until" } as const;
 const SWITCH_FLAGS = { "--json": "json", "--help": "help", "-h": "help", "--version": "version", "-V": "version", "--runner": "runner", "--add": "add" } as const;
 
 // Words stay in order; flags may come anywhere. A word is a flag only when it's

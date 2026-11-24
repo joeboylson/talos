@@ -56,15 +56,16 @@ docs. Use these and no others.
 - **interrupt**: stopping a session's running turn, from the page or Ctrl-C
   in attach. The session goes on taking messages. Waiting messages go back
   to the message box of the page that sent them.
-- **loop**: one message talos sends a session again and again, on a
+- **loop**: one message talos sends a session again and again (typed, or a
+  file's text, read again before every run), on a
   **schedule** (cron, in the machine's own time), until its **limit**: a
   number of runs (at most 999) or an end time (at most 7 days after it
   starts). A session has at most one. It ends with its session, and can be
   edited or **restarted** while it runs. See [TASKS.md](TASKS.md) for where
   loops go next.
 - **run**: one time a loop's schedule comes due. It's **sent**, or
-  **skipped**: the session was busy, or the machine was off (logged as a
-  warning). Its **history** lists every run.
+  **skipped**: the session was busy, its file couldn't be read, or the
+  machine was off (the last two logged as warnings). Its **history** lists every run.
 
 ## Programs
 

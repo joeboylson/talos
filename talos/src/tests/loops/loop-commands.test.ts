@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseCommand } from "../../commands";
@@ -36,7 +36,8 @@ describe("loop commands", () => {
 describe("a loop from start to stop", () => {
   const home = mkdtempSync(join(tmpdir(), "talos-loops-"));
   const sentMessages: string[] = [];
-  const running = { sessions: [{ sessionName: "web", folderName: "proj", state: "idle", asks: {}, openOutputs: [] }] };
+  const web = { sessionName: "web", folderName: "proj", state: "idle", asks: {}, openOutputs: [] };
+  const running = { sessions: [web] };
   const runner = Bun.serve({
     unix: join(home, "runner.sock"),
     async fetch(request) {
@@ -48,7 +49,6 @@ describe("a loop from start to stop", () => {
       const { text } = (await request.json()) as { text: string };
       sentMessages.push(text);
       return new Response("ok");
-      return new Response("?", { status: 404 });
     },
   });
   afterAll(() => {
@@ -98,7 +98,7 @@ describe("a loop from start to stop", () => {
       expect(checked.stdout).toContain("web's loop reached its limit");
 
       const shown = JSON.parse((await talos("sessions", "web", "loop", "--json")).stdout);
-      expect(shown).toMatchObject({ message: "check the build", sentRuns: 1, hasEnded: true, nextRunMs: null });
+      expect(shown).toMatchObject({ message: { text: "check the build" }, sentRuns: 1, hasEnded: true, nextRunMs: null });
       expect(shown.history.map((run: { outcome: string }) => run.outcome)).toEqual(["sent", "ended"]);
 
       expect((await talos("sessions", "../credentials", "loop")).stderr).toContain("there's no session ../credentials");
@@ -107,7 +107,7 @@ describe("a loop from start to stop", () => {
       // loop.test.ts checks that runs count from the restart. Here the check ran
       // a minute ahead, so its "ended" run lands after the restart.
       const restarted = JSON.parse((await talos("sessions", "web", "loop", "--json")).stdout);
-      expect(restarted).toMatchObject({ message: "check it twice", limit: { runs: 5 } });
+      expect(restarted).toMatchObject({ message: { text: "check it twice" }, limit: { runs: 5 } });
       expect(restarted.startedAtMs).toBeGreaterThan(shown.startedAtMs);
 
       expect((await talos("sessions", "web", "stop")).exitCode).toBe(0);
@@ -118,6 +118,36 @@ describe("a loop from start to stop", () => {
       expect((await checkOnce()).stdout).toContain("web ended, so its loop did too");
       expect(existsSync(join(home, "loops", "web.json"))).toBe(false);
       expect((await talos("sessions", "web", "loop")).stderr).toContain("web has no loop");
+    },
+    30_000,
+  );
+
+  test(
+    "a loop from a file sends the file as it is at each run, and skips a run it can't read",
+    async () => {
+      running.sessions = [web];
+      sentMessages.length = 0;
+      const promptFile = join(home, "prompt.md");
+      writeFileSync(promptFile, "first version");
+      const loopArgs = ["--cron", "* * * * *", "--runs", "5"];
+      expect((await talos("sessions", "web", "loop", "hi", "-f", promptFile, ...loopArgs)).stderr).toContain("not both");
+      expect((await talos("sessions", "web", "loop", "-f", join(home, "missing.md"), ...loopArgs)).stderr).toContain("isn't a file");
+
+      expect((await talos("sessions", "web", "loop", "--file", promptFile, ...loopArgs)).exitCode).toBe(0);
+      expect(JSON.parse((await talos("sessions", "web", "loop", "--json")).stdout).message).toEqual({ file: promptFile });
+      await checkOnce();
+      writeFileSync(promptFile, "second version");
+      await checkOnce();
+      expect(sentMessages).toEqual(["first version", "second version"]);
+
+      rmSync(promptFile);
+      expect((await checkOnce()).stderr).toContain(`couldn't read ${promptFile}`);
+      const shown = JSON.parse((await talos("sessions", "web", "loop", "--json")).stdout);
+      expect(shown.history.map((run: { outcome: string; reason?: string }) => run.reason ?? run.outcome)).toEqual(["sent", "sent", "unreadable-file"]);
+      expect(shown.sentRuns).toBe(2);
+
+      expect((await talos("sessions", "web", "loop", "edit", "back to text")).exitCode).toBe(0);
+      expect(JSON.parse((await talos("sessions", "web", "loop", "--json")).stdout).message).toEqual({ text: "back to text" });
     },
     30_000,
   );

@@ -4,7 +4,7 @@ import type { Logger } from "talos-shared";
 import type { SessionsConnection, SessionSummary } from "../talos-sessions";
 import { LOOP_CHECK_MS } from "./constants";
 import { addToHistory, loopSessionNames, readHistory, readLoop, removeAllLoops, removeLoop } from "./loop-files";
-import { checkLoop, type LoopRun } from "./loop";
+import { checkLoop, type LoopMessage, type LoopRun } from "./loop";
 
 // Free means no turn running, no question open and no message waiting.
 const isFree = (session: SessionSummary): boolean => session.state === "idle" && (session.waitingMessages ?? []).length === 0;
@@ -13,6 +13,18 @@ const describeRun = (sessionName: string, run: LoopRun): string | null => {
   if (run.outcome === "ended") return `loops: ${sessionName}'s loop reached its limit`;
   if (run.outcome === "skipped" && run.reason === "machine-off") return `loops: ${sessionName}'s loop missed ${run.missedRuns} run(s) while the machine was off`;
   return null;
+};
+
+// The text to send: the loop's own, or its file's as it is now. Null when the
+// file can't give any.
+const messageText = async (message: LoopMessage, log: Logger): Promise<string | null> => {
+  if ("text" in message) return message.text;
+  const text = await Bun.file(message.file).text().catch((error: unknown) => {
+    log.warn(`loops: skipped a run: couldn't read ${message.file}: ${String(error)}`);
+    return null;
+  });
+  if (text !== null && !text.trim()) log.warn(`loops: skipped a run: ${message.file} is empty`);
+  return text?.trim() ? text : null;
 };
 
 const checkOneLoop = async (sessions: SessionsConnection, running: readonly SessionSummary[], sessionName: string, lastCheckMs: number, nowMs: number, log: Logger): Promise<void> => {
@@ -25,11 +37,14 @@ const checkOneLoop = async (sessions: SessionsConnection, running: readonly Sess
   if (!loop) return;
   const history = await readHistory(sessionName);
   const check = { loop, history, lastCheckMs, nowMs };
-  const runs = checkLoop({ ...check, isSessionFree: isFree(session) });
+  const runs = checkLoop({ ...check, skipReason: isFree(session) ? null : "busy" });
   const isSending = runs.some((run) => run.outcome === "sent");
-  const isSent = isSending && (await sessions.send(sessionName, loop.message)).ok;
-  // The runner can refuse a send if the session got busy; record that as a busy skip.
-  const recorded = isSending && !isSent ? checkLoop({ ...check, isSessionFree: false }) : runs;
+  const text = isSending ? await messageText(loop.message, log) : null;
+  const isSent = text !== null && (await sessions.send(sessionName, text)).ok;
+  // A file with nothing to send is an unreadable-file skip. A send the runner
+  // refuses (the session got busy) is a busy skip.
+  const skipReason = text === null ? "unreadable-file" : "busy";
+  const recorded = isSending && !isSent ? checkLoop({ ...check, skipReason }) : runs;
   await addToHistory(sessionName, recorded);
   recorded.forEach((run) => {
     const line = describeRun(sessionName, run);

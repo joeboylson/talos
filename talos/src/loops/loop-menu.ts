@@ -1,17 +1,44 @@
 // Attach's loop menu (Ctrl+P, then Loop): the same loop the talos command
 // starts and changes, by questions instead of flags. It saves the loop file,
 // and the session runner picks it up at its next check.
+import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import { note } from "@clack/prompts";
 import { askChoice, askText, askYesNo } from "../ask";
+import { resolveFolderPath } from "../folder-commands";
 import { parseCron } from "./cron";
 import { readHistory, readLoop, removeLoop, saveLoop } from "./loop-files";
-import { loopProblem, type Loop, type LoopLimit } from "./loop";
+import { loopProblem, type Loop, type LoopLimit, type LoopMessage } from "./loop";
 import { formatTime, loopChangedLine, loopDetails, parseUntil } from "./loop-text";
 
 const DEFAULT_RUNS = "24";
 const WHOLE_NUMBER = /^\d+$/;
 
-const askMessage = (initial: string) => askText("Message", initial, (typed) => (typed.trim() ? null : "type the message to send"));
+const fullPathOf = (typed: string): string => resolveFolderPath(typed.trim(), process.cwd(), homedir());
+const isFileThere = (path: string): boolean => {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+};
+
+// Typed text, or a file read again before every run.
+const askMessage = async (current: LoopMessage | null): Promise<LoopMessage | null> => {
+  const kind = await askChoice("Message", [
+    { value: "text" as const, label: "Text" },
+    { value: "file" as const, label: "File", hint: "read before every run" },
+  ]);
+  if (kind === "text") {
+    const text = await askText("Text", current && "text" in current ? current.text : "", (typed) => (typed.trim() ? null : "type the message to send"));
+    return text === null ? null : { text };
+  }
+  if (kind !== "file") return null;
+  const typedFile = await askText("File", current && "file" in current ? current.file : "", (typed) =>
+    isFileThere(fullPathOf(typed)) ? null : `there's no file at ${fullPathOf(typed)}`,
+  );
+  return typedFile === null ? null : { file: fullPathOf(typedFile) };
+};
 const askSchedule = (initial: string) =>
   askText("Schedule (cron)", initial, (typed) => (parseCron(typed) ? null : 'cron\'s five fields, like "0 * * * *" for every hour'));
 
@@ -37,7 +64,7 @@ const askLimit = async (current: LoopLimit | null, problemFor: (limit: LoopLimit
 };
 
 const startFromMenu = async (sessionName: string): Promise<Loop | null> => {
-  const message = await askMessage("");
+  const message = await askMessage(null);
   if (message === null) return null;
   const schedule = await askSchedule("0 * * * *");
   if (schedule === null) return null;

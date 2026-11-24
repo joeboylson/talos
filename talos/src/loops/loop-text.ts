@@ -1,6 +1,6 @@
 // How a loop reads for a person, shared by `talos sessions <session> loop`
 // and attach's loop menu.
-import { hasLoopEnded, nextRunMs, sentRunCount, type Loop, type LoopLimit, type LoopRun } from "./loop";
+import { hasLoopEnded, nextRunMs, sentRunCount, type Loop, type LoopLimit, type LoopMessage, type LoopRun } from "./loop";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -19,9 +19,13 @@ export const formatTime = (ms: number): string => {
 
 export const describeLimit = (limit: LoopLimit): string => ("runs" in limit ? `${limit.runs} runs` : `until ${formatTime(limit.untilMs)}`);
 
+export const describeMessage = (message: LoopMessage): string => ("text" in message ? message.text : `file ${message.file}`);
+
 export const describeOutcome = (run: LoopRun): string => {
   if (run.outcome !== "skipped") return run.outcome;
-  return run.reason === "busy" ? "skipped: the session was busy" : `skipped ${run.missedRuns}: the machine was off`;
+  if (run.reason === "busy") return "skipped: the session was busy";
+  if (run.reason === "machine-off") return `skipped ${run.missedRuns}: the machine was off`;
+  return "skipped: couldn't read the message file";
 };
 
 const describeNextRun = (loop: Loop, history: readonly LoopRun[], nowMs: number): string => {
@@ -33,7 +37,7 @@ const describeNextRun = (loop: Loop, history: readonly LoopRun[], nowMs: number)
 // Lined up for a person, or tab-separated for a script.
 export const loopDetails = (loop: Loop, history: readonly LoopRun[], nowMs: number, isTerminal: boolean): string => {
   const rows = [
-    ["message", loop.message],
+    ["message", describeMessage(loop.message)],
     ["schedule", loop.schedule],
     ["limit", `${describeLimit(loop.limit)}, ${sentRunCount(loop, history)} sent`],
     ["next run", describeNextRun(loop, history, nowMs)],

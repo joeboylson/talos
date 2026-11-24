@@ -11,9 +11,10 @@ const isNumber = (value: unknown): value is number => typeof value === "number" 
 export const readLoopShape = (value: unknown): Loop | null => {
   if (!isRecord(value) || !isRecord(value.limit)) return null;
   const { sessionName, message, schedule, startedAtMs, limit } = value;
-  if (typeof sessionName !== "string" || typeof message !== "string" || typeof schedule !== "string" || !isNumber(startedAtMs)) return null;
+  if (typeof sessionName !== "string" || !isRecord(message) || typeof schedule !== "string" || !isNumber(startedAtMs)) return null;
+  const readMessage = typeof message.text === "string" ? { text: message.text } : typeof message.file === "string" ? { file: message.file } : null;
   const readLimit = isNumber(limit.runs) ? { runs: limit.runs } : isNumber(limit.untilMs) ? { untilMs: limit.untilMs } : null;
-  return readLimit && { sessionName, message, schedule, startedAtMs, limit: readLimit };
+  return readMessage && readLimit && { sessionName, message: readMessage, schedule, startedAtMs, limit: readLimit };
 };
 
 export const readRunShape = (value: unknown): LoopRun | null => {
@@ -21,7 +22,7 @@ export const readRunShape = (value: unknown): LoopRun | null => {
   const { atMs, outcome, reason, missedRuns } = value;
   if (outcome === "sent" || outcome === "ended") return { atMs, outcome };
   if (outcome !== "skipped") return null;
-  if (reason === "busy") return { atMs, outcome, reason };
+  if (reason === "busy" || reason === "unreadable-file") return { atMs, outcome, reason };
   return reason === "machine-off" && isNumber(missedRuns) ? { atMs, outcome, reason, missedRuns } : null;
 };
 

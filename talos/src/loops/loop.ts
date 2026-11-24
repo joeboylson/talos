@@ -4,13 +4,17 @@ import { dueTimesBetween, parseCron } from "./cron";
 import { LOOP_LIMITS } from "./constants";
 
 export type LoopLimit = { runs: number } | { untilMs: number };
-export type Loop = { sessionName: string; message: string; schedule: string; limit: LoopLimit; startedAtMs: number };
+// A file is read again before every run, so editing it changes the next run.
+export type LoopMessage = { text: string } | { file: string };
+export type Loop = { sessionName: string; message: LoopMessage; schedule: string; limit: LoopLimit; startedAtMs: number };
 
 // busy: the session was still working, on the last run or anything else.
+// unreadable-file: the message file was missing, empty or unreadable.
 // machine-off: the run came due while the machine was asleep or off.
+export type SkipReason = "busy" | "unreadable-file";
 export type LoopRun =
   | { atMs: number; outcome: "sent" }
-  | { atMs: number; outcome: "skipped"; reason: "busy" }
+  | { atMs: number; outcome: "skipped"; reason: SkipReason }
   | { atMs: number; outcome: "skipped"; reason: "machine-off"; missedRuns: number }
   | { atMs: number; outcome: "ended" };
 
@@ -18,7 +22,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_LOOP_MS = LOOP_LIMITS.maxDays * DAY_MS;
 
 export const loopProblem = (loop: Loop): string | null => {
-  if (!loop.message.trim()) return "the loop's message is empty";
+  if ("text" in loop.message && !loop.message.text.trim()) return "the loop's message is empty";
+  if ("file" in loop.message && !loop.message.file.startsWith("/")) return `the loop's message file needs its full path, not ${loop.message.file}`;
   if (!parseCron(loop.schedule)) return `"${loop.schedule}" isn't a cron schedule (like "*/30 * * * *")`;
   if ("runs" in loop.limit) {
     const { runs } = loop.limit;
@@ -47,12 +52,13 @@ export const nextRunMs = (loop: Loop, history: readonly LoopRun[], nowMs: number
   return dueTimesBetween(cron, nowMs, lastAllowedMs(loop, nowMs))[0] ?? null;
 };
 
-export type LoopCheck = { loop: Loop; history: readonly LoopRun[]; lastCheckMs: number; nowMs: number; isSessionFree: boolean };
+// skipReason: why a run due now can't be sent, or null when it can.
+export type LoopCheck = { loop: Loop; history: readonly LoopRun[]; lastCheckMs: number; nowMs: number; skipReason: SkipReason | null };
 
 // Returns the runs one check adds to the history. Checks come every few
 // seconds, so a run due more than LOOP_LIMITS.lateMs ago means the machine was
 // asleep or off.
-export const checkLoop = ({ loop, history, lastCheckMs, nowMs, isSessionFree }: LoopCheck): LoopRun[] => {
+export const checkLoop = ({ loop, history, lastCheckMs, nowMs, skipReason }: LoopCheck): LoopRun[] => {
   const cron = parseCron(loop.schedule);
   if (!cron || hasLoopEnded(loop, history)) return [];
   const windowStartMs = Math.max(lastCheckMs, loop.startedAtMs);
@@ -61,7 +67,7 @@ export const checkLoop = ({ loop, history, lastCheckMs, nowMs, isSessionFree }: 
   const missedTimes = dueTimes.filter((dueMs) => nowMs - dueMs > LOOP_LIMITS.lateMs);
   const hasRunDueNow = dueTimes.length > missedTimes.length;
   const missed: LoopRun[] = missedTimes.length > 0 ? [{ atMs: nowMs, outcome: "skipped", reason: "machine-off", missedRuns: missedTimes.length }] : [];
-  const thisRun: LoopRun[] = !hasRunDueNow ? [] : isSessionFree ? [{ atMs: nowMs, outcome: "sent" }] : [{ atMs: nowMs, outcome: "skipped", reason: "busy" }];
+  const thisRun: LoopRun[] = !hasRunDueNow ? [] : skipReason === null ? [{ atMs: nowMs, outcome: "sent" }] : [{ atMs: nowMs, outcome: "skipped", reason: skipReason }];
   const added = [...missed, ...thisRun];
   const isPastEnd = "untilMs" in loop.limit && nowMs >= loop.limit.untilMs;
   const isOutOfRuns = "runs" in loop.limit && sentRunCount(loop, [...history, ...added]) >= loop.limit.runs;

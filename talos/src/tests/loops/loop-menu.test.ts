@@ -4,7 +4,7 @@ import type { Loop, LoopLimit } from "../../loops/loop";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = new Date("2026-11-24T10:00:00").getTime();
-const loop = (changes: Partial<Loop> = {}): Loop => ({ sessionName: "web", message: "check the build", schedule: "0 * * * *", limit: { runs: 24 }, startedAtMs: NOW - DAY_MS, ...changes });
+const loop = (changes: Partial<Loop> = {}): Loop => ({ sessionName: "web", message: { text: "check the build" }, schedule: "0 * * * *", limit: { runs: 24 }, startedAtMs: NOW - DAY_MS, ...changes });
 
 // Answers every limit question with the given limit. Records which questions
 // were asked, and the problem the loop would have with that limit.
@@ -12,7 +12,7 @@ const answering = (limit: LoopLimit | null) => {
   const asked: string[] = [];
   const problems: (string | null)[] = [];
   const questions: LoopQuestions = {
-    askMessage: async () => (asked.push("message"), "check it twice"),
+    askMessage: async () => (asked.push("message"), { text: "check it twice" }),
     askSchedule: async () => (asked.push("schedule"), "*/30 * * * *"),
     askLimit: async (_current, problemFor) => {
       asked.push("limit");
@@ -25,7 +25,7 @@ const answering = (limit: LoopLimit | null) => {
 
 test("each change asks only its own question", async () => {
   const message = answering(null);
-  expect(await changeFromMenu(loop(), "message", NOW, message.questions)).toEqual(loop({ message: "check it twice" }));
+  expect(await changeFromMenu(loop(), "message", NOW, message.questions)).toEqual(loop({ message: { text: "check it twice" } }));
   expect(message.asked).toEqual(["message"]);
   const schedule = answering(null);
   expect(await changeFromMenu(loop(), "schedule", NOW, schedule.questions)).toEqual(loop({ schedule: "*/30 * * * *" }));

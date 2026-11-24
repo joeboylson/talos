@@ -1,16 +1,18 @@
 // A session's state and its lane: every change to either goes through here.
 import { mergeSessionEntries, type SessionEntry, type SessionState, type SessionSummary } from "../shapes";
-import { INTERRUPTED_NOTE, steadyNow } from "../constants";
+import { steadyNow } from "../constants";
 import { findKind } from "../kinds";
-import { onlyToolOf, stepLane, type LaneEvent, type LaneReply, type LaneStep } from "../lanes/lane";
+import { stepLane, type LaneEvent, type LaneReply, type LaneStep } from "../lanes/lane";
 import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type TakenOutput } from "../lanes/outputs";
 import { SESSION_LIMITS } from "../limits";
 import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
 import { catalog, log } from "./inputs";
 import { noSuchSession, refuse } from "./refuse";
-import { broadcast, broadcastSessions, heldSessions, updateHeldSession, type HeldSession } from "./store";
-import { dropOldImages, giveBackWaitingMessages, refuseLinkLost, setWaitingMessages } from "./messages";
-import { sendCommand, submitThroughMod } from "./submit";
+import { broadcast, broadcastSessions, heldSessions, updateHeldSession, type HeldSession, type WaitingMessage } from "./store";
+import { giveBackWaitingMessages, refuseLinkLost, setWaitingMessages } from "./messages";
+import { interruptLine, permissionAnswerLine } from "../stream/stream-lines";
+import { writeLine, writeMessage } from "./submit";
+import { showPermissionAsks } from "./stream";
 
 // The summary shows each ask's state and latest answer, and the open outputs.
 const withAsk = (summary: SessionSummary, change: LaneStep["askChange"]): SessionSummary => {
@@ -54,18 +56,19 @@ const saveSession = (sessionName: string, session: HeldSession, changes: Partial
   if (next.summary !== session.summary) broadcastSessions();
 };
 
-// What talos itself sends (a request, an answer) goes in framed as the talos
-// mod's, only once the turn is over, and starts a turn: nothing else talos
-// holds goes in until that turn is over too. False when there's no link.
-// shortcut: if what's sent never starts a turn (dropped with no fact back),
-// nothing else talos holds goes in until the next turn ends.
-const submitTalosText = (sessionName: string, session: HeldSession, text: string): boolean => {
+// A message goes in only once the turn is over, and starts a turn: nothing
+// else goes in until that turn's result. isPerson: the person's own words,
+// whose turn counts toward a question's one turn; talos's own (a request, an
+// answer) don't. False once Claude Code has closed its input.
+const writeTurn = (sessionName: string, session: HeldSession, text: string, images: WaitingMessage["images"], isPerson: boolean): boolean => {
   const current = heldSessions.get(sessionName);
-  const sendInFlight = current?.heldId === session.heldId ? submitThroughMod(current, text, false) : null;
-  if (!sendInFlight) return false;
-  updateHeldSession(sessionName, session.heldId, { isTurnOver: false, sendInFlight });
+  if (current?.heldId !== session.heldId || !writeMessage(current, text, images)) return false;
+  updateHeldSession(sessionName, session.heldId, { isTurnOver: false });
+  applyOutputsEvent(sessionName, { type: "turn-started", isPersonTurn: isPerson });
+  setSessionState(sessionName, "working", false);
   return true;
 };
+const submitTalosText = (sessionName: string, session: HeldSession, text: string): boolean => writeTurn(sessionName, session, text, [], false);
 
 const notify = (sessionName: string, dropped: readonly HeldAnswer[]): void => {
   if (dropped.length > 0) broadcast({ type: "notice", sessionName, message: "An answer was dropped: its question closed, or the session never settled" });
@@ -73,8 +76,7 @@ const notify = (sessionName: string, dropped: readonly HeldAnswer[]): void => {
 
 // Every lane change goes through here: step the lane, then apply what the step
 // says (an output taken, an ask's change, a request to send) and return the
-// mod's answer. The mod hears of a change to the one tool allowed before the
-// request goes in, on the same stream.
+// mod's answer.
 export const applyLaneEvent = (sessionName: string, event: LaneEvent): LaneReply => {
   const session = heldSessions.get(sessionName);
   if (!session) return null;
@@ -83,10 +85,8 @@ export const applyLaneEvent = (sessionName: string, event: LaneEvent): LaneReply
   const heldAnswers = event.type === "tick" ? keptHeld(session.heldAnswers, [], nowMs) : session.heldAnswers;
   saveSession(sessionName, session, { lane: step.lane, heldAnswers, summary: withAsk(session.summary, step.askChange) });
   notify(sessionName, session.heldAnswers.filter((answer) => !heldAnswers.includes(answer)));
-  const onlyTool = onlyToolOf(step.lane, catalog());
-  if (onlyTool !== onlyToolOf(session.lane, catalog())) sendCommand(session, { type: "only-tool", tool: onlyTool });
   if (step.sent) applyOutputsEvent(sessionName, { type: "sent", output: step.sent });
-  // A request that can't go in (no link) ends its ask.
+  // A request that can't go in ends its ask.
   if (step.requestToType && !submitTalosText(sessionName, session, step.requestToType)) {
     applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
   }
@@ -130,16 +130,14 @@ const isWaitingToSettle = (session: HeldSession | undefined): boolean =>
   session !== undefined && (session.lane.stage === "queued" || session.lane.stage === "answered" || session.heldAnswers.length > 0 || hasWaitingMessages(session));
 
 // The person's oldest waiting message goes in first, in their own words: it
-// ends any ask, and the session works on it. Its images' older ones go then.
+// ends any ask, and the session works on it.
 const submitWaitingMessage = (sessionName: string, session: HeldSession): void => {
   const [next, ...rest] = session.queuedMessages;
-  const text = next && session.wasInterrupted ? `${INTERRUPTED_NOTE}\n\n${next.text}` : next?.text;
-  const sendInFlight = text ? submitThroughMod(session, text, true) : null;
-  if (!next || !sendInFlight) return;
+  if (!next) return;
   setWaitingMessages(sessionName, session, rest);
-  updateHeldSession(sessionName, session.heldId, { isTurnOver: false, sendInFlight, wasInterrupted: false });
+  const current = heldSessions.get(sessionName);
+  if (!current || !writeTurn(sessionName, current, next.text, next.images, true)) return;
   applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
-  void dropOldImages(sessionName, next.imagePaths).catch(() => {});
 };
 
 // Once the turn is over: a waiting message, else a finished asked-for turn
@@ -149,11 +147,11 @@ const sendNextWhenSettled = (sessionName: string): void => {
   const session = heldSessions.get(sessionName);
   if (!session) return;
   if (hasWaitingMessages(session)) return submitWaitingMessage(sessionName, session);
-  if (session.lane.stage === "answered") applyLaneEvent(sessionName, { type: "settled", hasDraft: session.hasDraft });
+  if (session.lane.stage === "answered") applyLaneEvent(sessionName, { type: "settled", hasDraft: false });
   const current = heldSessions.get(sessionName);
   if (!current) return;
-  const next = nextToType(current.lane, current.heldAnswers, current.hasDraft);
-  if (next === "ask") return void applyLaneEvent(sessionName, { type: "settled", hasDraft: current.hasDraft });
+  const next = nextToType(current.lane, current.heldAnswers, false);
+  if (next === "ask") return void applyLaneEvent(sessionName, { type: "settled", hasDraft: false });
   if (!next) return;
   // Held until it goes in, so a second click is refused meanwhile; then it
   // closes its question.
@@ -165,13 +163,11 @@ const sendNextWhenSettled = (sessionName: string): void => {
 };
 
 // A queued request goes in, and a finished asked-for turn ends, only once the
-// session's turn is over, as its mod reports it: Claude Code's turn.complete
-// comes once, at the real end, even when a person's own Stop hook keeps the
-// turn going. Nothing goes into a stopped session: only the person continues
-// it, at the terminal.
+// session's turn is over: its result comes once, at the real end, even when a
+// person's own Stop hook keeps the turn going.
 const stepLaneWhenSettled = (sessionName: string, token: string): void => {
   const session = heldSessions.get(sessionName);
-  const isReady = session?.heldId === token && session.isTurnOver && session.summary.state !== "stopped" && !session.sendInFlight;
+  const isReady = session?.heldId === token && session.isTurnOver;
   if (!isReady || !isWaitingToSettle(session)) return;
   sendNextWhenSettled(sessionName);
 };
@@ -204,30 +200,32 @@ export const answerOutput = (sessionName: string, outputId: unknown, choice: unk
   return new Response(null, { status: 204 });
 };
 
-// Stops the running turn through the mod, as Esc would, but the session takes
-// sends after. What waited goes back to the page: Claude Code would run it
-// next, and the person stopping the turn may want to say something else.
+// Stops the running turn; the session takes messages after. What waited goes
+// back to the page: the person stopping the turn may want to say something else.
 export const interruptSession = (sessionName: string): Response => {
   const session = heldSessions.get(sessionName);
   if (!session) return noSuchSession(sessionName);
-  if (session.summary.link === "lost") return refuseLinkLost();
-  if (session.link.factView.isTurnOver) return refuse("not-running", "It isn't working on anything");
-  if (!sendCommand(session, { type: "abort" })) return refuseLinkLost();
+  if (session.isTurnOver) return refuse("not-running", "It isn't working on anything");
+  if (!writeLine(session, interruptLine(crypto.randomUUID()))) return noSuchSession(sessionName);
   updateHeldSession(sessionName, session.heldId, { isInterrupting: true });
   giveBackWaitingMessages(sessionName);
   return new Response(null, { status: 204 });
 };
 
-// Answers a permission prompt showing in the session's terminal, as the person
-// would there. One already answered (in the terminal, or by its turn ending) is
-// closed.
+const DENIED_FROM_PAGE = "The person said no from the talos page";
+
+// Answers a permission question Claude Code is waiting on. One already
+// answered (or ended with its turn) is closed.
 export const answerPermission = (sessionName: string, toolUseId: unknown, isAllowed: unknown): Response => {
   if (typeof toolUseId !== "string" || typeof isAllowed !== "boolean") return new Response("expected a toolUseId and isAllowed", { status: 400 });
   const session = heldSessions.get(sessionName);
   if (!session) return noSuchSession(sessionName);
-  if (session.summary.link === "lost") return refuseLinkLost();
-  const isShowing = session.link.factView.waitingPermissions.some((ask) => ask.toolUseId === toolUseId);
-  if (!isShowing) return refuse("closed", "That prompt was already answered");
-  if (!sendCommand(session, { type: "permission-answer", toolUseId, isAllowed })) return refuseLinkLost();
+  const waiting = session.waitingPermissions.find((ask) => ask.toolUseId === toolUseId);
+  if (!waiting) return refuse("closed", "That prompt was already answered");
+  const answer = isAllowed ? { allow: true as const, input: waiting.input } : { allow: false as const, message: DENIED_FROM_PAGE };
+  if (!writeLine(session, permissionAnswerLine(waiting.requestId, waiting.toolUseId, answer))) return noSuchSession(sessionName);
+  const rest = session.waitingPermissions.filter((ask) => ask !== waiting);
+  showPermissionAsks(sessionName, session, rest);
+  if (rest.length === 0) setSessionState(sessionName, "working", false);
   return new Response(null, { status: 204 });
 };

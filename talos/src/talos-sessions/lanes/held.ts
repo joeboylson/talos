@@ -1,6 +1,6 @@
-// Answers to open outputs, held until the session's turn is over and its screen
-// has settled, so an answer is never typed into a permission prompt. Pure: the
-// session runner types what these pick.
+// Answers to open outputs, held until the session's turn is over, so an
+// answer never joins a turn that's running. Pure: the session runner sends
+// what these pick.
 import { cleanLine, hasCommandMarker } from "../clean";
 import type { Refusal } from "../client/runner-protocol";
 import { findKind, type Catalog } from "../kinds";
@@ -46,6 +46,6 @@ export const nextToType = (lane: Lane, held: readonly HeldAnswer[], hasDraft: bo
   return oldest && !hasDraft ? oldest : null;
 };
 
-// Dropped when its question closes, or at the long backstop if the screen never settles.
+// Dropped when its question closes, or at the long backstop if the turn never ends.
 export const keptHeld = (held: readonly HeldAnswer[], closedIds: readonly string[], nowMs: number): HeldAnswer[] =>
   held.filter((answer) => !closedIds.includes(answer.outputId) && nowMs - answer.heldAtMs <= SESSION_LIMITS.queuedAskTimeoutMs);

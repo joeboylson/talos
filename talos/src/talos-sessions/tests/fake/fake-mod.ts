@@ -12,9 +12,7 @@ const token = process.env[LINK_ENV_KEYS.token] ?? "";
 let secret = "";
 const HEARTBEAT_MS = 1000;
 let seq = 0;
-// The one tool the session may call while talos asks for an answer.
-let onlyTool: string | null = null;
-export const allowedTool = (): string | null => onlyTool;
+
 
 const postJson = (route: string, body: unknown, headers: Record<string, string> = {}) =>
   fetch(`http://talos${route}`, { method: "POST", unix: socket, headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -35,43 +33,15 @@ const askWithSecret = async (route: string, body: unknown): Promise<Record<strin
 
 // A call to one of talos's tools, as the mod's tool.call guard asks about it:
 // the reply the session reads, or why it's denied.
+// Any other tool call, as the mod's tool.check guard asks about it: true if
+// talos's asked-for turn allows it.
+export const mayCallTool = async (tool: string): Promise<boolean> => typeof (await askWithSecret(LINK_ROUTES.toolCheck, { tool })).deny !== "string";
+
 export const callTalosTool = (tool: string, toolUseId: string, input: unknown): Promise<Record<string, unknown>> =>
   askWithSecret(LINK_ROUTES.toolCall, { tool, toolUseId, input });
 
-// A Stop: the mod asks only while talos asks for an answer. True: keep going.
-export const stopTurn = async (): Promise<boolean> => onlyTool !== null && typeof (await askWithSecret(LINK_ROUTES.stop, {})).block === "string";
-
-export type SubmitCommand = { sendId: string; text: string; isPerson: boolean };
-export type CommandHandlers = {
-  onSubmit: (submit: SubmitCommand) => void;
-  onAbort: () => void;
-  onPermissionAnswer: (toolUseId: string, isAllowed: boolean) => void;
-};
-
-// Each command line the runner sends through the helper goes to its handler.
-const readCommands = async (output: ReadableStream<Uint8Array>, { onSubmit, onAbort, onPermissionAnswer }: CommandHandlers): Promise<void> => {
-  let unread = "";
-  for await (const chunk of output) {
-    const lines = (unread + new TextDecoder().decode(chunk)).split("\n");
-    unread = lines.pop() ?? "";
-    lines
-      .filter((line) => line.trim())
-      .map((line) => JSON.parse(line))
-      .forEach((command) => {
-        if (command.type === "submit") onSubmit(command);
-        if (command.type === "abort") onAbort();
-        if (command.type === "only-tool") onlyTool = command.tool;
-        if (command.type === "permission-answer") onPermissionAnswer(command.toolUseId, command.isAllowed);
-      });
-  }
-};
-
-// The helper's process id goes in helper.pid, so a test can end it. Facts
-// given go before the start's, as a turn Claude Code starts on its own would.
-export const linkLikeTheMod = async (
-  firstFacts: readonly [Fact["type"], Record<string, unknown>][],
-  handlers: CommandHandlers,
-): Promise<void> => {
+// The helper's process id goes in helper.pid, so a test can end it.
+export const linkLikeTheMod = async (): Promise<void> => {
   if (!socket || !token) return;
   const answer = await checkIn();
   if (!answer.ok) return;
@@ -80,9 +50,8 @@ export const linkLikeTheMod = async (
     env: { [LINK_ENV_KEYS.socket]: socket, [LINK_ENV_KEYS.secret]: secret },
     stdout: "pipe",
   });
-  void readCommands(helper.stdout, handlers);
+  void helper.stdout.pipeTo(new WritableStream());
   writeFileSync(join(process.cwd(), "helper.pid"), String(helper.pid));
-  for (const [type, details] of firstFacts) await reportFact(type, details);
   await reportFact("session-start");
   if (!basename(process.cwd()).startsWith("quiet")) setInterval(() => void postJson(LINK_ROUTES.facts, { facts: [] }, { authorization: `Bearer ${secret}` }), HEARTBEAT_MS);
   if (basename(process.cwd()).startsWith("relink")) await checkIn();

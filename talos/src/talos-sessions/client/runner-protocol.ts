@@ -9,8 +9,8 @@ export type RunnerEvent =
   | { type: "session-entries"; sessionName: string; entries: SessionEntry[] }
   // Something the owner asked for that didn't happen, like a held answer dropped.
   | { type: "notice"; sessionName: string; message: string }
-  // A message that waited for its turn and won't go in (an interrupt, an Esc in
-  // the terminal), given back to the page that sent it (its request id).
+  // A message that waited for its turn and won't go in (after an interrupt),
+  // given back to the page that sent it (its request id).
   | { type: "message-returned"; sessionName: string; text: string; requestId?: string };
 
 // What the session runner sends when it turns a request down: a fixed code a
@@ -52,7 +52,7 @@ export const RUNNER_ROUTES = {
 
 export const sessionRoute = (
   sessionName: string,
-  action: "send" | "stop" | "interrupt" | "ask" | "answer" | "answer-permission" | "output" | "input" | "resize",
+  action: "send" | "stop" | "interrupt" | "ask" | "answer" | "answer-permission",
 ) =>
   `${RUNNER_ROUTES.sessions}/${encodeURIComponent(sessionName)}/${action}`;
 

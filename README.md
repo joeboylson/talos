@@ -180,6 +180,7 @@ In this repo, run any of them with `make talos <command>`, like
 | `make live-examples`   | Runs every example's live check against real Claude (`LIVE_ONLY=<name>` runs one); costs real Claude turns. |
 | `make check-sessions`  | Runs talos-sessions' own check: its typecheck, tests and examples' tests (`make test` runs it too). |
 | `make live-sessions`   | Checks the session runner with real Claude Code sessions in a throwaway folder (`LIVE_ONLY=<name>` runs one scenario); costs real Claude turns. |
+| `make sdk-check`       | Checks the headless stream against Anthropic's Agent SDK: the SDK drives the tests' fake Claude Code, and talos's input lines are compared with the SDK's. No model. |
 | `make screenshots`     | Retakes every screen of the page into `docs/screenshots/`, from a throwaway server with made-up data. |
 | `make server-image`    | Builds the talos-server container that goes on AWS.                                                   |
 | `make security`        | Runs the security checks that GitHub and each publish run (see Publishing).                           |

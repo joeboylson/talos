@@ -1,10 +1,9 @@
-import { dirname } from "node:path";
 import { parseJsonOrNull } from "../json";
 import { SESSION_LIMITS } from "../limits";
 import { STRUCTURED_TOOL_PREFIX } from "../kinds";
 import { capDroppedMarkers, readSessionEntry, toDroppedMarker, type SessionEntry, type UnnumberedEntry } from "../shapes";
-import { INTERRUPTED_NOTE, NEWLINE_BYTE, SENT_IMAGE_PATH, TOOL_SUMMARY_SHOWN_LENGTH } from "../constants";
-import { removeControlCharacters } from "../terminal";
+import { TOOL_SUMMARY_SHOWN_LENGTH } from "../constants";
+import { removeControlCharacters } from "../clean";
 
 // One line of Claude Code's saved conversation (its .jsonl transcript), with
 // only the fields talos reads.
@@ -75,16 +74,6 @@ export const summarizeToolInput = (input: unknown): string => {
   return truncate((firstTellingValue ?? "").replace(/\s+/g, " ").trim(), TOOL_SUMMARY_SHOWN_LENGTH);
 };
 
-// A message talos sent, as it was sent: without the note it put before it
-// after an interrupt, and with the image paths it put after it counted as
-// images. The page matches its waiting messages against this text.
-export const readSentMessage = (text: string): { text: string; sentImageCount: number } => {
-  const notePrefix = `${INTERRUPTED_NOTE}\n\n`;
-  const paragraphs = (text.startsWith(notePrefix) ? text.slice(notePrefix.length) : text).split("\n\n");
-  const firstPathAt = paragraphs.findLastIndex((paragraph) => !SENT_IMAGE_PATH.test(paragraph)) + 1;
-  return { text: paragraphs.slice(0, firstPathAt).join("\n\n"), sentImageCount: paragraphs.length - firstPathAt };
-};
-
 const readPromptLine = (entryId: string, blocks: ContentBlock[]): UnnumberedEntry[] => {
   const typedText = blocks.flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : [])).join("\n");
   const imageCount = blocks.filter((block) => block.type === "image").length;
@@ -96,11 +85,9 @@ const readPromptLine = (entryId: string, blocks: ContentBlock[]): UnnumberedEntr
     return commandOutput ? [{ kind: "text", entryId, text: truncate(commandOutput, SESSION_LIMITS.maxEntryTextLength) }] : [];
   }
 
-  const sent = readSentMessage(typedText.replace(IMAGE_MARKER, ""));
-  const promptText = (readCommandPrompt(typedText) ?? sent.text).trim();
-  const shownImageCount = imageCount + sent.sentImageCount;
-  if (!promptText && shownImageCount === 0) return [];
-  return [{ kind: "prompt", entryId, text: truncate(promptText, SESSION_LIMITS.maxEntryTextLength), imageCount: shownImageCount }];
+  const promptText = (readCommandPrompt(typedText) ?? typedText.replace(IMAGE_MARKER, "")).trim();
+  if (!promptText && imageCount === 0) return [];
+  return [{ kind: "prompt", entryId, text: truncate(promptText, SESSION_LIMITS.maxEntryTextLength), imageCount }];
 };
 
 const readToolEnds = (blocks: ContentBlock[]): TranscriptItem[] =>
@@ -201,19 +188,3 @@ export const resolveTranscriptItems = (
   const checkedEntries = entries.map((entry) => readSessionEntry(entry) ?? toDroppedMarker(entry, "too long or malformed"));
   return { entries: capDroppedMarkers(checkedEntries, SESSION_LIMITS.maxDroppedPerBatch), knownTools: stillRunning, rejected, structuredCalls };
 };
-
-// A line Claude Code is still writing has no newline yet, so it waits for
-// the next read.
-export const readCompleteLines = (newBytes: Uint8Array): { lines: string[]; usedByteCount: number } => {
-  const lastNewlineIndex = newBytes.lastIndexOf(NEWLINE_BYTE);
-  if (lastNewlineIndex === -1) return { lines: [], usedByteCount: 0 };
-  const completeText = new TextDecoder().decode(newBytes.subarray(0, lastNewlineIndex));
-  return { lines: completeText.split("\n").filter((line) => line.trim()), usedByteCount: lastNewlineIndex + 1 };
-};
-
-// A session's transcript only legitimately rotates within its own project folder
-// (a /clear or compaction starts a new file there). Following a switch anywhere
-// else would let a self-authenticated hook point the session runner at an unrelated file to
-// read and show as the session's conversation.
-export const allowTranscriptSwitch = (newPath: string, currentPath: string | null): boolean =>
-  currentPath === null || dirname(newPath) === dirname(currentPath);

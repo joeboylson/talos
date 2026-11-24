@@ -4,7 +4,7 @@
 // for the other side; the names here are copies of its.
 import type { EngineInterface, Register } from 'claude-code'
 
-const ROUTES = { checkIn: 'http://talos/check-in', facts: 'http://talos/facts', toolCall: 'http://talos/tool-call', stop: 'http://talos/stop' }
+const ROUTES = { checkIn: 'http://talos/check-in', facts: 'http://talos/facts', toolCall: 'http://talos/tool-call', toolCheck: 'http://talos/tool-check', stop: 'http://talos/stop' }
 // talos's own tools: Claude Code names a mod's tool mcp__<mod>__<name>.
 const TOOL_PREFIX = 'mcp__talos__'
 // How long a guard waits on the runner before it decides alone.
@@ -43,8 +43,6 @@ type PermissionDecision = { behavior: 'allow' } | { behavior: 'deny'; message: s
 let waitingPermissions: WaitingPermission[] = []
 // The main conversation's running turn, for an interrupt from the page.
 let runningTurnId: string | null = null
-// While talos asks for one kind of answer, the one tool the session may call.
-let onlyTool: string | null = null
 
 type TurnStarter = 'person' | 'talos' | 'self'
 
@@ -178,7 +176,6 @@ const answerPermission = (toolUseId: string, decision: PermissionDecision | null
 const actOn = ($: Calls, line: string) => {
   const command = JSON.parse(line)
   if (command.type === 'submit') void submit($, String(command.sendId), String(command.text), command.isPerson === true)
-  if (command.type === 'only-tool') onlyTool = typeof command.tool === 'string' ? command.tool : null
   if (command.type === 'abort' && runningTurnId) void $.turn.abort({ turnId: runningTurnId }).catch(() => undefined)
   if (command.type === 'permission-answer') {
     const decision: PermissionDecision = command.isAllowed === true ? { behavior: 'allow' } : { behavior: 'deny', message: DENIED_FROM_PAGE }
@@ -210,8 +207,6 @@ const startHelper = async ($: Calls) => {
       }
     })
   }
-  // With no link, talos asks for nothing, so no tool stays held back.
-  onlyTool = null
 }
 
 const checkIn = async ($: Calls) => {
@@ -291,15 +286,19 @@ export const register: Register = on => {
   })
   // An asked-for turn that ends unanswered is sent back once to answer.
   on('classic.Stop', async ($, e, next) => {
-    const answer = onlyTool ? await askRunner($, ROUTES.stop, {}) : null
+    const answer = await askRunner($, ROUTES.stop, {})
     return typeof answer?.block === 'string' ? { block: answer.block } : next(e)
   }).catch(($, e, next) => next(e))
   // The verdict is read after next, and nothing waits on the runner: a
   // tool.check that waits holds the permission dialog back.
   // While talos asks for one kind of answer, the session's own turn may call
-  // nothing else. A sub-agent already running keeps its tools.
+  // nothing else: the runner says, at the moment of the call, since its rule
+  // changes as a message goes in. A sub-agent already running keeps its
+  // tools. A runner that doesn't answer leaves the call to Claude Code, so a
+  // slow runner never stops a session's work.
   on('tool.check', async ($, e, next) => {
-    if (onlyTool && e.agentId === undefined && e.tool !== onlyTool) return { decision: 'deny', reason: `Only ${onlyTool} is allowed this turn.` }
+    const check = e.agentId === undefined ? await askRunner($, ROUTES.toolCheck, { tool: e.tool }) : null
+    if (typeof check?.deny === 'string') return { decision: 'deny', reason: check.deny }
     const verdict = await next(e)
     const isPersonAsked = verdict.decision === 'ask' && e.approver === 'person' && e.tool_use_id !== undefined
     if (isPersonAsked) {
@@ -307,7 +306,7 @@ export const register: Register = on => {
       report($, 'permission-asked', { toolUseId: e.tool_use_id, agentId: e.agentId, tool: e.tool, summary: summaryOf(e.input) })
     }
     return verdict
-  }).catch(($, e, next) => (onlyTool ? { decision: 'deny' as const } : next(e)))
+  }).catch(($, e, next) => next(e))
   // The dialog is showing, in the terminal: whichever answers first wins, the
   // person there or a click on the page. The page's answer is this hook's;
   // an answer there settles the call and leaves this hook to step aside.

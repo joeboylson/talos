@@ -1,5 +1,5 @@
-// The session runner: a background program that starts Claude Code sessions in
-// terminals it holds, so they keep running when talos restarts. talos starts
+// The session runner: a background program that starts Claude Code sessions
+// and holds them, so they keep running when talos restarts. talos starts
 // it (see runner-client.ts) and talks to it through a file socket only this
 // user can open. `talos runner stop` ends it and every session it holds.
 import { readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -14,12 +14,9 @@ import {
   CLAUDE_COMMAND,
   CLAUDE_VERSIONS_FOLDER,
   HOME_MODE,
-  MIN_BUN_VERSION,
   MOD_FOLDER,
   PINNED_CLAUDE_CODE_VERSION,
   RUNNER_SOCKET_MODE,
-  steadyNow,
-  TRANSCRIPT_CHECK_MS,
 } from "../constants";
 import { pinClaudeCode } from "../claude/pinned-claude";
 import { linkServeOptions, sendHeartbeats } from "./link-server";
@@ -27,9 +24,8 @@ import { snapshotMod } from "./mod-snapshot";
 import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } from "./control-server";
 import { log, paths, useRunnerInputs, type RunnerInputs } from "./inputs";
 import { applyLaneEvent } from "./session-state";
-import { heldSessions, runnerState, trustChanges as keptTrustChanges, updateHeldSession } from "./store";
+import { heldSessions, runnerState, trustChanges as keptTrustChanges } from "./store";
 import { SESSION_LIMITS } from "../limits";
-import { readAllNewEntries } from "./transcript";
 
 const isAlive = (pid: number): boolean => {
   try {
@@ -159,10 +155,6 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
     process.exit(0);
   }
   await endLeftSessionGroups(paths().sessionGroups);
-  if (!Bun.semver.satisfies(Bun.version, `>=${MIN_BUN_VERSION}`)) {
-    runnerState.cannotStartWhy = `talos needs Bun ${MIN_BUN_VERSION} or later to give sessions a terminal; this is Bun ${Bun.version}`;
-    log.warn(`runner: ${runnerState.cannotStartWhy}`);
-  }
   // Tests pass their own Claude Code (a stand-in), which isn't pinned.
   if (!inputs.claudeCommand) useRunnerInputs({ ...inputs, claudeCommand: pinClaudeCodeOrRefuse(pinnedClaudeCode) });
   runnerState.modSnapshotFolder = snapshotMod(MOD_FOLDER, modSnapshots, PINNED_CLAUDE_CODE_VERSION).folder;
@@ -180,12 +172,8 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   await chmod(runnerSocket, RUNNER_SOCKET_MODE);
   await chmod(linkSocket, RUNNER_SOCKET_MODE);
   setInterval(sendHeartbeats, SESSION_LIMITS.linkHeartbeatMs);
-  setInterval(readAllNewEntries, TRANSCRIPT_CHECK_MS);
   setInterval(() => {
     if (!holdsLock(runnerLock)) return void stopRunner();
-    [...heldSessions.values()]
-      .filter(({ hasDraft, draftAtMs }) => hasDraft && steadyNow() - draftAtMs > SESSION_LIMITS.draftForgetMs)
-      .forEach(({ summary, heldId }) => updateHeldSession(summary.sessionName, heldId, { hasDraft: false }));
     [...heldSessions.keys()].forEach((sessionName) => applyLaneEvent(sessionName, { type: "tick" }));
   }, ASK_CHECK_MS);
   log.event(`runner: listening on ${runnerSocket}`);

@@ -3,7 +3,7 @@
 // Each example adds only its own: its keys, its outputs, its words.
 import { mergeSessionEntries, type SessionEntry, type SessionSummary } from "../../index";
 import { bold, dim, fit, lastCells, wrapText, yellow } from "./screen";
-import { CTRL_A, exampleSession, noActions, typeIntoDraft, type Action, type Input } from "./view";
+import { exampleSession, noActions, typeIntoDraft, type Action, type Input } from "./view";
 
 const KEPT_ENTRIES = 500;
 
@@ -35,7 +35,6 @@ export const chatStep = <State extends ChatState>(state: State, input: Input): {
     return noActions({ ...state, draft, notice: result.ok ? "" : result.reason });
   }
   if (input.type !== "key") return noActions(state);
-  if (input.key === CTRL_A) return { state, actions: [{ do: "attach" }] };
   const { draft, sent } = typeIntoDraft(state.draft, input.key);
   return { state: { ...state, draft }, actions: sent.map((text) => ({ do: "send" as const, text })) };
 };

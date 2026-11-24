@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { prepareRun } from "../../kit/run-example";
 import { fitScreen, visibleLength } from "../../kit/screen";
 import { readRecording, replay } from "../../kit/recording";
-import { BACKSPACE, CTRL_A, ENTER } from "../../kit/view";
+import { BACKSPACE, ENTER } from "../../kit/view";
 import { changedBetween, changedFiles } from "../changes";
 import { recipesView } from "../view";
 
@@ -16,9 +16,6 @@ describe("recipes", () => {
   test("typing builds a message, backspace takes a letter off, and Enter sends it", () => {
     const state = typed(["scale it", "!", BACKSPACE]);
     expect(recipesView.step(state, { type: "key", key: ENTER }).actions).toEqual([{ do: "send", text: "scale it" }]);
-  });
-  test("Ctrl-A attaches to watch the session work", () => {
-    expect(recipesView.step(recipesView.initial, { type: "key", key: CTRL_A }).actions).toEqual([{ do: "attach" }]);
   });
   test("the files a run changed: added, removed or edited", () => {
     const before = new Map([["book/a.md", "a"], ["book/b.md", "b"], ["book/c.md", "c"]]);

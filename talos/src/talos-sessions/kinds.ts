@@ -13,7 +13,7 @@ export type OutputKind = {
   // Talos's check: the cleaned fields to keep, or null to turn the call down.
   readFields: (toolInput: unknown) => Record<string, unknown> | null;
   badInputReason: string;
-  // Fields whose text can be typed into the session as the person's own
+  // Fields whose text can be sent into the session as the person's own
   // message (text, or a list of texts). Unless allowCommands, the module turns
   // the call down if one holds a command.
   typedFields: Record<string, { allowCommands: boolean }>;
@@ -21,7 +21,7 @@ export type OutputKind = {
   choicesField?: string;
   // The session ends its turn after sending one and waits for the answer.
   waits: boolean;
-  // Set for a kind talos asks for: the text typed into the session to ask.
+  // Set for a kind talos asks for: the text sent into the session to ask.
   requestText?: string;
 };
 

@@ -60,10 +60,15 @@ describe("writing to the stream", () => {
     const withImage = JSON.parse(userMessageLine("look", [{ mediaType: "image/png", dataBase64: "AA==" }]));
     expect(withImage.message.content).toEqual([{ type: "image", source: { type: "base64", media_type: "image/png", data: "AA==" } }, { type: "text", text: "look" }]);
     expect(userMessageLine("a\nb").indexOf("\n")).toBe(userMessageLine("a\nb").length - 1);
+    expect(JSON.parse(userMessageLine("", [{ mediaType: "image/png", dataBase64: "AA==" }])).message.content).toEqual([{ type: "image", source: { type: "base64", media_type: "image/png", data: "AA==" } }]);
   });
   test("an interrupt and permission answers are control lines", () => {
     expect(JSON.parse(interruptLine("r1"))).toEqual({ type: "control_request", request_id: "r1", request: { subtype: "interrupt" } });
-    expect(JSON.parse(permissionAnswerLine("r2", { allow: true, input: { command: "ls" } })).response).toEqual({ subtype: "success", request_id: "r2", response: { behavior: "allow", updatedInput: { command: "ls" } } });
-    expect(JSON.parse(permissionAnswerLine("r3", { allow: false, message: "no" })).response.response).toEqual({ behavior: "deny", message: "no" });
+    expect(JSON.parse(permissionAnswerLine("r2", "tu1", { allow: true, input: { command: "ls" } })).response).toEqual({
+      subtype: "success",
+      request_id: "r2",
+      response: { behavior: "allow", updatedInput: { command: "ls" }, toolUseID: "tu1" },
+    });
+    expect(JSON.parse(permissionAnswerLine("r3", "tu2", { allow: false, message: "no" })).response.response).toEqual({ behavior: "deny", message: "no", toolUseID: "tu2" });
   });
 });

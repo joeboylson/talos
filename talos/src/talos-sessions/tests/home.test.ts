@@ -88,22 +88,3 @@ test(
   30_000,
 );
 
-test(
-  "a request that fails in the runner says why",
-  async () => {
-    const home = newHome();
-    const calls = connectToSessions({ home, runnerScript });
-    await calls.ensureRunning();
-    mkdirSync(join(home, "work"));
-    expect(await calls.start("img", "work", join(home, "work"))).toEqual({ ok: true });
-    await waitUntil(async () => (await calls.sessions())[0]?.state === "idle", "the session to be ready");
-    // A file where its uploads folder goes, so saving the image fails.
-    writeFileSync(homePaths(home).uploads, "");
-    const image = { mediaType: "image/png" as const, dataBase64: Buffer.from("png").toString("base64") };
-    const failed = await calls.send("img", "look", [image]).then(() => "", (error: Error) => error.message);
-    expect(failed).toContain("the session runner failed");
-    expect(failed).not.toContain("<!doctype");
-    await calls.stopRunner();
-  },
-  20_000,
-);

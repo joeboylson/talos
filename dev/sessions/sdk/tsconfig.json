@@ -1,0 +1,7 @@
+{
+  "extends": "../../../talos/tsconfig.json",
+  "include": [
+    "check.ts"
+  ],
+  "exclude": []
+}

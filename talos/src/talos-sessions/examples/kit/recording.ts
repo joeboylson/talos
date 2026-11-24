@@ -75,7 +75,7 @@ export const replay = <State>(view: ExampleView<State>, recording: readonly Reco
       }
       const stillWaiting = played.waiting.filter((_waiting, index) => index !== resultFor);
       const { state, actions } = view.step(played.state, input);
-      const waitingNow = [...stillWaiting, ...actions.filter(({ do: what }) => what !== "attach" && what !== "quit")];
+      const waitingNow = [...stillWaiting, ...actions.filter(({ do: what }) => what !== "quit")];
       return { state, states: [...played.states, state], actions: [...played.actions, ...actions], waiting: waitingNow };
     },
     { state: view.initial, states: [view.initial], actions: [] as Action[], waiting: [] as Action[] },

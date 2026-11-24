@@ -1,4 +1,7 @@
-import { removeControlCharacters } from "./terminal";
+// Taken out of a message's text, all but line breaks and tabs: the page
+// matches its waiting messages against the text as saved.
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+export const removeControlCharacters = (text: string): string => text.replace(CONTROL_CHARACTERS, "");
 
 // Text from a session lands in a shared table row, a card and the logs, so it
 // can't carry terminal escapes, line breaks, or characters that hide or reorder

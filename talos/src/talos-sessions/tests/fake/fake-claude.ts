@@ -1,129 +1,86 @@
-// A stand-in for Claude Code, for the fake-runner tests: it reaches the
-// session runner over the link as talos's mod does, and saves its conversation
-// the same way, but follows a fixed script instead of thinking.
+// A stand-in for Claude Code run headless, for the fake-runner tests: it reads
+// JSON lines on its input and writes its stream on its output as Claude Code
+// does, links to the runner as talos's mod does (fake-mod.ts), and follows a
+// fixed script instead of thinking.
 // - "go": a line of text, a note (an output that doesn't wait) and a question.
 // - "go2": two questions.
 // - the status request: sends a status. In a folder named nosy… it tries Bash
 //   first, which talos's mod denies in an asked-for turn.
 // - an answer: runs Bash, as a normal turn would.
-// - "prompt": a permission prompt before a Bash call ("go-prompt": a question
-//   first, "slow-prompt": 300 ms of work first): Enter or "1" approves it
-//   (APPROVED), Esc refuses it and ends the turn with no Stop (REFUSED), as
-//   Claude Code does.
-// - "rate-limit": a turn that ends on an API error, with no Stop, as Claude
-//   Code does.
-// - "stop-me": the person pressing Esc mid-turn: a stop, then the turn ends
-//   aborted, as Claude Code reports it.
-// - "deaf": a turn that works for 1 s and ends on its own, an abort or not.
-// - "long": a turn that works for 3 s, unless talos interrupts it (an abort
-//   through the mod) or the person presses Esc (a stop first), which end it
-//   aborted.
+// - "prompt": a permission question before a Bash call ("go-prompt": a
+//   question first, "slow-prompt": 300 ms of work first): allowed, the turn
+//   says APPROVED; denied, REFUSED.
+// - "rate-limit": a turn that ends on an API error.
+// - "deaf": a turn that works for 1 s and ends on its own, interrupted or not.
+// - "long": a turn that works for 3 s, unless talos interrupts it.
 // - "wake-later": a turn, then at once one Claude Code starts on its own (like
-//   a background task's notice), which runs for a second: what talos sends as
-//   the first ends is queued behind it.
-// Each submit is noted in submits.log as it arrives, with how many came
-//   before it and haven't started ("<text> behind <n>").
-// - "clear" / "resume": a last line in the current conversation file, then a
-//   switch to a second file / back to the first, as /clear and /resume do.
-// Anything else is a prompt it just answers by ending its turn.
-// It links to the runner as talos's mod does (fake-mod.ts).
+//   a background task's notice), which runs for a second.
+// - "go-compact": a question, then Claude Code compacting the conversation.
+// Anything else is a message it answers by ending its turn.
+// A message that arrives while a turn runs joins it, as in Claude Code: it's
+// saved as a "BUSY" line and starts no turn. Each message is noted in
+// submits.log as it arrives, with how many before it haven't started
+// ("<text> behind <n>"). Every stream line is also saved in transcript.jsonl,
+// and every input line in input.jsonl.
 // It saves its process id in claude.pid. In a folder named stubborn… it ignores
 // being told to stop; in one named spawner… it starts a process that ignores
-// the terminal closing, and saves that one's id in child.pid. Text typed while
-// a turn runs joins it (see below) and is also saved as a "BUSY" line, and a
-// tool talos's mod denies as a "DENIED" line, so a test can see both.
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+// the terminal closing, and saves that one's id in child.pid. In one named
+// late… it says it's ready after 1.5 s; in one named mute…, never. In one named
+// prompting… it starts a turn on its own with a permission question at once.
+import { appendFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { allowedTool, callTalosTool, linkLikeTheMod, reportFact, stopTurn, type SubmitCommand } from "./fake-mod";
-import type { Fact } from "../../link/link-protocol";
+import { callTalosTool, linkLikeTheMod, mayCallTool } from "./fake-mod";
 
 // fake-runner.ts gives the status kind this request.
 const STATUS_REQUEST = "please send status";
+const folderName = basename(process.cwd());
+const isFolder = (prefix: string) => folderName.startsWith(prefix);
+const transcriptFile = join(process.cwd(), "transcript.jsonl");
 
-const firstTranscript = join(process.cwd(), "transcript.jsonl");
-const secondTranscript = join(process.cwd(), "transcript-2.jsonl");
-let transcriptPath = firstTranscript;
-
-let lineNumber = 0;
-const saveLine = (line: object) => {
-  lineNumber += 1;
-  appendFileSync(transcriptPath, `${JSON.stringify({ uuid: `line-${lineNumber}`, ...line })}\n`);
+const emit = (line: Record<string, unknown>) => {
+  const text = JSON.stringify({ uuid: crypto.randomUUID(), session_id: "fake-session", ...line });
+  appendFileSync(transcriptFile, `${text}\n`);
+  process.stdout.write(`${text}\n`);
 };
-const saveText = (text: string) => saveLine({ type: "assistant", message: { content: [{ type: "text", text }] } });
+const saveText = (text: string) => emit({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text }] } });
+// Shaped as Claude Code's own result line, which the Agent SDK reads too.
+const endTurn = (isError = false) =>
+  emit({
+    type: "result",
+    subtype: isError ? "error_during_execution" : "success",
+    is_error: isError,
+    duration_ms: 1,
+    duration_api_ms: 1,
+    num_turns: 1,
+    permission_denials: [],
+    ...(isError ? { errors: ["the turn ended early"] } : { result: "" }),
+  });
 
-// Calls one tool as Claude Code with talos's mod would: a call to talos's
-// own tool is the runner's to answer, any other is denied while talos asks
-// for one kind of answer. Only talos's tools are saved in the conversation.
+// Control requests it sends (permission questions) wait for their answer.
+const awaitingAnswers = new Map<string, (response: Record<string, unknown>) => void>();
+let requestCount = 0;
+const askPermission = (toolUseId: string): Promise<boolean> => {
+  const requestId = `perm-request-${++requestCount}`;
+  emit({ type: "control_request", request_id: requestId, request: { subtype: "can_use_tool", tool_name: "Bash", tool_use_id: toolUseId, input: { command: "ls" } } });
+  return new Promise((resolve) => awaitingAnswers.set(requestId, (response) => resolve(response.behavior === "allow")));
+};
+
+// A call to talos's own tool is the runner's to answer; any other is denied
+// while talos asks for one kind of answer. Only talos's tools are saved.
 let toolCount = 0;
 const callTool = async (toolName: string, input: object, toolUseId = `tool-${++toolCount}`) => {
-  const only = allowedTool();
-  if (!toolName.startsWith("mcp__")) return only && only !== toolName ? saveText(`DENIED ${toolName}`) : undefined;
-  saveLine({ type: "assistant", message: { content: [{ type: "tool_use", id: toolUseId, name: toolName, input }] } });
+  if (!toolName.startsWith("mcp__")) return (await mayCallTool(toolName)) ? undefined : saveText(`DENIED ${toolName}`);
+  emit({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: toolUseId, name: toolName, input }] } });
   const answer = await callTalosTool(toolName, toolUseId, input);
-  if (typeof answer.result !== "string") saveText(`DENIED ${toolName}`);
+  const isDenied = typeof answer.result !== "string";
+  emit({ type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content: String(answer.result ?? answer.deny), is_error: isDenied }] } });
+  if (isDenied) saveText(`DENIED ${toolName}`);
 };
 
-// An image's path, as talos types it, must be there when the message arrives.
-const notePastedImages = (text: string) =>
-  text.split(/\s+/).filter((word) => /\.(png|jpg|gif|webp)$/.test(word) && !existsSync(word)).forEach((path) => saveText(`MISSING ${path}`));
+// Set while a "long" turn runs: an interrupt ends it.
+let interruptTurn: (() => void) | null = null;
 
-// A turn's facts, as talos's mod reports them: who started it, then its end,
-// however it ended (a refused prompt and an API error included).
-let turnCount = 0;
-let permissionCount = 0;
-// The tool call whose prompt shows: an answer from the page names it. Allow
-// is Enter, Deny is Esc, as the keys would be.
-let promptToolUseId: string | null = null;
-const answerFromPage = (toolUseId: string, isAllowed: boolean) => {
-  if (toolUseId !== promptToolUseId || !answerPrompt) return;
-  const answer = answerPrompt;
-  answerPrompt = null;
-  answer(isAllowed ? "\r" : "\x1b");
-};
-const askPermission = async (): Promise<string> => {
-  const toolUseId = `perm-${++permissionCount}`;
-  promptToolUseId = toolUseId;
-  await reportFact("permission-asked", { toolUseId, tool: "Bash", summary: "ls" });
-  const key = await new Promise<string>((resolve) => (answerPrompt = resolve));
-  await reportFact("permission-settled", { toolUseId });
-  return key;
-};
-let turnsWaiting = 0;
-let turns = Promise.resolve();
-const TYPED = { origin: { kind: "composer" }, startedBy: "person" };
-const runTurn = async (text: string, { origin, startedBy } = TYPED) => {
-  const turnId = `turn-${++turnCount}`;
-  await reportFact("prompt-submit", { origin });
-  await reportFact("turn-start", { turnId, startedBy });
-  if (text === "stop-me") {
-    await reportFact("session-stop", { isTurnRunning: true });
-    return reportFact("turn-complete", { turnId, reason: "aborted" });
-  }
-  if (text === "deaf") {
-    saveLine({ type: "user", message: { content: text } });
-    await Bun.sleep(1000);
-    return reportFact("turn-complete", { turnId, reason: "answer" });
-  }
-  if (text === "long") {
-    saveLine({ type: "user", message: { content: text } });
-    const isAborted = await Promise.race([Bun.sleep(3000).then(() => false), new Promise<boolean>((resolve) => (abortTurn = () => resolve(true)))]);
-    abortTurn = null;
-    return reportFact("turn-complete", { turnId, reason: isAborted ? "aborted" : "answer" });
-  }
-  const reason = await runTurnSteps(text);
-  await reportFact("turn-complete", { turnId, reason });
-  if (text !== "wake-later") return;
-  const wakeId = `turn-${++turnCount}`;
-  await reportFact("turn-start", { turnId: wakeId, startedBy: "self" });
-  await Bun.sleep(1000);
-  await reportFact("turn-complete", { turnId: wakeId, reason: "answer" });
-  // A moment before a queued turn starts, as in Claude Code.
-  await Bun.sleep(500);
-};
-
-const runTurnSteps = async (text: string): Promise<string> => {
-  saveLine({ type: "user", message: { content: text } });
-  notePastedImages(text);
+const runTurnSteps = async (text: string): Promise<boolean> => {
   if (text === "go") {
     saveText("Here is a note, then a question.");
     await callTool("mcp__talos__send_note", { text: "a note" }, "tool-note");
@@ -133,143 +90,123 @@ const runTurnSteps = async (text: string): Promise<string> => {
     await callTool("mcp__talos__ask_question", { question: "First?", choices: ["A", "B"] });
     await callTool("mcp__talos__ask_question", { question: "Second?", choices: ["C", "D"] });
   }
-  if (text === STATUS_REQUEST && basename(process.cwd()).startsWith("nosy")) await callTool("Bash", { command: "ls" });
+  if (text === STATUS_REQUEST && isFolder("nosy")) await callTool("Bash", { command: "ls" });
   if (text === STATUS_REQUEST) await callTool("mcp__talos__send_status", { text: "all good" });
   if (text.startsWith("Answer to")) await callTool("Bash", { command: "ls" });
-  // A question, then Claude Code compacting the conversation (its file stays).
   if (text === "go-compact") {
     await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
-    await reportFact("transcript", { path: transcriptPath });
+    emit({ type: "system", subtype: "compact_boundary" });
   }
   if (text === "go-prompt") await callTool("mcp__talos__ask_question", { question: "Which one?", choices: ["A", "B"] });
   if (text === "slow-prompt") await Bun.sleep(300);
-  if (text === "prompt" || text === "go-prompt" || text === "slow-prompt") {
-    const key = await askPermission();
-    if (key.includes("\x1b") && !key.includes("\r")) {
-      saveText("REFUSED");
-      return "answer";
+  if (text === "prompt" || text === "go-prompt" || text === "slow-prompt") saveText((await askPermission(`perm-${++toolCount}`)) ? "APPROVED" : "REFUSED");
+  if (text === "deaf") await Bun.sleep(1000);
+  if (text === "long") {
+    const isInterrupted = await Promise.race([Bun.sleep(3000).then(() => false), new Promise<boolean>((resolve) => (interruptTurn = () => resolve(true)))]);
+    interruptTurn = null;
+    if (isInterrupted) {
+      emit({ type: "user", parent_tool_use_id: null, message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } });
+      return true;
     }
-    saveText("APPROVED");
   }
-  if (text === "clear" || text === "resume") {
-    saveText(`said before ${text}`);
-    transcriptPath = text === "clear" ? secondTranscript : firstTranscript;
-    await reportFact("session-end", { reason: text });
-    await reportFact("transcript", { path: transcriptPath });
-  }
-  // A turn takes a moment, so text typed into it would be seen as busy.
+  // A turn takes a moment, so a message sent into it would be seen as busy.
   await Bun.sleep(300);
-  if (text === "rate-limit") return "error";
-  // A Stop sent back keeps the turn going, as Claude Code does.
-  if (await stopTurn()) await stopTurn();
-  process.stdout.write("done\n");
-  return "answer";
+  return text === "rate-limit";
 };
 
-// In a folder named noisy… its screen never settles: it writes all the time,
-// from before it reports its start.
-if (basename(process.cwd()).startsWith("noisy")) {
-  process.stdout.write(".\n");
-  setInterval(() => process.stdout.write(".\n"), 100);
-}
-// In a folder named prompting… it asks permission right after it reports its
-// start, while its screen is still drawing (for 2 s).
-function isPromptingFolder(): boolean {
-  return basename(process.cwd()).startsWith("prompting");
-}
-const isPrompting = isPromptingFolder();
-if (isPrompting) {
-  const drawing = setInterval(() => process.stdout.write(".\n"), 100);
-  setTimeout(() => clearInterval(drawing), 2000);
-}
+let isTurnRunning = false;
+let turns = Promise.resolve();
+let messagesNotStarted = 0;
+
+const runTurn = async (text: string, content: unknown) => {
+  messagesNotStarted -= 1;
+  isTurnRunning = true;
+  emit({ type: "user", isReplay: true, parent_tool_use_id: null, message: { role: "user", content } });
+  const isError = await runTurnSteps(text);
+  if (!isError) saveText("done");
+  endTurn(isError);
+  if (text === "wake-later") {
+    saveText("a background task finished");
+    await Bun.sleep(1000);
+    endTurn();
+    // A moment before a waiting turn starts, as in Claude Code.
+    await Bun.sleep(500);
+  }
+  isTurnRunning = false;
+};
+
+const textOf = (content: unknown): string =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.flatMap((block) => (block?.type === "text" ? [String(block.text)] : [])).join("\n")
+      : "";
+
+const onUserMessage = (content: unknown) => {
+  const text = textOf(content).trim();
+  appendFileSync(join(process.cwd(), "submits.log"), `${text} behind ${messagesNotStarted}\n`);
+  if (isTurnRunning) return saveText(`BUSY ${text}`);
+  messagesNotStarted += 1;
+  turns = turns.then(() => runTurn(text, content));
+};
+
+// Its answer to the start request, given once it's linked.
+let takeStartAnswer: (answer: () => void) => void = () => {};
+const startAnswer = new Promise<() => void>((resolve) => (takeStartAnswer = resolve));
+const onControlRequest = (requestId: string, request: Record<string, unknown>) => {
+  const answer = () => process.stdout.write(`${JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: requestId, response: {} } })}\n`);
+  if (request.subtype === "initialize") return takeStartAnswer(answer);
+  if (request.subtype === "interrupt") interruptTurn?.();
+  answer();
+};
+
+const onLine = (line: Record<string, unknown>) => {
+  if (line.type === "user") return onUserMessage((line.message as { content?: unknown })?.content);
+  if (line.type === "control_request") return onControlRequest(String(line.request_id), (line.request ?? {}) as Record<string, unknown>);
+  if (line.type === "control_response") {
+    const { request_id: requestId, response } = (line.response ?? {}) as { request_id?: string; response?: Record<string, unknown> };
+    const answered = requestId ? awaitingAnswers.get(requestId) : undefined;
+    if (requestId) awaitingAnswers.delete(requestId);
+    answered?.(response ?? {});
+  }
+};
+
 writeFileSync(join(process.cwd(), "claude.pid"), String(process.pid));
-if (basename(process.cwd()).startsWith("stubborn")) for (const signal of ["SIGTERM", "SIGHUP"] as const) process.on(signal, () => {});
-if (basename(process.cwd()).startsWith("spawner")) {
+writeFileSync(transcriptFile, "");
+if (isFolder("stubborn")) for (const signal of ["SIGTERM", "SIGHUP"] as const) process.on(signal, () => {});
+if (isFolder("spawner")) {
   const child = Bun.spawn(["sh", "-c", "trap '' HUP TERM; sleep 60"], { stdio: ["ignore", "ignore", "ignore"] });
   writeFileSync(join(process.cwd(), "child.pid"), String(child.pid));
 }
-// Raw from the start, as Claude Code is by the time its mod reports the
-// start: talos types the moment it does.
-process.stdin.setRawMode?.(true);
-writeFileSync(firstTranscript, "");
-writeFileSync(secondTranscript, "");
-// In a folder named late… it reports its start after 1.5 s.
-if (basename(process.cwd()).startsWith("late")) await Bun.sleep(1500);
-// What talos sends through its mod: a turn of its own after any running one,
-// as Claude Code queues a submit. "drop-me" is dropped, as Claude Code drops a
-// submit after Esc.
-// Set while a "long" turn runs: an abort from talos ends it.
-let abortTurn: (() => void) | null = null;
-let submitsNotStarted = 0;
-const runSubmit = ({ sendId, text, isPerson }: SubmitCommand) => {
-  if (text === "drop-me") return void reportFact("submit-done", { sendId, drop: "the session was stopped" });
-  appendFileSync(join(process.cwd(), "submits.log"), `${text} behind ${submitsNotStarted}\n`);
-  submitsNotStarted += 1;
-  const origin = { kind: "plugin", name: "talos", ...(isPerson && { asUser: true }) };
-  turnsWaiting += 1;
-  turns = turns
-    .then(async () => {
-      submitsNotStarted -= 1;
-      await reportFact("submit-done", { sendId });
-      await runTurn(text, { origin, startedBy: isPerson ? "person" : "talos" });
-    })
-    .finally(() => (turnsWaiting -= 1));
+
+// Its input, a line at a time.
+void (async () => {
+  let unread = "";
+  for await (const chunk of Bun.stdin.stream()) {
+    const lines = (unread + new TextDecoder().decode(chunk)).split("\n");
+    unread = lines.pop() ?? "";
+    for (const line of lines.filter((text) => text.trim())) {
+      appendFileSync(join(process.cwd(), "input.jsonl"), `${line}\n`);
+      onLine(JSON.parse(line));
+    }
+  }
+  process.exit(0);
+})();
+
+// The prompting… folder's own turn, under way as it starts: a permission
+// question before it says it's ready.
+const runPromptingTurn = async () => {
+  isTurnRunning = true;
+  saveText((await askPermission("perm-0")) ? "APPROVED" : "REFUSED");
+  endTurn();
+  isTurnRunning = false;
 };
 
-// The prompting… folder's turn is under way, its prompt up, before the start.
-const startingFacts: [Fact["type"], Record<string, unknown>][] = [
-  ["transcript", { path: firstTranscript }],
-  ...(isPromptingFolder()
-    ? ([
-        ["turn-start", { turnId: "turn-0", startedBy: "self" }],
-        ["permission-asked", { toolUseId: "perm-0" }],
-      ] as [Fact["type"], Record<string, unknown>][])
-    : []),
-];
-// In a folder named mute… it never reports its start, like a Claude Code stuck
-// on a screen before its mod loads.
-if (!basename(process.cwd()).startsWith("mute")) await linkLikeTheMod(startingFacts, { onSubmit: runSubmit, onAbort: () => abortTurn?.(), onPermissionAnswer: answerFromPage });
-process.stdout.write("ready\n");
-
-// What the session runner types: Esc, then the message in bracketed paste, then
-// Enter. Turns run one after another.
-// Set while a permission prompt shows: the next keys go to it.
-let answerPrompt: ((key: string) => void) | null = null;
-let typed = "";
-process.stdin.on("data", (chunk: Buffer) => {
-  // Esc during a "long" turn: the person stopping it, as Claude Code reports it.
-  if (chunk.toString() === "\x1b" && abortTurn) {
-    const stop = abortTurn;
-    return void reportFact("session-stop", { isTurnRunning: true }).then(stop);
-  }
-  if (answerPrompt) {
-    const answer = answerPrompt;
-    answerPrompt = null;
-    return answer(chunk.toString());
-  }
-  typed += chunk.toString();
-  const lines = typed.split("\r");
-  typed = lines.pop() ?? "";
-  for (const line of lines) {
-    const text = line.replace(/\x1b\[20[01]~/g, "").replace(/\x1b/g, "").trim();
-    if (!text) continue;
-    // Text typed into a running turn joins it, as in Claude Code: it's reported
-    // as a start at once and saved as a queued command, with no turn of its own.
-    if (turnsWaiting > 0) {
-      saveText(`BUSY ${text}`);
-      void reportFact("prompt-submit", { origin: { kind: "composer" } });
-      saveLine({ type: "attachment", attachment: { type: "queued_command", prompt: text, commandMode: "prompt" } });
-      continue;
-    }
-    turnsWaiting += 1;
-    turns = turns.then(() => runTurn(text)).finally(() => (turnsWaiting -= 1));
-  }
-});
-
-// The prompting… folder's prompt: a key answers it, and its turn ends.
-if (isPrompting) {
-  await new Promise<string>((resolve) => (answerPrompt = resolve));
-  await reportFact("permission-settled", { toolUseId: "perm-0" });
-  saveText("APPROVED");
-  await reportFact("turn-complete", { turnId: "turn-0", reason: "answer" });
+if (!isFolder("mute")) {
+  await linkLikeTheMod();
+  if (isFolder("late")) await Bun.sleep(1500);
+  const promptingTurn = isFolder("prompting") ? runPromptingTurn() : null;
+  await Bun.sleep(promptingTurn ? 100 : 0);
+  (await startAnswer)();
+  await promptingTurn;
 }

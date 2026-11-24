@@ -53,5 +53,4 @@ test("the mod's copies of the link's names match", () => {
   expect(names.filter((name) => !modSource.includes(name))).toEqual([]);
   expect(modSource).toContain(`const MAX_FACTS_PER_POST = ${SESSION_LIMITS.maxFactsPerPost}`);
   expect(modSource).toContain(`const TOOL_PREFIX = '${mcpToolName("")}'`);
-  expect(modSource).toContain("'only-tool'");
 });

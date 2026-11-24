@@ -65,25 +65,14 @@ export const startSession = async (sessionName: string, folderName: string, path
 };
 
 export const send = (sessionName: string, text: string) => calls.send(sessionName, text);
-// Keys as an attached terminal sends them.
-export const typeKeys = (sessionName: string, keys: string) => calls.keys(sessionName, keys);
+// Answers the permission question the session waits on, as the page would.
+export const answerPrompt = async (sessionName: string, isAllowed: boolean) => {
+  const ask = (await rawSession(sessionName))?.permissionAsks?.[0];
+  return ask ? calls.answerPermission(sessionName, ask.id, isAllowed) : { ok: false as const };
+};
 export const ask = (sessionName: string, kind: string) => calls.ask(sessionName, kind);
 export const answer = (sessionName: string, outputId: string, choice: number) => calls.answer(sessionName, outputId, choice);
 export const stopSession = (sessionName: string) => calls.stop(sessionName);
-
-// The session's screen as text, for checking what it showed.
-export const screen = async (sessionName: string): Promise<string> => {
-  const shown = await calls.screen(sessionName);
-  if (!shown.ok) throw new Error(shown.reason);
-  const reader = shown.stream.getReader();
-  setTimeout(() => reader.cancel(), 1000);
-  let text = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) return text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
-    text += new TextDecoder().decode(value);
-  }
-};
 
 // What the session itself saw: Claude Code's saved conversation for the folder,
 // which holds each tool's reply (the screen folds those away).

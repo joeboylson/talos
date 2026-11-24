@@ -25,9 +25,8 @@ export const NO_LANE: Lane = { stage: "none" };
 
 export type LaneEvent =
   | { type: "ask"; kind: string }
-  // The session's turn is over and its screen has settled (see
-  // runner/session-state.ts): a request typed now starts a turn of its own, and a
-  // finished asked-for turn has really ended.
+  // The session's turn is over (see runner/session-state.ts): a request sent
+  // now starts a turn of its own, and a finished asked-for turn has really ended.
   | { type: "settled"; hasDraft: boolean }
   // A call to one of talos's tools. outputId is a fresh id the caller made,
   // used if the call is allowed.
@@ -65,7 +64,7 @@ const NOT_THIS_SESSION_REASON = "Only the session itself can call talos's tools,
 const NO_SUCH_TOOL_REASON = "talos has no such tool.";
 
 // While an asked-for turn runs, the one tool the session's own turn may call
-// (its mod denies the rest); null otherwise.
+// (its mod asks, and denies the rest); null otherwise.
 export const onlyToolOf = (lane: Lane, catalog: Catalog): string | null => (isAskedTurnRunning(lane) ? askedToolName(lane, catalog) : null);
 
 const stay = (lane: Lane, reply: LaneReply = null): LaneStep => ({ lane, reply, sent: null, askChange: null, requestToType: null });
@@ -76,7 +75,7 @@ const turnShapeOf = (lane: Lane, catalog: Catalog): TurnShape =>
 
 const askChange = (kind: string, state: AskState, atMs: number): LaneStep["askChange"] => ({ kind, state, atMs });
 
-// Every ask queues, even to an idle session, so the request is only ever typed
+// Every ask queues, even to an idle session, so the request only ever goes in
 // once the turn is over. A repeat ask while one is in flight is ignored:
 // re-arming would reset the timeout clock, so a flood of asks could pin a
 // session in an asked-for turn. Only a kind with a request can be asked for.
@@ -85,8 +84,8 @@ const stepAsk = (lane: Lane, kindName: string, nowMs: number, catalog: Catalog):
   return { ...stay({ stage: "queued", output: kindName, askedAtMs: nowMs }), askChange: askChange(kindName, "asking", nowMs) };
 };
 
-// Text a click or the person could type into the session can't be a command,
-// unless the kind allows it. Checked on cleaned text, which is what gets typed.
+// Text a click sends into the session as the person's own can't be a command,
+// unless the kind allows it. Checked on cleaned text, which is what's sent.
 const typedTextOf = (value: unknown): string[] | null => {
   if (typeof value === "string") return [value];
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;

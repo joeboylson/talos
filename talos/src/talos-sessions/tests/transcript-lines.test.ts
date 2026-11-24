@@ -1,16 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-  allowTranscriptSwitch,
   readCommandPrompt,
-  readCompleteLines,
-  readSentMessage,
   numberItems,
   readTranscriptLine,
   resolveTranscriptItems,
   summarizeToolInput,
 } from "../transcript/transcript-lines";
 import { SESSION_LIMITS } from "../limits";
-import { INTERRUPTED_NOTE } from "../constants";
 
 describe("readTranscriptLine", () => {
   const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
@@ -147,22 +143,6 @@ describe("resolveTranscriptItems", () => {
   });
 });
 
-describe("readCompleteLines", () => {
-  const bytesOf = (text: string) => new TextEncoder().encode(text);
-
-  test("leaves a line still being written for next time", () => {
-    expect(readCompleteLines(bytesOf('{"a":1}\n{"b":'))).toEqual({ lines: ['{"a":1}'], usedByteCount: 8 });
-  });
-
-  test("nothing complete yet", () => {
-    expect(readCompleteLines(bytesOf('{"a":'))).toEqual({ lines: [], usedByteCount: 0 });
-  });
-
-  test("counts bytes, not characters", () => {
-    expect(readCompleteLines(bytesOf("é\n")).usedByteCount).toBe(3);
-  });
-});
-
 test("readCommandPrompt is null for an ordinary message", () => {
   expect(readCommandPrompt("hello")).toBeNull();
 });
@@ -175,19 +155,6 @@ test.each([
   [null, ""],
 ])("summarizeToolInput %#", (input, summary) => {
   expect(summarizeToolInput(input)).toBe(summary);
-});
-
-describe("allowTranscriptSwitch", () => {
-  test("allows the first transcript (no current)", () => {
-    expect(allowTranscriptSwitch("/home/me/.claude/projects/proj/abc.jsonl", null)).toBe(true);
-  });
-  test("allows a rotation within the same project folder", () => {
-    const dir = "/home/me/.claude/projects/proj";
-    expect(allowTranscriptSwitch(`${dir}/new.jsonl`, `${dir}/old.jsonl`)).toBe(true);
-  });
-  test("refuses a switch to another folder (an unrelated file to read)", () => {
-    expect(allowTranscriptSwitch("/tmp/evil.jsonl", "/home/me/.claude/projects/proj/old.jsonl")).toBe(false);
-  });
 });
 
 test("command tags are found in linear time, even with many unclosed ones", () => {
@@ -253,22 +220,5 @@ describe("numbering in conversation order", () => {
   test("a structured tool's call holds its place instead of showing", () => {
     const content = [{ type: "tool_use", id: "s1", name: "mcp__talos__ask_decision", input: {} }];
     expect(readTranscriptLine(JSON.stringify({ uuid: "u1", type: "assistant", message: { content } }))).toEqual([{ kind: "structured-call", toolUseId: "s1" }]);
-  });
-});
-
-describe("a message talos sent reads as it was sent", () => {
-  const image = (name: string) => `/Users/joe/.talos/uploads/fix-login/${name}.png`;
-  const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
-  test.each([
-    ["plain text", "look", "look", 0],
-    ["text and two images", `look\n\n${image(ID)}\n\n${image(ID.replace("0", "1"))}`, "look", 2],
-    ["images only", image(ID), "", 1],
-    ["the note after an interrupt", `${INTERRUPTED_NOTE}\n\nwhat next`, "what next", 0],
-    ["the note and an image", `${INTERRUPTED_NOTE}\n\nwhat next\n\n${image(ID)}`, "what next", 1],
-    ["a path the person typed mid-message stays", `see ${image(ID)} please`, `see ${image(ID)} please`, 0],
-    ["the note's words later in a message stay", `hi\n\n${INTERRUPTED_NOTE}`, `hi\n\n${INTERRUPTED_NOTE}`, 0],
-    ["a path that isn't an upload stays", "look\n\n/tmp/x.png", "look\n\n/tmp/x.png", 0],
-  ])("%s", (_name, sent, text, sentImageCount) => {
-    expect(readSentMessage(sent)).toEqual({ text, sentImageCount });
   });
 });

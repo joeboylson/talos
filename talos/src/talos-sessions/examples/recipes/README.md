@@ -13,8 +13,7 @@ make example EXAMPLE=recipes MODE=record  # live, and save the run
 make example EXAMPLE=recipes MODE=replay  # play the saved run, no Claude
 ```
 
-Keys: type a message and ⏎ · `^A` watch the session's own terminal (`^\` to
-come back) · `^C` quit, listing the files that changed.
+Keys: type a message and ⏎ · `^C` quit, listing the files that changed.
 
 ## What's where
 

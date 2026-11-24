@@ -3,7 +3,7 @@
 // fails if the copies drift (link-protocol.test.ts).
 import { SESSION_LIMITS } from "../limits";
 
-export const LINK_ROUTES = { checkIn: "/check-in", facts: "/facts", commands: "/commands", toolCall: "/tool-call", stop: "/stop" } as const;
+export const LINK_ROUTES = { checkIn: "/check-in", facts: "/facts", commands: "/commands", toolCall: "/tool-call", toolCheck: "/tool-check", stop: "/stop" } as const;
 
 // Set in the session's env. The token is good for one check-in; the mod
 // unsets it, and swaps it for the secret, which it hands only to its helper.
@@ -89,8 +89,17 @@ export type CheckInAnswer = { secret: string; tools: OfferedTool[] };
 // sub-agent's call. The answer is the reply the session reads, or why not.
 export type ToolCallAsk = { tool: string; toolUseId: string; isSubagent: boolean; input: unknown };
 export type ToolCallAnswer = { result: string } | { deny: string };
-// A Stop in an asked-for turn: block says to keep going, and why.
+// Any other tool call the session's own turn makes: deny says it may not run
+// now (an asked-for turn allows only its tool), and why.
+export type ToolCheckAsk = { tool: string; isSubagent: boolean };
+export type ToolCheckAnswer = { deny?: string };
+// A Stop: block says to keep going (an asked-for turn not answered yet), and why.
 export type StopAnswer = { block?: string };
+
+export const readToolCheckAsk = (body: unknown): ToolCheckAsk | null => {
+  if (!isPlainObject(body) || !isShortText(body.tool)) return null;
+  return { tool: body.tool, isSubagent: body.agentId !== undefined && body.agentId !== null };
+};
 
 export const readToolCallAsk = (body: unknown): ToolCallAsk | null => {
   if (!isPlainObject(body)) return null;
@@ -106,12 +115,9 @@ export const readToolCallAsk = (body: unknown): ToolCallAsk | null => {
 // to take sends.
 // A permission answer settles the prompt showing for that tool call, as the
 // person answering it in the terminal would.
-// only-tool names the one tool the session's own turn may call while talos
-// asks for an answer, or null once that's over.
 export type LinkCommand =
   | { type: "heartbeat" }
   | { type: "submit"; sendId: string; text: string; isPerson: boolean }
   | { type: "abort" }
-  | { type: "permission-answer"; toolUseId: string; isAllowed: boolean }
-  | { type: "only-tool"; tool: string | null };
+  | { type: "permission-answer"; toolUseId: string; isAllowed: boolean };
 export const encodeLinkCommand = (command: LinkCommand): string => `${JSON.stringify(command)}\n`;

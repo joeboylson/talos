@@ -13,8 +13,7 @@ make example EXAMPLE=explorer MODE=record  # live, and save the run
 make example EXAMPLE=explorer MODE=replay  # play the saved run, no Claude
 ```
 
-Keys: type a question and ⏎ · `s` summary · `^A` the session's own terminal
-(`^\` to come back) · `^C` quit.
+Keys: type a question and ⏎ · `s` summary · `^C` quit.
 
 ## What's where
 

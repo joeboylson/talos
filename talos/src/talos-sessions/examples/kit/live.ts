@@ -16,7 +16,7 @@ export const startLiveCheck = async <State>(exampleFolder: string, view: Example
   let state = view.initial;
 
   const run = async (action: Action): Promise<void> => {
-    if (action.do === "attach" || action.do === "quit") return;
+    if (action.do === "quit") return;
     const result = await callFor(calls, action);
     recorded.push({ type: "result", action, result });
     dispatch({ type: "result", action, result });

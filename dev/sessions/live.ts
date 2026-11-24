@@ -14,14 +14,13 @@ import {
   rawSession,
   rawEvents,
   savedConversation,
-  screen,
   send,
   startRunner,
   startSession,
   stopRunner,
   stopSession,
   secretOf,
-  typeKeys,
+  answerPrompt,
   waitFor,
 } from "./harness";
 
@@ -68,22 +67,20 @@ const normalSession = async (label: string, projectSettings?: object) => {
   await stopSession(name);
 };
 
-// An answer typed in the terminal ends a turn, and the question closes with it.
+// An answer in the person's own words ends a turn, and the question closes with it.
 const typedAnswer = async () => {
   const name = "typed";
   allowFolder(name, makeFolder(name));
   await startSession(name, name, `${HOME}/work/${name}`);
   const asked = await openDecision(name);
-  await typeKeys(name, `Answer to ${asked?.decision?.id}: Tabs`);
-  await Bun.sleep(300);
-  await typeKeys(name, "\r");
+  await send(name, `Answer to ${asked?.decision?.id}: Tabs`);
   const closed = await waitFor(name, (session) => session.state === "idle" && session.decision === null);
-  check("an answer typed in the terminal closes the question once its turn ends", closed !== null);
+  check("an answer sent in the person's words closes the question once its turn ends", closed !== null);
   await stopSession(name);
 };
 
-// A permission prompt mid-turn: a queued ask and a held answer wait, so nothing
-// is typed into the prompt (which would approve it).
+// A permission question mid-turn: a queued ask and a held answer wait, and
+// nothing answers the question but the page.
 const permissionPrompt = async () => {
   const name = "prompt";
   const path = makeFolder(name, { permissions: { defaultMode: "default", ask: ["Bash(touch:*)"] } });
@@ -94,14 +91,14 @@ const permissionPrompt = async () => {
   await send(name, "Run `touch made-by-test` with the Bash tool.");
   const prompted = await waitFor(name, (session) => session.state === "needs-you" && session.decision !== null, 60_000);
   await Bun.sleep(3000);
-  check("a permission prompt shows mid-turn", prompted !== null && /Do you want|Yes/.test(await screen(name)));
+  check("a permission question shows mid-turn", prompted !== null && (prompted.permissionAsks?.length ?? 0) > 0);
   await ask(name, "status");
   check("a click during the prompt is held, not refused", (await answer(name, id, 0)).ok);
   await Bun.sleep(5000);
   const waiting = await rawSession(name);
   check("the queued ask waits", waiting?.asks.status?.state === "asking");
-  check("nothing was typed into the prompt", !(await Bun.file(`${path}/made-by-test`).exists()));
-  await typeKeys(name, "\x1b");
+  check("nothing answered the prompt", !(await Bun.file(`${path}/made-by-test`).exists()));
+  await answerPrompt(name, false);
   await waitFor(name, (session) => session.state === "idle", 60_000);
   await Bun.sleep(3000);
   check("the prompt was never approved", !(await Bun.file(`${path}/made-by-test`).exists()));

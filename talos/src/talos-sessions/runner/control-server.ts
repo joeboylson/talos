@@ -1,20 +1,18 @@
 // The control socket: the routes talos uses to start, drive, watch and stop
 // sessions. Sessions aren't told it, but run as the same user, so they can
 // reach it (see MODULES.md's known limit).
-import { steadyNow } from "../constants";
 import { rm } from "node:fs/promises";
 import type { BunRequest } from "bun";
 import { isIdentifierName, readSentImages } from "../shapes";
 import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runner-protocol";
-import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
 import { endSession, startSession, waitForStart } from "./lifecycle";
-import { noSuchSession, refuse } from "./refuse";
+import { noSuchSession } from "./refuse";
 import { claudeConfigFile, log, paths, restoresTrust } from "./inputs";
 import { restoreTrust, type TrustChange } from "../claude/claude-trust";
 import { sendToSession } from "./messages";
-import { answerOutput, answerPermission, applyLaneEvent, askForOutput, interruptSession } from "./session-state";
+import { answerOutput, answerPermission, askForOutput, interruptSession } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
-import { eventListeners, heldSessions, isPromptShowing, listSessions, runnerState, startingSessions, trustChanges } from "./store";
+import { eventListeners, heldSessions, listSessions, runnerState, startingSessions, trustChanges } from "./store";
 
 const streamOf = <T>(
   onStart: (controller: ReadableStreamDefaultController<T>) => void,
@@ -30,20 +28,6 @@ const streamOf = <T>(
       if (streamController) onEnd(streamController);
     },
   });
-};
-
-// Starts with the recent output, so the attached terminal redraws the screen.
-const streamOutput = (sessionName: string): Response => {
-  const session = heldSessions.get(sessionName);
-  if (!session) return noSuchSession(sessionName);
-  const stream = streamOf<Uint8Array>(
-    (controller) => {
-      controller.enqueue(session.output);
-      session.outputListeners.add(controller);
-    },
-    (controller) => session.outputListeners.delete(controller),
-  );
-  return new Response(stream);
 };
 
 // Starts with the session list and every kept entry, so a talos that just
@@ -178,41 +162,6 @@ export const controlServeOptions = (runnerSocket: string) => ({
       POST: async (request: BunRequest) => {
         const { outputId, choice } = await readJson(request);
         return answerOutput(sessionNameOf(request), outputId, choice);
-      },
-    },
-    [`${RUNNER_ROUTES.sessions}/:sessionName/output`]: {
-      GET: (request: BunRequest) => streamOutput(sessionNameOf(request)),
-    },
-    [`${RUNNER_ROUTES.sessions}/:sessionName/input`]: {
-      POST: async (request: BunRequest) => {
-        // Read the body first: a session read before the wait could be stale.
-        const keys = new Uint8Array(await request.arrayBuffer());
-        const session = heldSessionOf(request);
-        if (!session) return noSuchSession(sessionNameOf(request));
-        const { sessionName } = session.summary;
-        // Keys at a permission prompt answer the prompt: they're neither a draft
-        // nor the person starting a turn, so what talos holds keeps waiting.
-        const isPrompt = isPromptShowing(session);
-        // A terminal sends reports (like focus in or out) as input on its own, so
-        // only keys that change the turn or the draft count as the person typing.
-        const isTurnChanging = !isPrompt && isTurnChangingKeys(keys);
-        const isDraftChanging = !isPrompt && isDraftChangingKeys(keys);
-        const hasDraft = isDraftClearingKeys(keys) ? false : isDraftChanging || session.hasDraft;
-        heldSessions.set(sessionName, { ...session, hasDraft, draftAtMs: isDraftChanging ? steadyNow() : session.draftAtMs });
-        if (isTurnChanging || isDraftChanging) applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging });
-        session.terminal.write(keys);
-        return new Response(null, { status: 204 });
-      },
-    },
-    [`${RUNNER_ROUTES.sessions}/:sessionName/resize`]: {
-      POST: async (request: BunRequest) => {
-        const { cols, rows } = await readJson(request);
-        const isSize = (value: unknown) => Number.isInteger(value) && Number(value) >= 1 && Number(value) <= SESSION_LIMITS.maxTerminalCells;
-        if (!isSize(cols) || !isSize(rows)) return new Response("expected a terminal size", { status: 400 });
-        const session = heldSessionOf(request);
-        if (!session) return noSuchSession(sessionNameOf(request));
-        session.terminal.resize(Number(cols), Number(rows));
-        return new Response(null, { status: 204 });
       },
     },
   },

@@ -3,7 +3,7 @@
 // thin, impure part; everything the example decides is in its view.
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { DETACH_KEY, connectToSessions, type Result, type SessionsConnection } from "../../index";
+import { connectToSessions, type Result, type SessionsConnection } from "../../index";
 import { readRecording, recordEvent, toInput, writeRecording, type RecordedLine } from "./recording";
 import { fitScreen, frame } from "./screen";
 import type { Action, ExampleView, Input } from "./view";
@@ -45,7 +45,7 @@ export const prepareRun = (exampleFolder: string) => {
 // A run's folder, prepared fresh, unless another run of the example is using
 // it: preparing would delete its runner's sockets and trust record from under it.
 // The call to the session runner each action a view asks for makes.
-export const callFor = (calls: SessionsConnection, action: Exclude<Action, { do: "attach" | "quit" }>): Promise<Result> => {
+export const callFor = (calls: SessionsConnection, action: Exclude<Action, { do: "quit" }>): Promise<Result> => {
   if (action.do === "send") return calls.send(SESSION_NAME, action.text);
   if (action.do === "ask") return calls.ask(SESSION_NAME, action.kind);
   return calls.answer(SESSION_NAME, action.outputId, action.choice);
@@ -63,7 +63,6 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
   const mode = readMode();
   const recordingFile = join(exampleFolder, "recordings", "run.jsonl");
   let state = view.initial;
-  let attached = false;
   const recorded: RecordedLine[] = [];
   const record = (line: RecordedLine) => mode === "record" && recorded.push(line);
 
@@ -104,16 +103,6 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
 
   const run = async (action: Action) => {
     if (action.do === "quit") return stop(0);
-    if (action.do === "attach") {
-      attached = true;
-      process.stdin.off("data", onKeys);
-      await calls.attach(SESSION_NAME, { input: process.stdin, output: process.stdout, detachKey: DETACH_KEY });
-      attached = false;
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      process.stdin.on("data", onKeys);
-      return draw(view, state);
-    }
     const result = await callFor(calls, action);
     record({ type: "result", action, result });
     dispatch({ type: "result", action, result });
@@ -125,7 +114,7 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
     try {
       const stepped = view.step(state, input);
       state = stepped.state;
-      if (!attached) draw(view, state);
+      draw(view, state);
       stepped.actions.forEach((action) => void run(action).catch((error: unknown) => stop(1, error)));
     } catch (error) {
       void stop(1, error);
@@ -150,7 +139,7 @@ export const runExample = async <State>(exampleFolder: string, view: ExampleView
   process.stdin.resume();
   process.stdin.on("data", onKeys);
   process.stdout.on("resize", () => {
-    if (!attached) draw(view, state);
+    draw(view, state);
   });
   dispatch({ type: "started" });
 };

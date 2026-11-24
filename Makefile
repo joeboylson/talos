@@ -1,4 +1,4 @@
-.PHONY: dev down logs desktop talos screenshots live-sessions example live-examples check-sessions server-image security install typecheck test test-db
+.PHONY: dev down logs desktop talos screenshots live-sessions sdk-check example live-examples check-sessions server-image security install typecheck test test-db
 
 # AWS Graviton (arm64) is cheaper than x86 and matches Apple silicon.
 SERVER_PLATFORM ?= linux/arm64
@@ -41,6 +41,12 @@ endif
 # hostile session can try. Costs real Claude turns, so it isn't part of test.
 live-sessions: node_modules
 	bun dev/sessions/live.ts
+
+# Checks the headless stream against Anthropic's Agent SDK: the SDK drives the
+# fake Claude Code the tests use, and talos's input lines are compared with the
+# SDK's. Its own packages, without the SDK's bundled Claude Code; no model.
+sdk-check:
+	cd dev/sessions/sdk && bun install --omit optional --frozen-lockfile && ../../../node_modules/.bin/tsc --noEmit -p . && bun check.ts
 
 # Runs a talos-sessions example (EXAMPLE=receipts, recipes or explorer) in this
 # terminal. MODE=record also saves the run; MODE=replay plays it back, no Claude.

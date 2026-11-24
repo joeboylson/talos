@@ -10,7 +10,6 @@ export type Action =
   | { do: "send"; text: string }
   | { do: "ask"; kind: string }
   | { do: "answer"; outputId: string; choice: number }
-  | { do: "attach" }
   | { do: "quit" };
 
 export type Input =
@@ -28,9 +27,8 @@ export type ExampleView<State> = {
 
 export const noActions = <State>(state: State): { state: State; actions: Action[] } => ({ state, actions: [] });
 
-// Ctrl-C and Ctrl-A, as raw-mode keys.
+// Ctrl-C and the other keys the views read, as raw-mode keys.
 export const CTRL_C = "\x03";
-export const CTRL_A = "\x01";
 export const ENTER = "\r";
 export const BACKSPACE = "\x7f";
 

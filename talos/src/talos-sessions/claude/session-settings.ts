@@ -21,13 +21,9 @@ const PINNED_EMPTY_ENV = {
 // can't write .claude/settings.local.json to switch talos off for the next
 // session in its folder: hooks stay on, talos's mod stays enabled, and the env
 // the mod reads stays as talos set it.
-// Messages name their images by path (talos's mod can't attach them), so
-// Claude may read the session's uploads folder, and nothing around it (the
-// home also holds the runner's sockets). `//` starts an absolute path in a rule.
-export const buildSessionSettings = (sessionEnv: Record<string, string>, uploadsFolder: string): string =>
+export const buildSessionSettings = (sessionEnv: Record<string, string>): string =>
   JSON.stringify({
     disableAllHooks: false,
     enabledPlugins: { [MOD_PLUGIN_ID]: true },
-    permissions: { allow: [`Read(/${uploadsFolder}/**)`] },
     env: { ...PINNED_EMPTY_ENV, ...sessionEnv },
   });

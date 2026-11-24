@@ -112,6 +112,7 @@ const recordFacts = (on: On) => {
   const posts: { facts: { type: string; details: Record<string, unknown> }[] }[] = []
   on('http.fetch', (_, e) => {
     if (e.url.endsWith('/check-in')) return { value: { status: 200, ok: true, headers: {}, text: '{"secret":"s"}' } }
+    if (!e.url.endsWith('/facts')) return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
     const body = JSON.parse(String(e.init?.body))
     posts.push(body)
     const last = body.facts.at(-1)?.seq ?? 0
@@ -258,7 +259,7 @@ test('an abort from the runner stops the running turn, and does nothing once non
 
 // A runner that answers the check-in with one tool, and talos's tool calls
 // and Stops as given (null: no answer, as when it's down).
-const runnerWithTools = (on: On, answers: { toolCall?: unknown; stop?: unknown }, asked: { route: string; body: unknown }[] = []) =>
+const runnerWithTools = (on: On, answers: { toolCall?: unknown; toolCheck?: unknown; stop?: unknown }, asked: { route: string; body: unknown }[] = []) =>
   on('http.fetch', (_, e) => {
     const route = e.url.replace('http://talos', '')
     if (route === '/check-in') {
@@ -268,7 +269,7 @@ const runnerWithTools = (on: On, answers: { toolCall?: unknown; stop?: unknown }
     const body = JSON.parse(String(e.init?.body))
     if (route === '/facts') return { value: { status: 200, ok: true, headers: {}, text: `{"acked":${body.facts.at(-1)?.seq ?? 0}}` } }
     asked.push({ route, body })
-    const answer = route === '/tool-call' ? answers.toolCall : answers.stop
+    const answer = route === '/tool-call' ? answers.toolCall : route === '/tool-check' ? answers.toolCheck : answers.stop
     return answer === null ? DOWN : { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(answer ?? {}) } }
   })
 
@@ -307,31 +308,45 @@ test("a call to talos's tool is the runner's to answer: its reply, its denial, o
   expect(await call()).toMatchObject({ deny: "talos can't record that right now." })
 })
 
-test('while talos asks for one answer, the session may call only its tool, and an unanswered Stop is sent back', async ($, on) => {
-  const clock = mock.clock(on)
-  startLinked(on, '/bin/bun')
+test('the runner says at each call whether a tool may run, and whether a Stop is sent back', async ($, on) => {
+  mock.clock(on)
+  startLinked(on)
   const asked: { route: string; body: unknown }[] = []
-  runnerWithTools(on, { stop: { block: 'Call mcp__talos__send_poll before finishing.' } }, asked)
+  let onlyTool: string | null = 'mcp__talos__send_poll'
+  on('http.fetch', (_, e) => {
+    const route = e.url.replace('http://talos', '')
+    if (route === '/check-in') return { value: { status: 200, ok: true, headers: {}, text: '{"secret":"s","tools":[]}' } }
+    const body = JSON.parse(String(e.init?.body))
+    if (route === '/facts') return { value: { status: 200, ok: true, headers: {}, text: `{"acked":${body.facts.at(-1)?.seq ?? 0}}` } }
+    asked.push({ route, body })
+    if (route === '/tool-check') {
+      const deny = onlyTool && body.tool !== onlyTool ? { deny: `Only ${onlyTool} is allowed this turn.` } : {}
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(deny) } }
+    }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(onlyTool ? { block: 'Call it before finishing.' } : {}) } }
+  })
   on('tool.check', () => ({ decision: 'allow' }) as never)
   on('classic.Stop', () => ({}))
-  let send: ((line: string) => void) | null = null
-  on('process.spawn', async function* () {
-    while (true) yield { stream: 'stdout' as const, text: await new Promise<string>(resolve => (send = resolve)) }
-  })
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
-  await clock.settle()
   const check = (tool: string, agentId?: string) => $.tool.check({ tool, input: {}, tool_use_id: 'u1', approver: 'person', ...(agentId && { agentId }) } as never)
-  expect(await $.classic.Stop({ stop_hook_active: false } as never)).toEqual({})
-  send!('{"type":"only-tool","tool":"mcp__talos__send_poll"}\n')
-  await clock.settle()
   expect(await check('Bash')).toMatchObject({ decision: 'deny', reason: 'Only mcp__talos__send_poll is allowed this turn.' })
   expect(await check('mcp__talos__send_poll')).toMatchObject({ decision: 'allow' })
   expect(await check('Bash', 'a1')).toMatchObject({ decision: 'allow' })
-  expect(await $.classic.Stop({ stop_hook_active: false } as never)).toEqual({ block: 'Call mcp__talos__send_poll before finishing.' })
-  send!('{"type":"only-tool","tool":null}\n')
-  await clock.settle()
+  expect(await $.classic.Stop({ stop_hook_active: false } as never)).toEqual({ block: 'Call it before finishing.' })
+  onlyTool = null
   expect(await check('Bash')).toMatchObject({ decision: 'allow' })
-  expect(asked.map(({ route }) => route)).toEqual(['/stop'])
+  expect(await $.classic.Stop({ stop_hook_active: false } as never)).toEqual({})
+  // A sub-agent's call isn't asked about.
+  expect(asked.filter(({ route }) => route === '/tool-check').map(({ body }) => (body as { tool: string }).tool)).toEqual(['Bash', 'mcp__talos__send_poll', 'Bash'])
+})
+
+test("a runner that doesn't answer leaves each call to Claude Code", async ($, on) => {
+  mock.clock(on)
+  startLinked(on)
+  runnerWithTools(on, { toolCheck: null })
+  on('tool.check', () => ({ decision: 'allow' }) as never)
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
+  expect(await $.tool.check({ tool: 'Bash', input: {}, tool_use_id: 'u1', approver: 'person' } as never)).toMatchObject({ decision: 'allow' })
 })
 
 test('the conversation file is reported at the start and whenever Claude Code moves to another', async ($, on) => {
@@ -345,24 +360,4 @@ test('the conversation file is reported at the start and whenever Claude Code mo
   await clock.settle()
   const paths = factsOf(posts).filter(({ type }) => type === 'transcript').map(({ details }) => details.path)
   expect(paths).toEqual(['/c/first.jsonl', '/c/second.jsonl'])
-})
-
-test("once the helper's stream ends, no tool stays held back", async ($, on) => {
-  const clock = mock.clock(on)
-  startLinked(on, '/bin/bun')
-  runnerWithTools(on, {})
-  on('tool.check', () => ({ decision: 'allow' }) as never)
-  let end: (() => void) | null = null
-  on('process.spawn', async function* () {
-    yield { stream: 'stdout' as const, text: '{"type":"only-tool","tool":"mcp__talos__send_poll"}\n' }
-    await new Promise<void>(resolve => (end = resolve))
-    return { value: { code: 0, signal: null } }
-  })
-  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
-  await clock.settle()
-  const check = () => $.tool.check({ tool: 'Bash', input: {}, tool_use_id: 'u1', approver: 'person' } as never)
-  expect(await check()).toMatchObject({ decision: 'deny' })
-  end!()
-  await clock.settle()
-  expect(await check()).toMatchObject({ decision: 'allow' })
 })

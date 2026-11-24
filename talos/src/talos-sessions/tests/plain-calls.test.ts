@@ -20,7 +20,7 @@ const fake = Bun.serve({
     [sessionRoute("ghost", "stop")]: { POST: () => refused("no-such-session", "no session ghost", 404) },
     [sessionRoute("fix", "ask")]: { POST: () => new Response("expected a kind that can be asked for", { status: 400 }) },
     [sessionRoute("fix", "stop")]: { POST: () => new Response("<html>boom</html>", { status: 500 }) },
-    [sessionRoute("fix", "resize")]: { POST: () => refused("made-up-code", "?") },
+    [sessionRoute("fix", "interrupt")]: { POST: () => refused("made-up-code", "?") },
     [RUNNER_ROUTES.events]: {
       GET: () =>
         new Response(
@@ -51,7 +51,7 @@ describe("the plain calls", () => {
   test.each([
     ["a malformed request", () => calls.ask("fix", "nope")],
     ["a broken session runner's error page", () => calls.stop("fix")],
-    ["a refusal with a code it doesn't know", () => calls.resize("fix", 80, 24)],
+    ["a refusal with a code it doesn't know", () => calls.interrupt("fix")],
   ])("%s throws, so it's never taken for a refusal", async (_name, call) => {
     await expect(call()).rejects.toThrow();
   });

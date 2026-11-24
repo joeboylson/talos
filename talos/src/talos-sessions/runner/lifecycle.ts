@@ -1,33 +1,22 @@
-// Starting a session, holding its terminal, and ending it.
+// Starting a session, holding it, and ending it.
 import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
 import { trustFolder, type TrustChange } from "../claude/claude-trust";
 import { LINK_ENV_KEYS } from "../link/link-protocol";
-import { NO_FACTS } from "../link/fact-state";
-import { TERMINAL_SIZE } from "../constants";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
 import { buildSessionSettings } from "../claude/session-settings";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
-import { appendOutput } from "../terminal";
 import { claudeCommand, claudeConfigFile, isAllowedFolder, log, paths, restoresTrust, startLongestWaitMs } from "./inputs";
 import { refuse } from "./refuse";
 
 const SESSION_EXIT_WAIT_MS = 5000;
-import { forgetTypedImages } from "./messages";
-import { applyLaneEvent, setSessionState } from "./session-state";
+import { setSessionState } from "./session-state";
+import { START_REQUEST_ID, followErrors, followStream } from "./stream";
+import { writeLine } from "./submit";
 import { writeWhole } from "./write-whole";
-import { broadcastSessions, heldSessions, runnerState, sendToListeners, startingSessions, trustChanges, updateHeldSession, type HeldSession, type Terminal } from "./store";
+import { broadcastSessions, heldSessions, runnerState, startingSessions, trustChanges, type HeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";
-
-const handleOutput = (sessionName: string, token: string, chunk: Uint8Array) => {
-  const session = heldSessions.get(sessionName);
-  if (session?.heldId !== token) return;
-  updateHeldSession(sessionName, token, { output: appendOutput(session.output, chunk, SESSION_LIMITS.maxOutputBytes) });
-  sendToListeners(session.outputListeners, chunk);
-};
 
 // Written on every start and end, so it lists the groups of the sessions held now.
 // A failed write (a full disk) is only logged: thrown mid-start or mid-end, it
@@ -45,12 +34,7 @@ const forgetSession = (sessionName: string, token: string) => {
   const session = heldSessions.get(sessionName);
   if (session?.heldId !== token) return;
   heldSessions.delete(sessionName);
-  forgetTypedImages(sessionName);
   saveSessionGroups();
-  session.outputListeners.forEach((listener) => listener.close());
-  void rm(join(paths().uploads, sessionName), { recursive: true, force: true }).catch((error: unknown) =>
-    log.warn(`runner: couldn't delete ${sessionName}'s uploads: ${error}`),
-  );
   log.event(`runner: session ${sessionName} ended`);
   broadcastSessions();
 };
@@ -110,14 +94,25 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   };
   // In the spawn env only: the mod unsets it once it has checked in.
   const linkToken = crypto.randomUUID();
-  // Auto mode: Claude Code approves what it judges safe itself, and asks the
-  // person (on the page or in the terminal) only about the rest.
+  // Headless: no terminal, JSON lines both ways (see stream/stream-lines.ts).
+  // Its own messages come back too, so the conversation has them in order;
+  // permission questions come on the stream. Auto mode: Claude Code approves
+  // what it judges safe itself, and asks the person on the page about the rest.
   const claudeArgs = [
     ...claudeCommand(),
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--replay-user-messages",
+    "--permission-prompt-tool",
+    "stdio",
     "--session-id",
     crypto.randomUUID(),
     "--settings",
-    buildSessionSettings(sessionEnv, join(paths().uploads, sessionName)),
+    buildSessionSettings(sessionEnv),
     "--plugin-dir",
     runnerState.modSnapshotFolder,
     "--permission-mode",
@@ -128,39 +123,39 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
     {
       cwd: path,
       env: buildSessionEnv(process.env, { ...sessionEnv, [LINK_ENV_KEYS.token]: linkToken }),
-      terminal: { ...TERMINAL_SIZE, data: (_terminal: unknown, chunk: Uint8Array) => handleOutput(sessionName, heldId, chunk) },
-    } as Parameters<typeof Bun.spawn>[1],
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      // Its own process group, as a terminal gave it, so ending the session
+      // reaches what it started too.
+      detached: true,
+    },
   );
-  // Bun's terminal option adds this to the spawned process; its types don't list it yet.
-  const terminal = (child as unknown as { terminal: Terminal }).terminal;
 
   heldSessions.set(sessionName, {
     summary: { sessionName, folderName, state: "starting", asks: {}, openOutputs: [] },
     path,
     child,
-    terminal,
     queuedMessages: [],
-    transcripts: [],
     entries: [],
+    runningTools: new Map(),
+    waitingPermissions: [],
     lane: NO_LANE,
     outputs: NO_OUTPUTS,
     nextPosition: 0,
     placing: NO_PLACING,
     heldAnswers: [],
     heldId,
-    link: { token: linkToken, isCheckedIn: false, secret: null, lastSeq: 0, commands: null, factView: NO_FACTS, lastHeardAtMs: 0 },
+    link: { token: linkToken, isCheckedIn: false, secret: null, lastSeq: 0, commands: null, lastHeardAtMs: 0 },
     startedAtMs: Date.now(),
-    hasDraft: false,
-    draftAtMs: 0,
     isTurnOver: false,
-    sendInFlight: null,
     isInterrupting: false,
-    wasInterrupted: false,
-    output: new Uint8Array(),
-    outputListeners: new Set(),
-    isBeingRead: false,
   });
   saveSessionGroups();
+  void followStream(sessionName, heldId, child.stdout).catch((error: unknown) => log.warn(`runner: couldn't read ${sessionName}'s stream: ${error}`));
+  void followErrors(sessionName, child.stderr).catch(() => {});
+  // The Agent SDK's first line too: Claude Code answers it once it's ready.
+  writeLine(heldSessions.get(sessionName)!, `${JSON.stringify({ type: "control_request", request_id: START_REQUEST_ID, request: { subtype: "initialize" } })}\n`);
   setTimeout(() => showStuckStart(sessionName, heldId), startLongestWaitMs()).unref();
   void child.exited.then(() => forgetSession(sessionName, heldId)).catch((error: unknown) => log.warn(`runner: couldn't clean up ${sessionName}: ${error}`));
   log.event(`runner: started session ${sessionName} in ${path}`);
@@ -168,18 +163,17 @@ const startHeldSession = async ({ sessionName, folderName, path }: StartSessionR
   return new Response(null, { status: 201 });
 };
 
-// A session whose mod never reported its start is on a screen only the person
-// can get past (a dialog before its hooks run), or its mod didn't load: it
-// needs them, mid-turn, so nothing is typed into it (what was sent waits, and
-// goes in once it starts) and the page says to answer in the terminal.
+// A session whose Claude Code never said it's ready is stuck: it needs the
+// person, mid-turn, so nothing goes into it (what was sent waits, and goes in
+// once it starts).
 const showStuckStart = (sessionName: string, token: string): void => {
   const session = heldSessions.get(sessionName);
-  if (session?.heldId !== token || session.link.factView.activity !== "starting") return;
-  log.warn(`runner: ${sessionName} hasn't started; it may be showing a screen only its terminal can answer`);
+  if (session?.heldId !== token || session.summary.state !== "starting") return;
+  log.warn(`runner: ${sessionName} hasn't started`);
   setSessionState(sessionName, "needs-you", false);
 };
 
-// Claude leads its own process group (its terminal's), so signalling the group
+// Claude leads its own process group (spawned detached), so signalling the group
 // reaches what it started too, like a `nohup cmd &` from a Bash call. One that
 // left the group (setsid) is out of reach.
 const signalSession = (session: HeldSession, signal: NodeJS.Signals): void => {

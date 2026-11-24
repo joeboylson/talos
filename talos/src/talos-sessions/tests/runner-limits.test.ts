@@ -27,6 +27,23 @@ const folder = (name: string) => {
   return join(home, name);
 };
 
+// The messages the fake Claude was sent, in order: their text, and how many
+// images each carried.
+type SentLine = { text: string; imageCount: number };
+const sentMessages = (dir: string): SentLine[] =>
+  readFileSync(join(dir, "transcript.jsonl"), "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .filter((line) => line.type === "user" && line.isReplay === true)
+    .map(({ message: { content } }) =>
+      typeof content === "string"
+        ? { text: content, imageCount: 0 }
+        : { text: content.filter((block: { type: string }) => block.type === "text").map((block: { text: string }) => block.text).join("\n"), imageCount: content.filter((block: { type: string }) => block.type === "image").length },
+    );
+const userLines = (dir: string) => (existsSync(join(dir, "transcript.jsonl")) ? sentMessages(dir).map(({ text }) => text) : []);
+const png = { mediaType: "image/png" as const, dataBase64: Buffer.from("png").toString("base64") };
+
 test(
   "a long log is moved aside when the runner starts",
   async () => {
@@ -40,20 +57,16 @@ test(
 );
 
 test(
-  "a session keeps only its newest images",
+  "a message's images go in with it",
   async () => {
     const dir = folder("pics");
     expect(await calls.start("pics", "pics", dir)).toEqual({ ok: true });
     await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "pics")?.state === "idle", "the session to be ready");
-    const image = { mediaType: "image/png" as const, dataBase64: Buffer.from("png").toString("base64") };
-    // One at a time, as a person sends them: each waits for the last one's turn.
-    for (let sent = 0; sent < SESSION_LIMITS.maxUploadsKept + 5; sent += 1) {
-      expect(await calls.send("pics", `image ${sent}`, [image])).toEqual({ ok: true });
-      await waitUntil(() => userLines(dir).some((line) => line.split(/\s/)[1] === String(sent)), `image ${sent} to go in`);
-    }
-    expect(readdirSync(join(homePaths(home).uploads, "pics"))).toHaveLength(SESSION_LIMITS.maxUploadsKept);
+    expect(await calls.send("pics", "look", [png, png])).toEqual({ ok: true });
+    await waitUntil(() => userLines(dir).includes("look"), "the message to go in");
+    expect(sentMessages(dir)).toEqual([{ text: "look", imageCount: 2 }]);
   },
-  60_000,
+  20_000,
 );
 
 test(
@@ -64,18 +77,6 @@ test(
     for (let sent = 0; sent <= SESSION_LIMITS.maxQueuedMessages; sent += 1) results.push(await calls.send("mute", `message ${sent}`));
     expect(results.slice(0, -1).every((result) => result.ok)).toBe(true);
     expect(results.at(-1)).toMatchObject({ ok: false, code: "too-many-waiting" });
-  },
-  20_000,
-);
-
-test(
-  "Esc while a session starts (say, on a startup dialog) leaves it starting, so its queued messages still go in",
-  async () => {
-    expect(await calls.start("mute-esc", "mute-esc", folder("mute-esc"))).toEqual({ ok: true });
-    expect(await calls.send("mute-esc", "queued")).toEqual({ ok: true });
-    expect(await calls.keys("mute-esc", "\x1b")).toEqual({ ok: true });
-    const session = (await calls.sessions()).find(({ sessionName }) => sessionName === "mute-esc");
-    expect(session?.state).toBe("starting");
   },
   20_000,
 );
@@ -99,16 +100,6 @@ test(
 );
 
 test(
-  "a session whose screen never goes still is ready once its mod reports the start",
-  async () => {
-    expect(await calls.start("noisy", "noisy", folder("noisy"))).toEqual({ ok: true });
-    await waitUntil(async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "noisy")?.state === "idle", "the session to be ready");
-    await calls.stop("noisy");
-  },
-  20_000,
-);
-
-test(
   "a permission prompt up as a session starts stands, and what was sent goes in once it's answered",
   async () => {
     expect(await calls.start("prompting", "prompting", folder("prompting"))).toEqual({ ok: true });
@@ -118,7 +109,7 @@ test(
     expect(session?.state).toBe("needs-you");
     expect(userLines(join(home, "prompting"))).toEqual([]);
     // Once the prompt is answered and the turn is over, what was sent goes in.
-    expect(await calls.keys("prompting", "1")).toEqual({ ok: true });
+    expect(await calls.answerPermission("prompting", session!.permissionAsks![0]!.id, true)).toEqual({ ok: true });
     await waitUntil(() => userLines(join(home, "prompting")).includes("queued"), "the waiting message", 10_000);
     await calls.stop("prompting");
   },
@@ -129,18 +120,14 @@ test("a start in an allowed folder that's gone is refused", async () => {
   expect(await calls.start("gone", "gone", join(home, "not-there"))).toMatchObject({ ok: false, code: "folder-not-allowed" });
 });
 
-const userLines = (dir: string) =>
-  readFileSync(join(dir, "transcript.jsonl"), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((line) => line.type === "user").map((line) => line.message.content as string);
-const png = { mediaType: "image/png" as const, dataBase64: Buffer.from("png").toString("base64") };
-
 test(
-  "images sent while a session starts are all still there when it types them",
+  "images sent while a session starts all go in with their messages",
   async () => {
     const dir = folder("queued");
     expect(await calls.start("queued", "queued", dir)).toEqual({ ok: true });
     for (let sent = 0; sent < 6; sent += 1) expect(await calls.send("queued", `msg ${sent}`, [png, png, png, png])).toEqual({ ok: true });
-    await waitUntil(() => existsSync(join(dir, "transcript.jsonl")) && userLines(dir).some((line) => line.startsWith("msg 5")), "the last message", 30_000);
-    expect(readFileSync(join(dir, "transcript.jsonl"), "utf8")).not.toContain("MISSING");
+    await waitUntil(() => userLines(dir).includes("msg 5"), "the last message", 30_000);
+    expect(sentMessages(dir).map(({ imageCount }) => imageCount)).toEqual([4, 4, 4, 4, 4, 4]);
   },
   60_000,
 );

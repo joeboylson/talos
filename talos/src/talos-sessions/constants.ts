@@ -7,9 +7,9 @@ import { join, resolve } from "node:path";
 export const HOME_MODE = 0o700;
 
 // The session runner: the background program that holds the Claude Code
-// terminals, so sessions outlive talos restarts. talos and each session's mod
+// sessions, so they outlive talos restarts. talos and each session's mod
 // reach it through file sockets only this user can open.
-// The control socket (used by talos) carries the powerful routes: typing into
+// The control socket (used by talos) carries the powerful routes: sending into
 // sessions, starting and stopping them. A session is told only the link
 // socket. That's no wall: a session runs as the same user, so its Bash can
 // open the control socket too (see MODULES.md's known limit). Both are 0600
@@ -26,9 +26,6 @@ export const RUNNER_START_CHECK_MS = 100;
 // manifest's engines range names.
 export const MOD_FOLDER = new URL("./mod/", import.meta.url).pathname;
 export const PINNED_CLAUDE_CODE_VERSION = "2.1.330";
-// The oldest Bun that gives a session its terminal (Bun.spawn's terminal
-// option); on an older one Claude Code sees no terminal and quits at once.
-export const MIN_BUN_VERSION = "1.4.4";
 // Where an installer keeps each version, when `claude` on the path is another.
 export const CLAUDE_VERSIONS_FOLDER = join(homedir(), ".local", "share", "claude", "versions");
 // Claude Code names a plugin loaded from a folder `<name>@inline`, and a
@@ -38,30 +35,14 @@ export const MOD_PLUGIN_ID = `${MOD_NAME}@inline`;
 
 export const CLAUDE_COMMAND = "claude";
 export const CLAUDE_CONFIG_FILE = join(homedir(), ".claude.json");
-export const TERMINAL_SIZE = { cols: 120, rows: 40 } as const;
 
-
-// How often the session runner looks for newly saved lines in each session's
-// conversation, so the page sees Claude's work as it happens.
-export const TRANSCRIPT_CHECK_MS = 300;
-export const NEWLINE_BYTE = 0x0a;
 // How much of a tool's input shows as its one-line summary; shorter than the
 // most an entry may carry.
 export const TOOL_SUMMARY_SHOWN_LENGTH = 300;
 
-export const UPLOAD_FILE_MODE = 0o600;
 
-// What talos adds to a message it sends: the note after an interrupt goes
-// before it, and the paths of its images after it, each in a paragraph of its
-// own. The conversation reader takes both off again (transcript-lines.ts), so
-// a message reads as it was sent.
-export const INTERRUPTED_NOTE = "(I stopped your last turn before it finished.)";
-export const SENT_IMAGE_PATH = /^\/\S*\/uploads\/[a-z0-9-]+\/[0-9a-f-]{36}\.(png|jpg|gif|webp)$/;
-
-// Everything the module keeps in its home. Images sent with a message go in
-// uploads/, one folder per session, which keeps the newest 20 and goes when
-// the session ends; Claude Code reads them from their path. A relative home is made whole first: sessions
-// run in their own folders, where it would point somewhere else.
+// Everything the module keeps in its home. A relative home is made whole
+// first: sessions run in their own folders, where it would point somewhere else.
 export const homePaths = (givenHome: string) => {
   const home = resolve(givenHome);
   return {
@@ -73,7 +54,6 @@ export const homePaths = (givenHome: string) => {
   modSnapshots: join(home, "mod"),
   pinnedClaudeCode: join(home, "claude-code"),
   log: join(home, "runner.log"),
-  uploads: join(home, "uploads"),
   quarantine: join(home, "quarantine.log"),
   // The trust answers to put back, kept on disk so a runner that crashed or was
   // killed puts them back when the next one starts.

@@ -290,11 +290,9 @@ test(
     const stateOf = async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "mute");
     await waitUntil(async () => (await stateOf())?.state === "needs-you", "the session to need the person");
     expect((await stateOf())?.isTurnOver).toBe(false);
-    // What's sent waits: with no mod to send it through, nothing goes in.
+    // What's sent waits: nothing goes in before Claude Code says it's ready.
     expect(await calls.send("mute", "and again")).toEqual({ ok: true });
-    // Esc on its screen doesn't make it look ready.
-    expect(await calls.keys("mute", "\x1b")).toEqual({ ok: true });
-    expect((await stateOf())?.state).toBe("needs-you");
+    expect((await stateOf())?.waitingMessages).toEqual(["sent while starting", "and again"]);
     await calls.stopRunner();
   },
   20_000,
@@ -337,7 +335,7 @@ test(
 );
 
 test(
-  "a session shown as stuck that starts after all becomes ready and types what was sent meanwhile",
+  "a session shown as stuck that starts after all becomes ready and sends what was sent meanwhile",
   async () => {
     const { home, calls } = newHome();
     process.env.FAKE_START_WAIT_MS = "500";
@@ -351,7 +349,7 @@ test(
     expect(await calls.send("late", "sent while starting")).toEqual({ ok: true });
     const stateOf = async () => (await calls.sessions()).find(({ sessionName }) => sessionName === "late")?.state;
     await waitUntil(async () => (await stateOf()) === "needs-you", "the session to look stuck");
-    await waitUntil(() => readFileSync(join(late, "transcript.jsonl"), "utf8").includes("sent while starting"), "the message to be typed", 10_000);
+    await waitUntil(() => readFileSync(join(late, "transcript.jsonl"), "utf8").includes("sent while starting"), "the message to go in", 10_000);
     await waitUntil(async () => (await stateOf()) === "idle", "the session to be ready", 10_000);
     await calls.stopRunner();
   },

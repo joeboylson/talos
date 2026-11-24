@@ -5,12 +5,10 @@ import { NO_OUTPUTS, NO_PLACING, placeOutputs, stepOutputs, type Outputs, type T
 import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
 import { NO_LANE, stepLane, type Lane } from "../lanes/lane";
 import { SESSION_LIMITS } from "../limits";
-import { isDraftChangingKeys, isDraftClearingKeys, isTurnChangingKeys } from "../terminal";
 import { cleanLine, hasCommandMarker } from "../clean";
 import { capDroppedMarkers, mergeSessionEntries, readSessionList, type SessionEntry } from "../shapes";
 import { mcpToolName, type Catalog, type OutputKind } from "../kinds";
 
-const keys = (text: string) => new TextEncoder().encode(text);
 const pending = (id: string, waits = true): TakenOutput => ({ id, toolUseId: `tu-${id}`, kind: "pick", fields: {}, atMs: 0, waits });
 const run = (events: Parameters<typeof stepOutputs>[1][], from: Outputs = NO_OUTPUTS) => events.reduce((o, e) => stepOutputs(o, e).outputs, from);
 const open = (id: string) => [{ type: "sent" as const, output: pending(id) }];
@@ -89,32 +87,6 @@ describe("lane", () => {
     const step = stepLane(NO_LANE, { type: "tool-call", toolName: mcpToolName(PICK.toolName), toolInput: { choices: ["Yes"] }, isSubagent: true, toolUseId: "tu", outputId: "a" }, 0, CATALOG);
     expect(step.reply).toEqual({ deny: expect.any(String) });
   });
-});
-
-describe("terminal", () => {
-  test("a line break inside a paste, ended or not, isn't Enter", () => {
-    expect(isTurnChangingKeys(keys("\x1b[200~a\rb\x1b[201~"))).toBe(false);
-    expect(isTurnChangingKeys(keys("\x1b[200~a\rb"))).toBe(false);
-  });
-  test("Option-Enter isn't Enter", () => expect(isTurnChangingKeys(keys("\x1b\r"))).toBe(false));
-  test("a Ctrl-C byte inside a paste isn't an interrupt", () => {
-    expect(isTurnChangingKeys(keys("\x1b[200~a\x03b\x1b[201~"))).toBe(false);
-  });
-  test("Backspace doesn't make a draft", () => expect(isDraftChangingKeys(keys("\x7f"))).toBe(false));
-  test("an empty paste doesn't make a draft", () => expect(isDraftChangingKeys(keys("\x1b[200~\x1b[201~"))).toBe(false));
-  test("Ctrl-U and Esc Esc clear the draft", () => {
-    expect(isDraftClearingKeys(keys("\x15"))).toBe(true);
-    expect(isDraftClearingKeys(keys("\x1b\x1b"))).toBe(true);
-  });
-  test("Ctrl-U and Esc Esc clear the draft with kitty or modifyOtherKeys encoding on too", () => {
-    expect(isDraftClearingKeys(keys("\x1b[117;5u"))).toBe(true);
-    expect(isDraftClearingKeys(keys("\x1b[27;5;117~"))).toBe(true);
-    expect(isDraftClearingKeys(keys("\x1b[27u\x1b[27u"))).toBe(true);
-    expect(isDraftClearingKeys(keys("\x1b[27u"))).toBe(false);
-  });
-  test("Enter, then the start of an unended paste, leaves a draft", () => expect(isDraftClearingKeys(keys("\r\x1b[200~x"))).toBe(false));
-  test("an encoded Ctrl-C pasted as text doesn't clear the draft", () => expect(isDraftClearingKeys(keys("\x1b[200~\x1b[99;5u"))).toBe(false));
-  test("an encoded Esc is an interrupt", () => expect(isTurnChangingKeys(keys("\x1b[27u"))).toBe(true));
 });
 
 describe("clean", () => {

@@ -65,17 +65,20 @@ export const readStreamLine = (lineText: string): StreamEvent | null => {
 export type StreamImage = { mediaType: string; dataBase64: string };
 
 // A message as the person's own, its images first as Claude Code puts them.
+// No empty text block: the API turns one down.
 export const userMessageLine = (text: string, images: readonly StreamImage[] = []): string => {
   const imageBlocks = images.map(({ mediaType, dataBase64 }) => ({ type: "image", source: { type: "base64", media_type: mediaType, data: dataBase64 } }));
-  const content = imageBlocks.length === 0 ? text : [...imageBlocks, { type: "text", text }];
+  const content = imageBlocks.length === 0 ? text : [...imageBlocks, ...(text ? [{ type: "text", text }] : [])];
   return `${JSON.stringify({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, session_id: "" })}\n`;
 };
 
 export const interruptLine = (requestId: string): string =>
   `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "interrupt" } })}\n`;
 
-// Allow runs the call as asked; deny gives Claude the reason as the call's error.
-export const permissionAnswerLine = (requestId: string, answer: { allow: true; input: unknown } | { allow: false; message: string }): string => {
-  const response = answer.allow ? { behavior: "allow", updatedInput: answer.input } : { behavior: "deny", message: answer.message };
+// Allow runs the call as asked; deny gives Claude the reason as the call's
+// error. It names the call too, as the Agent SDK's answer does.
+export const permissionAnswerLine = (requestId: string, toolUseId: string, answer: { allow: true; input: unknown } | { allow: false; message: string }): string => {
+  const decision = answer.allow ? { behavior: "allow", updatedInput: answer.input } : { behavior: "deny", message: answer.message };
+  const response = { ...decision, toolUseID: toolUseId };
   return `${JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: requestId, response } })}\n`;
 };

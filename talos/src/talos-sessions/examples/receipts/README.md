@@ -17,8 +17,7 @@ make example EXAMPLE=receipts MODE=record  # live, and save the run
 make example EXAMPLE=receipts MODE=replay  # play the saved run, no Claude
 ```
 
-Keys: `1`-`9` answer the question · `^A` the session's own terminal (`^\` to
-come back) · `^C` quit.
+Keys: `1`-`9` answer the question · `^C` quit.
 
 ## What's where
 

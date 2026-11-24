@@ -3,7 +3,7 @@
 // shown: the program gets data, not text.
 import { mergeSessionEntries, type SessionEntry, type SessionSummary } from "../../index";
 import { bar, bold, cyan, dim, fit, padTo, wrapText, yellow } from "../kit/screen";
-import { CTRL_A, noActions, type Action, type ExampleView } from "../kit/view";
+import { noActions, type Action, type ExampleView } from "../kit/view";
 import { TALLY } from "./kinds";
 
 export const START_MESSAGE = "Sort every file in inbox/.";
@@ -88,7 +88,6 @@ export const receiptsView: ExampleView<ReceiptsState> = {
       return withTallyAsk({ ...state, session: session.state, question, tally, tallyAsk, tallyCovers });
     }
     const { key } = input;
-    if (key === CTRL_A) return { state, actions: [{ do: "attach" }] };
     const choice = Number(key) - 1;
     const choices = (state.question?.fields.choices as string[] | undefined) ?? [];
     const isOpen = state.question && state.question.id !== state.answeredId;
@@ -125,7 +124,7 @@ export const receiptsView: ExampleView<ReceiptsState> = {
       ...(state.tally ? ["", bold("Totals"), ...drawTally(state.tally, width)] : []),
       "",
       ...(state.notice ? [yellow(fit(state.notice, width))] : []),
-      dim(`${question && question.id !== state.answeredId ? "1-9 answer · " : ""}^A attach · ^C quit`),
+      dim(`${question && question.id !== state.answeredId ? "1-9 answer · " : ""}^C quit`),
     ];
   },
 };

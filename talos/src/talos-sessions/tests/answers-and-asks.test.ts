@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { connectToSessions, mergeSessionEntries, type RunnerEvent, type SessionEntry, type SessionSummary } from "../index";
 
 // Answers and asks meeting in one session, on the real session runner with the
-// fake Claude (tests/fake/). Each thing talos types must start a turn of its
-// own: the fake Claude saves a "BUSY" line for text typed into a running turn,
+// fake Claude (tests/fake/). Each thing talos sends must start a turn of its
+// own: the fake Claude saves a "BUSY" line for a message sent into a running turn,
 // and a "DENIED" line for a tool talos turned down.
 const home = mkdtempSync(join(tmpdir(), "talos-answers-asks-"));
 const calls = connectToSessions({ home, runnerScript: new URL("./fake/fake-runner.ts", import.meta.url).pathname });
@@ -107,29 +107,15 @@ test(
   30_000,
 );
 
-// talos sets the session working just before its Esc, so waiting for that lands
-// in its pause before the paste.
-const inTalosPause = async (name: string) => waitUntil(() => latest[name]?.state === "working", "talos to start typing", 10_000);
+// talos sets the session working as it sends the answer.
+const answerGoingIn = async (name: string) => waitUntil(() => latest[name]?.state === "working", "talos to send the answer", 10_000);
 
 test(
-  "keys typed while talos types an answer aren't glued into it",
-  async () => {
-    const [question] = await startWithQuestions("keys-glue", "go", 1);
-    expect(await calls.answer("keys-glue", question!.id, 0)).toEqual({ ok: true });
-    await inTalosPause("keys-glue");
-    expect(await calls.keys("keys-glue", "hel")).toEqual({ ok: true });
-    await waitUntil(() => prompts("keys-glue").some((text) => text.includes("Answer to")), "the answer");
-    expect(prompts("keys-glue").filter((text) => text.includes("Answer to"))).toEqual([`Answer to ${question!.id}: A`]);
-  },
-  30_000,
-);
-
-test(
-  "a message sent while talos types an answer waits for it, so the answer has its own turn",
+  "a message sent while talos sends an answer waits for it, so the answer has its own turn",
   async () => {
     const [question] = await startWithQuestions("send-during", "go", 1);
     expect(await calls.answer("send-during", question!.id, 0)).toEqual({ ok: true });
-    await inTalosPause("send-during");
+    await answerGoingIn("send-during");
     expect(await calls.send("send-during", "from the page")).toEqual({ ok: true });
     await waitUntil(() => prompts("send-during").includes("from the page"), "the message");
     expect(texts("send-during").filter((text) => text.startsWith("BUSY Answer to"))).toEqual([]);
@@ -137,7 +123,8 @@ test(
   30_000,
 );
 
-// A question, then a permission prompt in the same turn: the answer is held.
+// A question, then a permission question in the same turn: the answer is held.
+const answerPrompt = (name: string, isAllowed: boolean) => calls.answerPermission(name, latest[name]!.permissionAsks![0]!.id, isAllowed);
 const atPrompt = async (name: string) => {
   const work = join(home, name);
   mkdirSync(work);
@@ -149,11 +136,11 @@ const atPrompt = async (name: string) => {
 };
 
 test(
-  "Esc refusing a permission prompt ends the turn, so the answer held during it goes in",
+  "denying a permission prompt from the page lets the turn end, so the answer held during it goes in",
   async () => {
     const question = await atPrompt("refuse");
     expect(await calls.answer("refuse", question.id, 1)).toEqual({ ok: true });
-    expect(await calls.keys("refuse", "\x1b")).toEqual({ ok: true });
+    expect(await answerPrompt("refuse", false)).toEqual({ ok: true });
     await waitUntil(() => prompts("refuse").includes(`Answer to ${question.id}: B`), "the answer");
     expect(texts("refuse")).toContain("REFUSED");
   },
@@ -161,12 +148,12 @@ test(
 );
 
 test(
-  "approving a permission prompt with 1 isn't a draft, and doesn't end an ask queued meanwhile",
+  "approving a permission prompt from the page doesn't end an ask queued meanwhile",
   async () => {
     const question = await atPrompt("approve");
     expect(await calls.answer("approve", question.id, 0)).toEqual({ ok: true });
     expect(await calls.ask("approve", "status")).toEqual({ ok: true });
-    expect(await calls.keys("approve", "1")).toEqual({ ok: true });
+    expect(await answerPrompt("approve", true)).toEqual({ ok: true });
     await waitUntil(() => prompts("approve").includes(`Answer to ${question.id}: A`) && latest.approve?.asks.status?.state === "answered", "the answer and the status", 15_000);
     expect(texts("approve")).toContain("APPROVED");
   },
@@ -174,7 +161,7 @@ test(
 );
 
 test(
-  "a turn that ends on an API error (StopFailure, no Stop) is over, so a queued ask goes in",
+  "a turn that ends on an API error is over, so a queued ask goes in",
   async () => {
     const name = "rate-limited";
     mkdirSync(join(home, name));
@@ -198,7 +185,7 @@ test(
     expect(await calls.send("send-at-prompt", "no wait, use git status")).toEqual({ ok: true });
     await Bun.sleep(1000);
     expect(texts("send-at-prompt")).not.toContain("APPROVED");
-    expect(await calls.keys("send-at-prompt", "\x1b")).toEqual({ ok: true });
+    expect(await answerPrompt("send-at-prompt", false)).toEqual({ ok: true });
     await waitUntil(() => texts("send-at-prompt").includes("REFUSED"), "the prompt to be answered");
     await waitUntil(() => userTexts("send-at-prompt").includes("no wait, use git status"), "the message to go in after");
   },

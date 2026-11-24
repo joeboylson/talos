@@ -108,7 +108,7 @@ export const explorerView: ExampleView<ExplorerState> = {
     return [
       `${bold("explorer")}  ${chatMark(state.session, "working")}`,
       ...state.entries.flatMap((entry) => drawChatEntry(entry, width, (output) => drawOutput(output, width))),
-      ...chatFooter(state, width, "⏎ ask · s summary · ^A attach · ^C quit"),
+      ...chatFooter(state, width, "⏎ ask · s summary · ^C quit"),
     ];
   },
 };

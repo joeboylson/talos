@@ -1,9 +1,9 @@
 import { COPIED_LIMITS as LIMITS } from "./limits";
 
-// A session's state, as Claude Code's hooks report it.
+// A session's state, as its stream says.
 // starting: Claude Code is loading. idle: waiting for a message.
-// working: answering. needs-you: waiting on a question in its terminal
-// (like a permission prompt), so someone has to attach and answer it.
+// working: answering. needs-you: waiting on the person: a question of its own
+// open, or a permission question to answer from the page.
 export const SESSION_STATES = ["starting", "idle", "working", "needs-you", "stopped"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
 // Where a session's mod stands: checked in, or gone since. Missing means it
@@ -26,7 +26,7 @@ export type SessionSummary = {
   asks: Record<string, Ask>;
   openOutputs: OpenOutput[];
   // Whether the turn is over: "needs-you" with it over is a question waiting
-  // for its answer; with it running, a permission prompt in the terminal.
+  // for its answer; with it running, a permission question.
   // Missing (an older sender) counts as over.
   isTurnOver?: boolean;
   link?: LinkState;
@@ -34,8 +34,8 @@ export type SessionSummary = {
   isSelfStarted?: true;
   // Messages from the page waiting for the turn to be over, oldest first.
   waitingMessages?: string[];
-  // Permission prompts showing in its terminal, oldest first: each can be
-  // answered from the page too, by its id.
+  // Permission questions waiting, oldest first, each answered from the page by
+  // its id.
   permissionAsks?: PermissionAskShown[];
 };
 export type PermissionAskShown = { id: string; tool: string; summary: string };

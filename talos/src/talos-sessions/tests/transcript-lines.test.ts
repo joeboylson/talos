@@ -10,6 +10,10 @@ import { SESSION_LIMITS } from "../limits";
 
 describe("readTranscriptLine", () => {
   const line = (entry: object) => JSON.stringify({ uuid: "u1", ...entry });
+  test("what Claude Code wrote into the conversation itself isn't a message: a skill's instructions, a task notice", () => {
+    expect(readTranscriptLine(line({ type: "user", isSynthetic: true, message: { content: [{ type: "text", text: "Base directory for this skill: /x" }] } }))).toEqual([]);
+    expect(readTranscriptLine(line({ type: "user", message: { content: "<task-notification>\nits hook was skipped\n</task-notification>" } }))).toEqual([]);
+  });
   test("a message typed while Claude works, saved as a queued command, is a prompt", () => {
     const queued = { type: "attachment", attachment: { type: "queued_command", prompt: "Also tell me 2+2.", commandMode: "prompt", humanTurn: true } };
     expect(readTranscriptLine(line(queued))).toEqual([{ kind: "prompt", entryId: "u1", text: "Also tell me 2+2.", imageCount: 0 }]);

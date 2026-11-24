@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { entryLines, isTurnRunning, paintFor, readTyped, stateLine, statusLine } from "../../attach-view";
+import { entryLines, isTurnRunning, paintFor, permissionLine, promptFor, readTyped, statusLine } from "../../attach-view";
+import { STATUS_KIND } from "../../session-outputs";
 import type { SessionEntry, SessionSummary } from "../../talos-sessions";
 
 const session = (changes: Partial<SessionSummary> = {}): SessionSummary => ({ sessionName: "fix", folderName: "talos", state: "idle", asks: {}, openOutputs: [], isTurnOver: true, ...changes });
@@ -10,6 +11,8 @@ const questioned = session({ state: "needs-you", openOutputs: [decision] });
 describe("each entry as lines", () => {
   test.each([
     ["a message, with its images", { kind: "prompt", entryId: "e", position: 0, text: "look\nhere", imageCount: 2 }, ["› look", "  here [2 images]"]],
+    ["an answer talos sent for a click, as the choice", { kind: "prompt", entryId: "e", position: 0, text: "Answer to 0f8fad5b-d9cb-469f-a165-70867728950e: Tabs", imageCount: 0 }, ["› Tabs"]],
+    ["talos's status request", { kind: "prompt", entryId: "e", position: 0, text: STATUS_KIND.requestText!, imageCount: 0 }, ["  (asked for a status)"]],
     ["Claude's words", { kind: "text", entryId: "e", position: 0, text: "done\nall good" }, ["done", "all good"]],
     ["a tool call that finished", { kind: "tool", entryId: "e", position: 0, toolName: "Bash", summary: "ls", outcome: "done" }, ["  ✓ Bash ls"]],
     ["a tool call that failed", { kind: "tool", entryId: "e", position: 0, toolName: "Edit", summary: "a.ts", outcome: "failed" }, ["  ✗ Edit a.ts"]],
@@ -21,18 +24,22 @@ describe("each entry as lines", () => {
   });
 });
 
-describe("what it waits on", () => {
+describe("the prompt says what it waits on", () => {
   test.each([
-    ["a permission question, first", asking, "● needs you · allow Bash: rm -rf build? y/n"],
-    ["an open question once its turn is over", questioned, "● needs you · answer 1-2, or type your own"],
-    ["a running turn", session({ state: "working", isTurnOver: false }), "● working · Ctrl-C stops it"],
-    ["one Claude Code started, its link lost", session({ state: "working", isTurnOver: false, isSelfStarted: true, link: "lost" }), "● working · started by Claude Code · Ctrl-C stops it · link lost"],
-    ["nothing", session(), "● ready"],
-  ])("%s", (_name, summary, line) => {
-    expect(stateLine(summary)).toBe(line);
+    ["a permission question, first", asking, "● allow? y/n › "],
+    ["an open question once its turn is over", questioned, "● answer 1-2 › "],
+    ["a running turn", session({ state: "working", isTurnOver: false }), "● working › "],
+    ["one Claude Code started, its link lost", session({ state: "working", isTurnOver: false, isSelfStarted: true, link: "lost" }), "● working · by Claude Code · link lost › "],
+    ["nothing", session(), "● ready › "],
+  ])("%s", (_name, summary, prompt) => {
+    expect(promptFor(summary)).toBe(prompt);
   });
-  test("a running turn names the tool running now", () => {
-    expect(stateLine(session({ state: "working", isTurnOver: false }), "Bash bun test")).toBe("● working · Bash bun test · Ctrl-C stops it");
+  test("a running turn names the tool running now, cut short if it's long", () => {
+    expect(promptFor(session({ state: "working", isTurnOver: false }), "Bash bun test")).toBe("● Bash bun test › ");
+    expect(promptFor(session({ state: "working", isTurnOver: false }), `Bash ${"x".repeat(80)}`)).toBe(`● Bash ${"x".repeat(44)}… › `);
+  });
+  test("a permission question prints once as a line, as the page's card shows it", () => {
+    expect(permissionLine("Bash", "rm -rf build")).toBe("? Allow Bash? rm -rf build y/n");
   });
   test("the status last reported shows as the page shows it", () => {
     expect(statusLine(session({ asks: { status: { state: "answered", atMs: 1, latest: { state: "done", note: "tests pass" } } } }))).toBe("status: done — tests pass");

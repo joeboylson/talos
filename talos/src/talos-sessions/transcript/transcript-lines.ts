@@ -11,6 +11,7 @@ type TranscriptLine = {
   type?: unknown;
   uuid?: unknown;
   isMeta?: unknown;
+  isSynthetic?: unknown;
   isSidechain?: unknown;
   message?: { content?: unknown };
 };
@@ -28,7 +29,7 @@ export type NumberedItem = SessionEntry | ToolEnd | (StructuredCall & { position
 const IMAGE_MARKER = /\[Image #\d+\]/g;
 const COMMAND_OUTPUT = /^<local-command-stdout>([\s\S]*)<\/local-command-stdout>$/;
 // Claude Code's own notes, saved as messages, that nobody typed.
-const NOTE_PREFIXES = ["<local-command-caveat>", "<system-reminder>", "<bash-stdout>", "<bash-stderr>"];
+const NOTE_PREFIXES = ["<local-command-caveat>", "<system-reminder>", "<bash-stdout>", "<bash-stderr>", "<task-notification>"];
 
 // Everything shown from the conversation goes through here. A session writes
 // this text, so its control characters go: an escape sequence drawn in a
@@ -129,8 +130,10 @@ export const readTranscriptLine = (lineText: string): TranscriptItem[] => readTr
 // The same, for a line already parsed (the headless stream's).
 export const readTranscriptValue = (line: unknown): TranscriptItem[] => {
   if (typeof line !== "object" || line === null) return [];
-  const { type, uuid, isMeta, isSidechain, message } = line as TranscriptLine;
-  if (typeof uuid !== "string" || isMeta === true || isSidechain === true) return [];
+  // isSynthetic marks what Claude Code wrote into the conversation itself on
+  // its stream (a skill's instructions), as isMeta does in its saved file.
+  const { type, uuid, isMeta, isSynthetic, isSidechain, message } = line as TranscriptLine;
+  if (typeof uuid !== "string" || isMeta === true || isSynthetic === true || isSidechain === true) return [];
   const blocks = contentBlocksOf(message?.content);
   if (type === "assistant") return readAssistantLine(uuid, blocks);
   if (type === "attachment") return readQueuedPrompt(uuid, Reflect.get(line, "attachment"));

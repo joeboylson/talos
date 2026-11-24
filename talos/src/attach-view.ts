@@ -4,6 +4,7 @@
 // what to print for each entry and each state, and what a typed line means.
 // attach.ts does the reading and writing.
 import { openDecisionOf, statusOf } from "talos-shared";
+import { STATUS_KIND } from "./session-outputs";
 import type { SessionEntry, SessionSummary } from "./talos-sessions";
 
 export type AttachAction =
@@ -20,11 +21,18 @@ export const paintFor = (isColored: boolean): Paint =>
   Object.fromEntries(Object.entries(ANSI).map(([name, [on, off]]) => [name, (text: string) => (isColored ? `\x1b[${on}m${text}\x1b[${off}m` : text)])) as Paint;
 export const PLAIN = paintFor(false);
 
+// How talos sends a click on a question's choice (see talos-sessions' held.ts).
+const ANSWER = /^Answer to [0-9a-f-]{36}: ([\s\S]*)$/;
+
 const prefixed = (text: string, first: string, rest: string) => text.split("\n").map((line, index) => `${index === 0 ? first : rest}${line}`);
 
 // One entry as lines, or none yet: a tool shows once it has finished, with
 // how it went (while it runs, the state line names it).
 export const entryLines = (entry: SessionEntry, paint: Paint = PLAIN): string[] => {
+  // talos's own messages read as what they mean: a status request, a choice.
+  if (entry.kind === "prompt" && entry.text === STATUS_KIND.requestText) return [paint.dim("  (asked for a status)")];
+  const answered = entry.kind === "prompt" ? ANSWER.exec(entry.text)?.[1] : undefined;
+  if (answered !== undefined) return [`${paint.cyan("›")} ${paint.bold(answered)}`];
   if (entry.kind === "prompt") {
     const images = entry.imageCount > 0 ? paint.dim(` [${entry.imageCount} image${entry.imageCount === 1 ? "" : "s"}]`) : "";
     return prefixed(`${entry.text}${images}`, paint.cyan("› "), "  ").map(paint.bold);
@@ -43,30 +51,31 @@ export const entryLines = (entry: SessionEntry, paint: Paint = PLAIN): string[] 
   return [paint.dim(`  [${entry.outputKind}] ${JSON.stringify(entry.fields)}`)];
 };
 
-// What the session waits on now, in a line led by its state's dot, as the
-// page's badge shows it; and the tool running now, if one is.
-export const stateLine = (session: SessionSummary, runningTool: string | null = null, paint: Paint = PLAIN): string => {
+// The longest a running tool's line may be in the prompt.
+const TOOL_SHOWN_LENGTH = 50;
+
+// The prompt you type at: the session's state, led by its dot as the page's
+// badge shows it, and what it waits on or is running. It changes in place,
+// so the conversation above holds only the conversation.
+export const promptFor = (session: SessionSummary, runningTool: string | null = null, paint: Paint = PLAIN): string => {
   const [ask] = session.permissionAsks ?? [];
   const decision = openDecisionOf(session);
   const isAnswerable = decision !== null && session.isTurnOver !== false;
   const [dot, label] =
     session.state === "needs-you"
-      ? [paint.yellow("●"), "needs you"]
+      ? [paint.yellow("●"), ask ? "allow? y/n" : isAnswerable ? `answer 1-${decision.choices.length}` : "needs you"]
       : session.state === "working"
-        ? [paint.blue("●"), "working"]
+        ? [paint.blue("●"), runningTool && runningTool.length > TOOL_SHOWN_LENGTH ? `${runningTool.slice(0, TOOL_SHOWN_LENGTH - 1)}…` : (runningTool ?? "working")]
         : session.state === "starting"
           ? [paint.dim("●"), "starting"]
           : [paint.green("●"), "ready"];
-  const detail = ask
-    ? `allow ${ask.tool}${ask.summary ? `: ${ask.summary}` : ""}? y/n`
-    : isAnswerable
-      ? `answer 1-${decision.choices.length}, or type your own`
-      : session.state === "working"
-        ? [runningTool, session.isSelfStarted ? "started by Claude Code" : null, "Ctrl-C stops it"].filter(Boolean).join(" · ")
-        : "";
-  const lost = session.link === "lost" ? paint.red(" · link lost") : "";
-  return `${dot} ${label}${detail ? paint.dim(` · ${detail}`) : ""}${lost}`;
+  const marks = [session.isSelfStarted && session.state === "working" ? "by Claude Code" : null, session.link === "lost" ? paint.red("link lost") : null].filter(Boolean);
+  return `${dot} ${paint.dim(label)}${marks.length > 0 ? paint.dim(` · ${marks.join(paint.dim(" · "))}`) : ""} ${paint.cyan("›")} `;
 };
+
+// A permission question, as a line in the conversation: it waits on you.
+export const permissionLine = (tool: string, summary: string, paint: Paint = PLAIN): string =>
+  `${paint.yellow("?")} ${paint.bold(`Allow ${tool}?`)}${summary ? ` ${paint.dim(summary)}` : ""} ${paint.dim("y/n")}`;
 
 // The status the session last reported when asked, as the page shows it.
 export const statusLine = (session: SessionSummary, paint: Paint = PLAIN): string | null => {

@@ -2,6 +2,7 @@ import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { ENV_KEYS, buildIdentifier, requireEnv } from "talos-shared";
+import { cliError, formatTable, type Flags } from "./cli";
 import type { FolderCommand } from "./commands";
 import { readCredentials } from "./credentials";
 import { addFolder, changeFolders, readFolders, removeFolder, renameFolder } from "./folders";
@@ -19,11 +20,6 @@ export const realFolderPath = async (path: string): Promise<string | null> => {
   return isDirectory ? realpath(path) : null;
 };
 
-const fail = (problem: string): never => {
-  console.error(`talos: ${problem}`);
-  process.exit(1);
-};
-
 // The folder's full identifier once this machine knows its name; before it's
 // paired, just the folder's own name.
 const describeFolder = async (folderName: string): Promise<string> => {
@@ -32,32 +28,34 @@ const describeFolder = async (folderName: string): Promise<string> => {
   return buildIdentifier(["machines", credentials.machineName, "folders", folderName]);
 };
 
+const changeOrFail = async (change: Awaited<ReturnType<typeof changeFolders>>) => {
+  if ("problem" in change) throw cliError(change.problem, "talos folders");
+  return change.folder;
+};
+
 // Folders belong to the machine these commands run on. They're kept on the
 // machine itself, so nothing else can change them.
-export const runFolderCommand = async (command: FolderCommand): Promise<void> => {
+export const runFolderCommand = async (command: FolderCommand, flags: Flags): Promise<void> => {
   if (command.name === "folders-list") {
     const folders = await readFolders();
-    if (folders.length === 0) return console.log("no folders");
-    folders.forEach(({ folderName, path }) => console.log(`${folderName}\t${path}`));
-    return;
+    if (flags.json) return console.log(JSON.stringify(folders, null, 2));
+    if (folders.length === 0) return console.error("talos: no folders yet (talos folders add <path>)");
+    return console.log(formatTable(["folder", "path"], folders.map(({ folderName, path }) => [folderName, path]), process.stdout.isTTY === true));
   }
 
   if (command.name === "folders-add") {
     const typedPath = resolveFolderPath(command.path, process.cwd(), homedir());
     const absolutePath = await realFolderPath(typedPath);
-    if (!absolutePath) return fail(`${typedPath} isn't a folder`);
-    const change = await changeFolders((folders) => addFolder(folders, absolutePath));
-    if ("problem" in change) return fail(change.problem);
-    return console.log(await describeFolder(change.folder.folderName));
+    if (!absolutePath) throw cliError(`${typedPath} isn't a folder`);
+    const folder = await changeOrFail(await changeFolders((folders) => addFolder(folders, absolutePath)));
+    return console.log(`added ${await describeFolder(folder.folderName)}`);
   }
 
   if (command.name === "folders-rename") {
-    const change = await changeFolders((folders) => renameFolder(folders, command.folderName, command.newName));
-    if ("problem" in change) return fail(change.problem);
-    return console.log(await describeFolder(change.folder.folderName));
+    const folder = await changeOrFail(await changeFolders((folders) => renameFolder(folders, command.folderName, command.newName)));
+    return console.log(`renamed to ${await describeFolder(folder.folderName)}`);
   }
 
-  const change = await changeFolders((folders) => removeFolder(folders, command.folderName));
-  if ("problem" in change) return fail(change.problem);
-  console.log(`removed ${await describeFolder(change.folder.folderName)}`);
+  const folder = await changeOrFail(await changeFolders((folders) => removeFolder(folders, command.folderName)));
+  console.log(`removed ${await describeFolder(folder.folderName)}`);
 };

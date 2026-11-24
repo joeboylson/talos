@@ -14,6 +14,10 @@ people look at. Above all: as little text as possible, and icons over words.
 After any change to the page, run `make screenshots` and commit the new
 screenshots with it.
 
+Follow the CLI rules in [docs/CLI_RULES.md](docs/CLI_RULES.md) for the
+`talos` command. Above all: data on stdout, one-line errors that say what to
+run, and `--json` on every list.
+
 Every command goes in the README's Commands section: each `talos` command
 and each `make` target, with a line on what it does. Add, change or remove a
 command there in the same change that adds, changes or removes it.

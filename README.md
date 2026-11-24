@@ -120,25 +120,37 @@ Every command lives here. Names follow the glossary
 
 ### `talos` (on each machine)
 
-| Command                                    | What it does                                                                      |
-| ------------------------------------------ | --------------------------------------------------------------------------------- |
-| `talos`                                    | Lists these commands.                                                             |
-| `talos connect`                            | Pairs this machine if it isn't yet, then connects here and stays connected until stopped. |
-| `talos folders`                            | Lists the folders this machine allows sessions in.                                |
-| `talos folders add <path>`                 | Allows sessions in a folder on this machine. Prints its identifier.               |
-| `talos folders remove <folder>`            | Stops allowing a folder.                                                          |
-| `talos folders rename <folder> <new-name>` | Gives a folder a new name. Its path never changes.                                |
-| `talos sessions`                           | Lists this machine's Claude sessions.                                             |
-| `talos sessions <session> attach`          | Shows a session's terminal in yours, to watch or type. Ctrl-\\ leaves it running. |
-| `talos sessions <session> stop`            | Ends a session.                                                                   |
-| `talos runner stop`                        | Ends the session runner and every session in it.                                  |
-| `talos service install`                    | Pairs this machine if it isn't yet, then runs talos in the background, at every login and again if it stops (macOS and Linux). |
-| `talos service start`                      | Starts the background talos.                                                      |
-| `talos service stop`                       | Stops it until the next login or `talos service start`. Its sessions keep running. |
-| `talos service uninstall`                  | Stops running talos in the background. Its sessions run on until `talos runner stop`. |
-| `talos status`                             | Shows the version, the server, whether this machine is paired, the service running, talos connected, and how many sessions run. |
-| `talos update`                             | Brings a copy put in place by `install.sh` up to main, then runs `talos service install`. |
-| `talos help`                               | Lists these commands.                                                             |
+| Command | What it does |
+| --- | --- |
+| `talos`, `talos help [<thing>]` | Lists these commands, or one group of them (like `talos help sessions`). |
+| `talos connect [--owner <login>]` | Pairs this machine if it isn't yet, then connects here and stays connected until stopped. `--owner` answers pairing's "is that you?" ahead of time. |
+| `talos service install [--owner <login>]` | Pairs this machine if it isn't yet, then runs talos in the background, at every login and again if it stops (macOS and Linux). |
+| `talos service start` | Starts the background talos. |
+| `talos service stop` | Stops it until the next login or `talos service start`. Its sessions keep running. |
+| `talos service uninstall` | Stops running talos in the background. Its sessions run on until `talos runner stop`. |
+| `talos status [--json]` | Shows the version, the server, whether this machine is paired, the service running, talos connected, and how many sessions run. |
+| `talos update` | Brings a copy put in place by `install.sh` up to main, then runs `talos service install`. |
+| `talos logs [--runner]` | Shows the end of talos's log (or the session runner's) and follows it. |
+| `talos open` | Prints the page's address for this machine's Machines page and opens it in the browser. |
+| `talos folders [--json]` | Lists the folders this machine allows sessions in. |
+| `talos folders add <path>` | Allows sessions in a folder on this machine. Prints its identifier. |
+| `talos folders remove <folder>` | Stops allowing a folder. |
+| `talos folders rename <folder> <new-name>` | Gives a folder a new name. Its path never changes. |
+| `talos sessions [--json]` | Lists this machine's Claude sessions. |
+| `talos sessions start <folder> [--name <name>]` | Starts a session in a folder, named after it unless `--name` says otherwise. Prints its identifier and page address. |
+| `talos sessions <session> send "<text>"` | Sends a session a message, as from the page; with no text, sends what's piped in. |
+| `talos sessions <session> attach` | Shows a session's terminal in yours, to watch or type. Ctrl-\\ leaves it running. |
+| `talos sessions <session> open` | Prints the session's page address and opens it in the browser. |
+| `talos sessions <session> stop` | Ends a session. |
+| `talos runner stop` | Ends the session runner and every session in it. |
+
+Every command takes `--help` (or `-h`), and `talos --version` says which
+talos this is. Lists are tables in a terminal and tab-separated lines when
+piped; `--json` gives JSON. Options start with a dash and a letter, and `--`
+ends them (`talos sessions web send -- --force it`). Errors are one line saying what to run next
+(`TALOS_DEBUG=1` adds the stack trace). It exits `0` when it worked, `1` when
+it couldn't, and `2` when a command was typed wrong. See
+[docs/CLI_RULES.md](docs/CLI_RULES.md).
 
 Folders belong to the machine the command runs on. They're kept there (in
 `~/.talos/folders.json`), and a running `talos` tells the server straight

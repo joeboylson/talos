@@ -19,6 +19,7 @@ import {
 } from "talos-shared";
 import { INSTALLED_APP_FOLDER, INSTALLED_ENV_FILE, LOCAL_STATUS_WAIT_MS, RUNNER_SCRIPT, SERVICE_LOG_FILE, TALOS_FOLDER } from "./constants";
 import { readCredentials } from "./credentials";
+import { cliError, type Flags } from "./cli";
 import { acceptMachine } from "./pairing";
 import { connectToSessions } from "./talos-sessions";
 
@@ -140,12 +141,12 @@ const SERVICES: Partial<Record<NodeJS.Platform, Service>> = {
 
 const serviceForThisSystem = (): Service => {
   const service = SERVICES[process.platform];
-  if (!service) throw new Error(`talos: running in the background works on macOS and Linux, not ${process.platform}`);
+  if (!service) throw cliError(`running in the background works on macOS and Linux, not ${process.platform}`, "talos connect");
   return service;
 };
 const installedService = (): Service => {
   const service = serviceForThisSystem();
-  if (!existsSync(service.file)) throw new Error("talos: it isn't set up to run in the background; run talos service install");
+  if (!existsSync(service.file)) throw cliError("it isn't set up to run in the background", "talos service install");
   return service;
 };
 
@@ -166,8 +167,8 @@ export const installService = async (): Promise<void> => {
   };
   mkdirSync(dirname(service.file), { recursive: true });
   writeFileSync(service.file, service.build(spec));
-  if (!service.load()) throw new Error(`talos: the system wouldn't start ${service.file}`);
-  console.log(`talos: ${machineName} runs in the background now, and at every login. Its log: ${SERVICE_LOG_FILE}`);
+  if (!service.load()) throw cliError(`the system wouldn't start ${service.file}`, "talos logs");
+  console.log(`${machineName} runs in the background now, and at every login (talos status, talos logs)`);
 };
 
 // The session runner and its sessions go on until `talos runner stop`.
@@ -175,23 +176,23 @@ export const uninstallService = (): void => {
   const service = serviceForThisSystem();
   service.unload();
   rmSync(service.file, { force: true });
-  console.log("talos: no longer runs in the background");
+  console.log("no longer runs in the background");
 };
 
 export const startService = (): void => {
   const service = installedService();
-  if (service.isRunning()) return console.log("talos: already running in the background");
-  if (!service.start()) throw new Error("talos: the system wouldn't start it; its log may say why: " + SERVICE_LOG_FILE);
-  console.log("talos: running in the background");
+  if (service.isRunning()) return console.log("already running in the background");
+  if (!service.start()) throw cliError("the system wouldn't start it", "talos logs");
+  console.log("running in the background");
 };
 
 // Its sessions keep running in the session runner, and come back on the page
 // once talos starts again.
 export const stopService = (): void => {
   const service = installedService();
-  if (!service.isRunning()) return console.log("talos: already stopped");
-  if (!service.stop()) throw new Error("talos: the system wouldn't stop it");
-  console.log("talos: stopped; it starts again at the next login, or with talos service start");
+  if (!service.isRunning()) return console.log("already stopped");
+  if (!service.stop()) throw cliError("the system wouldn't stop it");
+  console.log("stopped; it starts again at the next login, or with talos service start");
 };
 
 // install.sh does the work, so an update and a fresh install are one path. It
@@ -199,10 +200,10 @@ export const stopService = (): void => {
 // updated and running in the background, whatever it had before (pairing
 // first if it must).
 export const updateTalos = (): void => {
-  if (!isInstalledCopy()) throw new Error("talos: this copy runs from a git checkout; update it with git pull");
+  if (!isInstalledCopy()) throw cliError("this copy runs from a git checkout", "git pull");
   const env = { ...process.env, TALOS_HOME: TALOS_FOLDER, TALOS_INSTALL_SERVICE: "1" };
   const updated = Bun.spawnSync(["sh", "-c", `curl -fsSL ${INSTALL_SCRIPT_URL} | sh`], { stdin: "inherit", stdout: "inherit", stderr: "inherit", env });
-  if (updated.exitCode !== 0) throw new Error("talos: the update didn't finish");
+  if (updated.exitCode !== 0) throw cliError("the update didn't finish", "talos update");
 };
 
 // What `talos status` shows, each fact gathered where it lives.
@@ -229,7 +230,7 @@ export const formatStatus = ({ version, serverUrl, machineName, service, connect
   return rows.map(([label, value]) => `  ${label.padEnd(12)}${value}`).join("\n");
 };
 
-const versionOf = (): string => {
+export const talosVersion = (): string => {
   if (isInstalledCopy()) return readFileSync(join(INSTALLED_APP_FOLDER, "VERSION"), "utf8").trim().slice(0, 7);
   const commit = outputOf(["git", "-C", dirname(INDEX_SCRIPT), "rev-parse", "--short", "HEAD"]).trim();
   return `${commit || "unknown"} (git checkout)`;
@@ -250,18 +251,19 @@ const readServiceState = (): StatusFacts["service"] => {
   return service.isRunning() ? "running" : "stopped";
 };
 
-export const showStatus = async (): Promise<void> => {
+export const showStatus = async (flags: Flags): Promise<void> => {
   const serverUrl = process.env[ENV_KEYS.serverUrl] || null;
   const credentials = serverUrl ? await readCredentials(serverUrl) : null;
   const sessions = connectToSessions({ home: TALOS_FOLDER, runnerScript: RUNNER_SCRIPT });
   const sessionCount = (await sessions.isRunning()) ? (await sessions.sessions().catch(() => [])).length : null;
   const facts = {
-    version: versionOf(),
+    version: talosVersion(),
     serverUrl,
     machineName: credentials?.machineName ?? (credentials ? "this machine" : null),
     service: readServiceState(),
     connection: await readConnection(),
     sessionCount,
   };
+  if (flags.json) return console.log(JSON.stringify(facts, null, 2));
   console.log(`talos\n${formatStatus(facts)}`);
 };

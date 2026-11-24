@@ -20,3 +20,7 @@ export type PairApproveRequest = { userCode: string };
 export type PairApproveResponse = { machineName: string };
 
 export const PAIR_POLL_INTERVAL_MS = 3000;
+
+// A pairing link (talos prints it) opens the Machines page with the pairing
+// dialog open and this parameter's code filled in.
+export const PAIR_CODE_PARAMETER = "pair";

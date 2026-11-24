@@ -5,7 +5,9 @@ import { approvePairing } from "@/api";
 import { IconButton } from "@/components/icon-button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { takePairCode } from "@/pairing-link";
 
+// A pairing link (talos prints one) opens this dialog with its code filled in.
 // Once the code is accepted, the machine asks in its terminal whether the
 // person who entered it is its owner, so the dialog says to confirm there.
 // It closes on its own once that machine connects.
@@ -15,6 +17,13 @@ export const PairMachineDialog = ({ machines }: { machines: MachineSummary[] }) 
   const [problem, setProblem] = useState<string | null>(null);
   const [isPairing, setIsPairing] = useState(false);
   const [confirmingName, setConfirmingName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const linkedCode = takePairCode();
+    if (!linkedCode) return;
+    setIsOpen(true);
+    setUserCode(linkedCode);
+  }, []);
 
   const changeOpen = (isNowOpen: boolean) => {
     setIsOpen(isNowOpen);

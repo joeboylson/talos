@@ -70,12 +70,13 @@ export const runConnect = async (): Promise<void> => {
   }
   const serverOrigin = httpOriginFromServerUrl(serverUrl);
   const wantedMachineName = toIdentifierName(process.env[ENV_KEYS.machineName] || hostname());
-  const statusLine = createStatusLine((text) => process.stdout.write(text), process.stdout.isTTY === true);
+  // Everything talos connect says is a log line, so all of it goes to stderr.
+  const statusLine = createStatusLine((text) => process.stderr.write(text), process.stderr.isTTY === true);
   const log = createLogger(
     readLogsMode(process.env[ENV_KEYS.logsMode]),
     (line) => {
       statusLine.end();
-      console.log(line);
+      console.error(line);
     },
     (line) => {
       statusLine.end();

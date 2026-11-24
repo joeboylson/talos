@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { HELP_TEXT, isFolderCommand, isSessionCommand, parseCommand } from "../../commands";
+import { HELP_TEXT, helpFor, isFolderCommand, isSessionCommand, parseCommand } from "../../commands";
 import { realFolderPath, resolveFolderPath } from "../../folder-commands";
 
 test("no command shows the list; connecting is a command of its own", () => {
@@ -7,8 +7,12 @@ test("no command shows the list; connecting is a command of its own", () => {
   expect(parseCommand(["connect"])).toEqual({ name: "connect" });
 });
 
-test("help shows the list", () => {
+test("help shows the list, or one group of it", () => {
   expect(parseCommand(["help"])).toEqual({ name: "help" });
+  expect(parseCommand(["help", "sessions"])).toEqual({ name: "help", topic: "sessions" });
+  expect(helpFor("sessions")).toContain("talos sessions start <folder>");
+  expect(helpFor("sessions")).not.toContain("talos folders add");
+  expect(helpFor("nonsense")).toBe(HELP_TEXT);
 });
 
 test("folder commands", () => {
@@ -20,6 +24,11 @@ test("folder commands", () => {
 
 test("session commands", () => {
   expect(parseCommand(["sessions"])).toEqual({ name: "sessions-list" });
+  expect(parseCommand(["sessions", "start", "website"])).toEqual({ name: "sessions-start", folderName: "website" });
+  expect(parseCommand(["sessions", "homepage", "send", "use", "the", "logo", "blue"])).toEqual({ name: "sessions-send", sessionName: "homepage", text: "use the logo blue" });
+  expect(parseCommand(["sessions", "homepage", "send"])).toEqual({ name: "sessions-send", sessionName: "homepage", text: null });
+  expect(parseCommand(["sessions", "homepage", "open"])).toEqual({ name: "sessions-open", sessionName: "homepage" });
+  expect(parseCommand(["sessions", "start", "stop"])).toEqual({ name: "sessions-stop", sessionName: "start" });
   expect(parseCommand(["sessions", "fix-login", "attach"])).toEqual({ name: "sessions-attach", sessionName: "fix-login" });
   expect(parseCommand(["sessions", "fix-login", "stop"])).toEqual({ name: "sessions-stop", sessionName: "fix-login" });
   expect(parseCommand(["runner", "stop"])).toEqual({ name: "runner-stop" });
@@ -32,6 +41,8 @@ test("service, status and update commands", () => {
   expect(parseCommand(["service", "stop"])).toEqual({ name: "service-stop" });
   expect(parseCommand(["status"])).toEqual({ name: "status" });
   expect(parseCommand(["update"])).toEqual({ name: "update" });
+  expect(parseCommand(["logs"])).toEqual({ name: "logs" });
+  expect(parseCommand(["open"])).toEqual({ name: "open" });
 });
 
 test.each([
@@ -53,7 +64,7 @@ test.each([
   [["folders", "remove", "a", "b"]],
   [["folders", "rename", "a", "b", "c"]],
   [["machines", "work-mac", "folders"]],
-  [["help", "me"]],
+  [["help", "me", "now"]],
   [["--help"]],
 ])("%p isn't a command", (args) => {
   expect(parseCommand(args)).toEqual({ name: "unknown", typed: args.join(" ") });
@@ -61,9 +72,9 @@ test.each([
 
 test("help lists every command", () => {
   [
-    "  talos connect  ",
+    "  talos connect",
     "  talos help",
-    "  talos folders  ",
+    "  talos folders [--json]",
     "talos folders add <path>",
     "talos folders remove <folder>",
     "talos sessions <session> attach",
@@ -74,6 +85,12 @@ test("help lists every command", () => {
     "talos service uninstall",
     "talos status",
     "talos update",
+    "talos logs",
+    "talos open",
+    "talos sessions start <folder>",
+    "talos sessions <session> send",
+    "talos sessions <session> open",
+    "--version",
   ].forEach((line) =>
     expect(HELP_TEXT).toContain(line),
   );

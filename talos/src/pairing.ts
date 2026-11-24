@@ -1,6 +1,8 @@
 import {
   BEARER_PREFIX,
+  buildPagePath,
   ENV_KEYS,
+  PAIR_CODE_PARAMETER,
   PAIR_POLL_INTERVAL_MS,
   SERVER_ROUTES,
   type Logger,
@@ -58,6 +60,9 @@ const confirmApprover = async (approvedBy: string, expectedOwner: string | undef
   return answer?.trim().toLowerCase() === "y";
 };
 
+export const pairingLink = (serverOrigin: string, userCode: string): string =>
+  `${serverOrigin}${buildPagePath(["machines"])}?${PAIR_CODE_PARAMETER}=${encodeURIComponent(userCode)}`;
+
 // A code this machine is waiting on, saved so a talos started again (after a
 // crash, Ctrl-C or a service restart) shows the same one: asking for another
 // each time used up the server's few codes per address. Kept only for the same
@@ -98,9 +103,11 @@ const startPairing = async (serverOrigin: string, machineName: string): Promise<
 // runs out.
 export const pairMachine = async (serverOrigin: string, machineName: string, log: Logger): Promise<PairedMachine> => {
   const { pairingId, userCode } = (await readWaitingPairing(serverOrigin, machineName)) ?? (await startPairing(serverOrigin, machineName));
-  log.event(`\ntalos: this machine isn't paired yet.`);
-  log.event(`talos: open ${serverOrigin}, sign in, and enter this code under "Pair a machine":\n`);
-  log.event(`    ${userCode}\n`);
+  // The link opens the pairing dialog with the code filled in; the code is
+  // there to type for a page opened some other way.
+  log.event(`\ntalos: this machine isn't paired yet. To pair it, open:\n`);
+  log.event(`    ${pairingLink(serverOrigin, userCode)}\n`);
+  log.event(`talos: or enter ${userCode} under "Pair a machine" on the page.\n`);
 
   const pollUrl = new URL(SERVER_ROUTES.pairPoll, serverOrigin);
   const waitForApproval = async (): Promise<string | null> => {

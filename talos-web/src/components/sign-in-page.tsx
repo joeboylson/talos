@@ -4,9 +4,13 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SIGN_IN_CLOSED_MESSAGE } from "@/describe";
+import { keepPairCodeForSignIn } from "@/pairing-link";
+import { useEffect } from "react";
 
 // Laid out like shadcn's login blocks: the name above one centered card.
 export const SignInPage = () => {
+  // A pairing link opened before signing in: its code waits for after.
+  useEffect(keepPairCodeForSignIn, []);
   const wasTurnedAway = new URLSearchParams(location.search).get(SIGN_IN_RESULT_PARAM) === SIGN_IN_CLOSED;
 
   return (

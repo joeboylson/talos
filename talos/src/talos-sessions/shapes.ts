@@ -4,7 +4,7 @@ import { COPIED_LIMITS as LIMITS } from "./limits";
 // starting: Claude Code is loading. idle: waiting for a message.
 // working: answering. needs-you: waiting on the person: a question of its own
 // open, or a permission question to answer from the page.
-export const SESSION_STATES = ["starting", "idle", "working", "needs-you", "stopped"] as const;
+export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
 // Where a session's mod stands: checked in, or gone since. Missing means it
 // hasn't checked in (or the sender is older).

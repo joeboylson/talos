@@ -26,7 +26,6 @@ export const REFUSAL_CODES = [
   "not-a-choice",
   "not-sendable",
   "too-many-waiting",
-  "stopped",
   "link-lost",
   "no-claude-code",
   "not-running",

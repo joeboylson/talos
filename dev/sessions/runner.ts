@@ -13,5 +13,4 @@ await runSessionRunner({
   isAllowedFolder: async (folderName, path) => (await readFolders()).some((folder) => folder.folderName === folderName && folder.path === path),
   kinds: OUTPUT_KINDS,
   proseTurn: PROSE_TURN,
-  restoreTrustOnStop: true,
 });

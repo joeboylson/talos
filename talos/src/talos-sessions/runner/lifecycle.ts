@@ -1,13 +1,12 @@
 // Starting a session, holding it, and ending it.
 import { existsSync } from "node:fs";
-import { trustFolder, type TrustChange } from "../claude/claude-trust";
 import { LINK_ENV_KEYS } from "../link/link-protocol";
 import type { StartSessionRequest } from "../client/runner-protocol";
 import { buildSessionEnv, withOpenFileLimit } from "../claude/session-env";
 import { buildSessionSettings } from "../claude/session-settings";
 import { NO_LANE } from "../lanes/lane";
 import { NO_OUTPUTS, NO_PLACING } from "../lanes/outputs";
-import { claudeCommand, claudeConfigFile, isAllowedFolder, log, paths, restoresTrust, startLongestWaitMs } from "./inputs";
+import { claudeCommand, isAllowedFolder, log, paths, startLongestWaitMs } from "./inputs";
 import { refuse } from "./refuse";
 
 const SESSION_EXIT_WAIT_MS = 5000;
@@ -15,7 +14,7 @@ import { setSessionState } from "./session-state";
 import { START_REQUEST_ID, followErrors, followStream } from "./stream";
 import { writeLine } from "./submit";
 import { writeWhole } from "./write-whole";
-import { broadcastSessions, heldSessions, runnerState, startingSessions, trustChanges, type HeldSession } from "./store";
+import { broadcastSessions, heldSessions, runnerState, startingSessions, type HeldSession } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
 // Written on every start and end, so it lists the groups of the sessions held now.
@@ -50,12 +49,6 @@ const refuseNewSession = (sessionName: string): Response | null => {
   return null;
 };
 
-// Saved before Claude starts, so a runner that dies still leaves them to put back.
-const keepTrustChange = (trustChange: TrustChange): void => {
-  trustChanges.push(trustChange);
-  writeWhole(paths().trustChanges, JSON.stringify(trustChanges));
-};
-
 // The name is held from the first check until the session is recorded, so a
 // second start can't take it and a stop can wait for it (see waitForStart).
 export const startSession = (request: StartSessionRequest): Promise<Response> => {
@@ -72,12 +65,10 @@ export const waitForStart = async (sessionName: string): Promise<void> => {
 
 const startHeldSession = async ({ sessionName, folderName, path }: StartSessionRequest): Promise<Response> => {
   // The session runner checks the folder list itself, so nothing that reaches its
-  // socket can start Claude (and mark it trusted) in any other folder.
+  // socket can start Claude in any other folder.
   if (!(await isAllowedFolder(folderName, path))) return refuse("folder-not-allowed", `${path} isn't one of the allowed folders`, 403);
   // An allowed folder can be gone since it was added.
   if (!existsSync(path)) return refuse("folder-not-allowed", `${folderName} isn't there any more`, 403);
-  const trustChange = await trustFolder(path, claudeConfigFile());
-  if (trustChange && restoresTrust()) keepTrustChange(trustChange);
   if (runnerState.isStopping) return STOPPING();
 
   const heldId = crypto.randomUUID();

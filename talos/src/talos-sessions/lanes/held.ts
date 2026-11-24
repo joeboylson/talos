@@ -35,15 +35,15 @@ export const readAnswer = (
   return { outputId, text: answerText(outputId, cleanLine(picked)), heldAtMs: nowMs };
 };
 
-// Held answers and a queued ask go out one per settle, oldest first. A draft in
-// the input box keeps answers waiting (the queued ask ends on its own then), and
-// so does a running asked-for turn, which only its own kind's tool may answer.
-export const nextToType = (lane: Lane, held: readonly HeldAnswer[], hasDraft: boolean): "ask" | HeldAnswer | null => {
+// Held answers and a queued ask go out one per settle, oldest first. A
+// running asked-for turn keeps answers waiting: only its own kind's tool may
+// answer it.
+export const nextToSend = (lane: Lane, held: readonly HeldAnswer[]): "ask" | HeldAnswer | null => {
   if (lane.stage === "asking") return null;
   const oldest = held[0];
   const isAskFirst = lane.stage === "queued" && (!oldest || lane.askedAtMs <= oldest.heldAtMs);
   if (isAskFirst) return "ask";
-  return oldest && !hasDraft ? oldest : null;
+  return oldest ?? null;
 };
 
 // Dropped when its question closes, or at the long backstop if the turn never ends.

@@ -2,7 +2,7 @@
 // other tests: each fails if its rule is broken the way its name says.
 import { describe, expect, test } from "bun:test";
 import { NO_OUTPUTS, NO_PLACING, placeOutputs, stepOutputs, type Outputs, type TakenOutput } from "../lanes/outputs";
-import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
+import { keptHeld, nextToSend, readAnswer, type HeldAnswer } from "../lanes/held";
 import { NO_LANE, stepLane, type Lane } from "../lanes/lane";
 import { SESSION_LIMITS } from "../limits";
 import { cleanLine, hasCommandMarker } from "../clean";
@@ -56,13 +56,13 @@ describe("held", () => {
   const held: HeldAnswer = { outputId: "a", text: "Answer to a: Yes", heldAtMs: 10 };
   const newer: HeldAnswer = { outputId: "b", text: "Answer to b: No", heldAtMs: 20 };
   test("nothing is typed while an asked-for turn is asking", () => {
-    expect(nextToType({ stage: "asking", output: "poll", askedAtMs: 0, hasForcedStop: false }, [held], false)).toBeNull();
+    expect(nextToSend({ stage: "asking", output: "poll", askedAtMs: 0, hasForcedStop: false }, [held])).toBeNull();
   });
   test("an ask and an answer at the same moment: the ask goes first", () => {
-    expect(nextToType({ stage: "queued", output: "poll", askedAtMs: 10 }, [held], false)).toBe("ask");
+    expect(nextToSend({ stage: "queued", output: "poll", askedAtMs: 10 }, [held])).toBe("ask");
   });
   test("answers go oldest first", () => {
-    expect(nextToType(NO_LANE, [held, newer], false)).toBe(held);
+    expect(nextToSend(NO_LANE, [held, newer])).toBe(held);
   });
   test("a held answer is kept up to and at the long backstop", () => {
     expect(keptHeld([held], [], held.heldAtMs + SESSION_LIMITS.queuedAskTimeoutMs)).toEqual([held]);

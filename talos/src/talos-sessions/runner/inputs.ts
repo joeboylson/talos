@@ -1,6 +1,6 @@
 // What talos passes in to runSessionRunner. Every runner file reads them from
 // here, so none makes its own logger or folder check when it loads.
-import { CLAUDE_COMMAND, CLAUDE_CONFIG_FILE, homePaths, type HomePaths } from "../constants";
+import { CLAUDE_COMMAND, homePaths, type HomePaths } from "../constants";
 import type { Catalog, OutputKind, TurnShape } from "../kinds";
 import { SESSION_LIMITS } from "../limits";
 
@@ -20,13 +20,8 @@ export type RunnerInputs = {
   // The kinds of structured output talos defines, and what a normal turn may send.
   kinds: readonly OutputKind[];
   proseTurn: TurnShape;
-  // Put each folder's trust setting back when the session runner stops. An
-  // example's session runner does; talos's leaves its folders trusted.
-  restoreTrustOnStop?: boolean;
-  // The command that runs Claude Code, and the settings file it reads trust
-  // from. Tests pass stand-ins, so they never touch the real ~/.claude.json.
+  // The command that runs Claude Code. Tests pass a stand-in.
   claudeCommand?: readonly string[];
-  claudeConfigFile?: string;
   // How long a session may take to report its start (SESSION_LIMITS.startLongestWaitMs),
   // and how long its mod may go quiet (SESSION_LIMITS.linkSilenceMs).
   startLongestWaitMs?: number;
@@ -55,10 +50,8 @@ export const isAllowedFolder: FolderCheck = (folderName, path) => given.isAllowe
 
 export const paths = (): HomePaths => homePaths(given.home);
 
-export const restoresTrust = (): boolean => given.restoreTrustOnStop === true;
 
 export const claudeCommand = (): readonly string[] => given.claudeCommand ?? [CLAUDE_COMMAND];
-export const claudeConfigFile = (): string => given.claudeConfigFile ?? CLAUDE_CONFIG_FILE;
 
 export const startLongestWaitMs = (): number => given.startLongestWaitMs ?? SESSION_LIMITS.startLongestWaitMs;
 export const linkSilenceMs = (): number => given.linkSilenceMs ?? SESSION_LIMITS.linkSilenceMs;

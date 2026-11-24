@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Catalog, OutputKind } from "../kinds";
-import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
+import { keptHeld, nextToSend, readAnswer, type HeldAnswer } from "../lanes/held";
 import { NO_LANE, type Lane } from "../lanes/lane";
 import { NO_OUTPUTS, type Outputs } from "../lanes/outputs";
 import { SESSION_LIMITS } from "../limits";
@@ -47,15 +47,12 @@ describe("what goes in at the next settle", () => {
   const queued = (askedAtMs: number): Lane => ({ stage: "queued", output: "poll", askedAtMs });
   const held = (heldAtMs: number): HeldAnswer => ({ outputId: `q${heldAtMs}`, text: "x", heldAtMs });
   test("the oldest of a queued ask and the held answers, one at a time", () => {
-    expect(nextToType(queued(1), [held(2)], false)).toBe("ask");
-    expect(nextToType(queued(3), [held(2)], false)).toEqual(held(2));
-    expect(nextToType(NO_LANE, [held(2), held(4)], false)).toEqual(held(2));
+    expect(nextToSend(queued(1), [held(2)])).toBe("ask");
+    expect(nextToSend(queued(3), [held(2)])).toEqual(held(2));
+    expect(nextToSend(NO_LANE, [held(2), held(4)])).toEqual(held(2));
   });
-  test("a draft keeps answers waiting", () => {
-    expect(nextToType(NO_LANE, [held(2)], true)).toBeNull();
-  });
-  test("nothing held, nothing typed", () => {
-    expect(nextToType(NO_LANE, [], false)).toBeNull();
+  test("nothing held, nothing sent", () => {
+    expect(nextToSend(NO_LANE, [])).toBeNull();
   });
   test("an answer is dropped when its question closes, or at the long backstop", () => {
     expect(keptHeld([held(2), held(4)], ["q2"], 5)).toEqual([held(4)]);
@@ -82,6 +79,6 @@ describe("held answers among several questions", () => {
   });
   test("an ask and an answer from the same moment: the ask goes first", () => {
     const lane: Lane = { stage: "queued", output: "poll", askedAtMs: 7 };
-    expect(nextToType(lane, [{ outputId: "q1", text: "x", heldAtMs: 7 }], false)).toBe("ask");
+    expect(nextToSend(lane, [{ outputId: "q1", text: "x", heldAtMs: 7 }])).toBe("ask");
   });
 });

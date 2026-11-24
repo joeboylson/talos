@@ -1,12 +1,11 @@
 import { isIdentifierName } from "./identifiers";
 import { LIMITS } from "./limits";
 
-// A session's state, as its mod reports it.
+// A session's state, as its session runner reads it from Claude Code.
 // starting: Claude Code is loading. idle: waiting for a message.
-// working: answering. needs-you: waiting on a question in its terminal
-// (like a permission prompt), so someone has to attach and answer it.
-// stopped: Esc in its terminal; only something entered there continues it.
-export const SESSION_STATES = ["starting", "idle", "working", "needs-you", "stopped"] as const;
+// working: answering. needs-you: waiting on the person: a question of its own
+// open, or a permission question to answer.
+export const SESSION_STATES = ["starting", "idle", "working", "needs-you"] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
 // Whether a session's mod is checked in, or gone since (the session runs on,
 // but talos can't reach it). Missing: it hasn't checked in.

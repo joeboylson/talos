@@ -90,8 +90,7 @@ talos service install
 
 The script downloads main from GitHub into `~/.talos/app` (only talos and
 `talos-shared`), puts talos's own Bun 1.4.4 in `~/.talos/bun` (checked against
-Bun's checksums; an older Bun gives sessions no terminal, and Claude Code quits
-at once), saves the server's address in
+Bun's checksums), saves the server's address in
 `~/.talos/talos.env`, and puts a `talos` command in `~/.local/bin`.
 `talos service install` pairs the machine (the code shows in the terminal),
 then runs talos in the background and at every login, and again if it stops: a
@@ -158,7 +157,7 @@ away. The page lists them under Folders, where they (and machines) can be
 renamed too.
 
 Sessions run in the session runner, a background program `talos` starts on
-each machine. It holds Claude Code's terminals, so sessions keep running
+each machine. It holds the Claude Code sessions, so they keep running
 when `talos` restarts (it restarts on every save in development). After
 changing anything in `talos/src/talos-sessions/`, run
 `make talos runner stop` so the next `talos` starts a fresh one; that ends

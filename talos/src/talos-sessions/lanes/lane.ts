@@ -27,14 +27,15 @@ export type LaneEvent =
   | { type: "ask"; kind: string }
   // The session's turn is over (see runner/session-state.ts): a request sent
   // now starts a turn of its own, and a finished asked-for turn has really ended.
-  | { type: "settled"; hasDraft: boolean }
+  | { type: "settled" }
   // A call to one of talos's tools. outputId is a fresh id the caller made,
   // used if the call is allowed.
   | { type: "tool-call"; toolName: string; toolInput: unknown; isSubagent: boolean; toolUseId: string; outputId: string }
   // A structured output was taken (see outputs.ts).
   | { type: "taken"; output: TakenOutput }
   | { type: "stop" }
-  | { type: "person-typed"; isTurnChanging: boolean }
+  // A message from the person goes in.
+  | { type: "person-sent" }
   | { type: "tick" };
 
 export type AskState = "asking" | "answered" | "no-response";
@@ -48,7 +49,7 @@ export type LaneStep = {
   reply: LaneReply;
   sent: TakenOutput | null;
   askChange: { kind: string; state: AskState; atMs: number; latest?: Record<string, unknown> } | null;
-  requestToType: string | null;
+  requestToSend: string | null;
 };
 
 type RunningLane = Extract<Lane, { stage: "asking" | "answered" }>;
@@ -67,7 +68,7 @@ const NO_SUCH_TOOL_REASON = "talos has no such tool.";
 // (its mod asks, and denies the rest); null otherwise.
 export const onlyToolOf = (lane: Lane, catalog: Catalog): string | null => (isAskedTurnRunning(lane) ? askedToolName(lane, catalog) : null);
 
-const stay = (lane: Lane, reply: LaneReply = null): LaneStep => ({ lane, reply, sent: null, askChange: null, requestToType: null });
+const stay = (lane: Lane, reply: LaneReply = null): LaneStep => ({ lane, reply, sent: null, askChange: null, requestToSend: null });
 
 
 const turnShapeOf = (lane: Lane, catalog: Catalog): TurnShape =>
@@ -146,14 +147,12 @@ const endAsk = (lane: Exclude<Lane, { stage: "none" }>, nowMs: number): LaneStep
   askChange: lane.stage === "answered" ? null : askChange(lane.output, "no-response", nowMs),
 });
 
-// Settled: a queued ask is typed now (unless a draft is waiting, which the
-// request would be sent along with), and an answered turn ends.
-const stepSettled = (lane: Lane, hasDraft: boolean, nowMs: number, catalog: Catalog): LaneStep => {
+// Settled: a queued ask goes in now, and an answered turn ends.
+const stepSettled = (lane: Lane, nowMs: number, catalog: Catalog): LaneStep => {
   if (lane.stage === "answered") return stay(NO_LANE);
   if (lane.stage !== "queued") return stay(lane);
-  if (hasDraft) return endAsk(lane, nowMs);
-  const requestToType = findKind(catalog, lane.output)?.requestText ?? null;
-  return { ...stay({ stage: "asking", output: lane.output, askedAtMs: nowMs, hasForcedStop: false }), requestToType };
+  const requestToSend = findKind(catalog, lane.output)?.requestText ?? null;
+  return { ...stay({ stage: "asking", output: lane.output, askedAtMs: nowMs, hasForcedStop: false }), requestToSend };
 };
 
 // The backstops. An unanswered turn becomes "no response" but stays limited (as
@@ -169,23 +168,15 @@ const stepTick = (lane: Lane, nowMs: number): LaneStep => {
   return waitedMs > SESSION_LIMITS.queuedAskTimeoutMs ? endAsk(lane, nowMs) : stay(lane);
 };
 
-// The person typing ends a queued ask: it would otherwise be pasted after their
-// draft and pull it into an asked-for turn, and an Esc (which sends no Stop)
-// would leave it waiting. A running asked-for turn ends only on a turn-changing
-// key (Enter, Esc, Ctrl-C), so watching it with arrow keys doesn't lose the
-// answer.
-const stepPersonTyped = (lane: Lane, isTurnChanging: boolean, nowMs: number): LaneStep => {
-  if (lane.stage === "none") return stay(lane);
-  const endsAsk = lane.stage === "queued" || isTurnChanging;
-  return endsAsk ? endAsk(lane, nowMs) : stay(lane);
-};
+// The person's message ends any ask: their turn isn't an asked-for one.
+const stepPersonSent = (lane: Lane, nowMs: number): LaneStep => (lane.stage === "none" ? stay(lane) : endAsk(lane, nowMs));
 
 export const stepLane = (lane: Lane, event: LaneEvent, nowMs: number, catalog: Catalog): LaneStep => {
   if (event.type === "ask") return stepAsk(lane, event.kind, nowMs, catalog);
-  if (event.type === "settled") return stepSettled(lane, event.hasDraft, nowMs, catalog);
+  if (event.type === "settled") return stepSettled(lane, nowMs, catalog);
   if (event.type === "tool-call") return stepToolCall(lane, event, nowMs, catalog);
   if (event.type === "stop") return stepStop(lane, catalog);
-  if (event.type === "person-typed") return stepPersonTyped(lane, event.isTurnChanging, nowMs);
+  if (event.type === "person-sent") return stepPersonSent(lane, nowMs);
   if (event.type === "taken") return stepTaken(lane, event.output, nowMs);
   return stepTick(lane, nowMs);
 };

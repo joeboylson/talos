@@ -33,10 +33,10 @@ const viewOf = (row: Partial<SessionRow>, waitingPrompts: { text: string; imageP
     </TooltipProvider>,
   );
 
-test("a question's buttons show once the turn is over; during a permission prompt the page says to answer in the terminal", () => {
+test("a question's buttons show once the turn is over; mid-turn with no permission listed, the page says it's not responding", () => {
   expect(viewOf({ isPromptShowing: false })).toContain("Which one?");
   const atPrompt = viewOf({ isPromptShowing: true });
-  expect(atPrompt).toContain("Answer in the terminal");
+  expect(atPrompt).toContain("Not responding");
   expect(atPrompt).not.toContain("Which one?");
 });
 

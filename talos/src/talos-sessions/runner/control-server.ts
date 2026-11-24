@@ -7,12 +7,11 @@ import { isIdentifierName, readSentImages } from "../shapes";
 import { RUNNER_ROUTES, encodeRunnerEvent, sessionNameOf } from "../client/runner-protocol";
 import { endSession, startSession, waitForStart } from "./lifecycle";
 import { noSuchSession } from "./refuse";
-import { claudeConfigFile, log, paths, restoresTrust } from "./inputs";
-import { restoreTrust, type TrustChange } from "../claude/claude-trust";
+import { log, paths } from "./inputs";
 import { sendToSession } from "./messages";
 import { answerOutput, answerPermission, askForOutput, interruptSession } from "./session-state";
 import { SESSION_LIMITS } from "../limits";
-import { eventListeners, heldSessions, listSessions, runnerState, startingSessions, trustChanges } from "./store";
+import { eventListeners, heldSessions, listSessions, runnerState, startingSessions } from "./store";
 
 const streamOf = <T>(
   onStart: (controller: ReadableStreamDefaultController<T>) => void,
@@ -67,14 +66,10 @@ export const stopRunner = async (): Promise<Response> => {
     log.event("runner: stopping, with every session it holds");
     await Promise.all([...startingSessions.keys()].map(waitForStart));
     await Promise.all([...heldSessions.values()].map(endSession));
-    // Only once every session has exited: Claude Code writes its settings as it
-    // closes, which would undo a change made sooner.
-    const isPutBack = await putTrustBack(trustChanges);
-    // The sockets, lock and trust record go only if they're still this
-    // runner's: a home deleted and started again belongs to the new runner now.
+    // The sockets and lock go only if they're still this runner's: a home
+    // deleted and started again belongs to the new runner now.
     const { runnerSocket, linkSocket, runnerLock } = paths();
     const isOurs = await Bun.file(runnerLock).text().then((pid) => Number(pid) === process.pid, () => false);
-    if (isOurs && isPutBack) await forgetTrustChanges();
     if (isOurs) await Promise.all([rm(runnerSocket, { force: true }), rm(linkSocket, { force: true }), rm(runnerLock, { force: true })]);
     setTimeout(() => process.exit(0), 50);
   })();
@@ -82,21 +77,6 @@ export const stopRunner = async (): Promise<Response> => {
   return new Response(null, { status: 204 });
 };
 
-// Puts back the trust answers given; false if it couldn't, so they're kept.
-export const putTrustBack = async (changes: readonly TrustChange[]): Promise<boolean> => {
-  if (!restoresTrust() || changes.length === 0) return true;
-  try {
-    await restoreTrust(changes, claudeConfigFile());
-    return true;
-  } catch (error) {
-    log.warn(`runner: couldn't put trust back: ${error}`);
-    return false;
-  }
-};
-
-// The record on disk, once everything in it is put back. Only the runner
-// holding the home's lock may do this.
-export const forgetTrustChanges = (): Promise<void> => rm(paths().trustChanges, { force: true });
 
 // Event and output streams stay open for as long as someone listens, so the
 // session runner turns off Bun's limit on quiet requests (0 = none). Bun's types don't

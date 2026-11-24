@@ -8,14 +8,14 @@ export type SessionRow = {
   state: SessionState;
   status?: SessionStatus;
   decision?: SessionDecision;
-  // Claude Code asks permission in its terminal (needs you, mid-turn): only
-  // the terminal can answer it.
+  // It needs the person mid-turn: a permission question, or (with none
+  // listed) a start that never finished.
   isPromptShowing: boolean;
   link?: LinkState;
   isSelfStarted?: true;
   // Messages waiting for the turn to be over, sent from any page.
   waitingMessages?: string[];
-  // Permission prompts showing in its terminal, answerable here too.
+  // Permission questions waiting, answered here.
   permissionAsks?: PermissionAsk[];
 };
 
@@ -62,7 +62,7 @@ export type WaitingPrompt = { text: string; imagePreviewUrls: string[]; requestI
 
 // A message as the session saves it: without the control characters the
 // session runner strips (all but line breaks and tabs; its rule is in
-// talos-sessions' terminal.ts), and cut to the kept length.
+// talos-sessions' clean.ts), and cut to the kept length.
 const STRIPPED_CONTROL_CHARACTERS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 const asSaved = (text: string): string => text.replace(STRIPPED_CONTROL_CHARACTERS, "").trim().slice(0, LIMITS.maxEntryTextLength);
 

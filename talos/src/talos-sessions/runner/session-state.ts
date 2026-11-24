@@ -5,7 +5,7 @@ import { findKind } from "../kinds";
 import { stepLane, type LaneEvent, type LaneReply, type LaneStep } from "../lanes/lane";
 import { placeOutputs, stepOutputs, type CallPlace, type Outputs, type OutputsEvent, type TakenOutput } from "../lanes/outputs";
 import { SESSION_LIMITS } from "../limits";
-import { keptHeld, nextToType, readAnswer, type HeldAnswer } from "../lanes/held";
+import { keptHeld, nextToSend, readAnswer, type HeldAnswer } from "../lanes/held";
 import { catalog, log } from "./inputs";
 import { noSuchSession, refuse } from "./refuse";
 import { broadcast, broadcastSessions, heldSessions, updateHeldSession, type HeldSession, type WaitingMessage } from "./store";
@@ -87,8 +87,8 @@ export const applyLaneEvent = (sessionName: string, event: LaneEvent): LaneReply
   notify(sessionName, session.heldAnswers.filter((answer) => !heldAnswers.includes(answer)));
   if (step.sent) applyOutputsEvent(sessionName, { type: "sent", output: step.sent });
   // A request that can't go in ends its ask.
-  if (step.requestToType && !submitTalosText(sessionName, session, step.requestToType)) {
-    applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
+  if (step.requestToSend && !submitTalosText(sessionName, session, step.requestToSend)) {
+    applyLaneEvent(sessionName, { type: "person-sent" });
   }
   // A lane or answer left waiting to settle while the turn is already over gets
   // its wait now, not only when the session's state next changes.
@@ -137,7 +137,7 @@ const submitWaitingMessage = (sessionName: string, session: HeldSession): void =
   setWaitingMessages(sessionName, session, rest);
   const current = heldSessions.get(sessionName);
   if (!current || !writeTurn(sessionName, current, next.text, next.images, true)) return;
-  applyLaneEvent(sessionName, { type: "person-typed", isTurnChanging: true });
+  applyLaneEvent(sessionName, { type: "person-sent" });
 };
 
 // Once the turn is over: a waiting message, else a finished asked-for turn
@@ -147,11 +147,11 @@ const sendNextWhenSettled = (sessionName: string): void => {
   const session = heldSessions.get(sessionName);
   if (!session) return;
   if (hasWaitingMessages(session)) return submitWaitingMessage(sessionName, session);
-  if (session.lane.stage === "answered") applyLaneEvent(sessionName, { type: "settled", hasDraft: false });
+  if (session.lane.stage === "answered") applyLaneEvent(sessionName, { type: "settled" });
   const current = heldSessions.get(sessionName);
   if (!current) return;
-  const next = nextToType(current.lane, current.heldAnswers, false);
-  if (next === "ask") return void applyLaneEvent(sessionName, { type: "settled", hasDraft: false });
+  const next = nextToSend(current.lane, current.heldAnswers);
+  if (next === "ask") return void applyLaneEvent(sessionName, { type: "settled" });
   if (!next) return;
   // Held until it goes in, so a second click is refused meanwhile; then it
   // closes its question.

@@ -4,8 +4,7 @@ import type { PermissionAsk } from "talos-shared";
 import { IconButton } from "@/components/icon-button";
 import { Card, CardContent } from "@/components/ui/card";
 
-// Claude Code asks whether a tool may run. Allow or Deny answers it here; the
-// session's terminal can answer it too, and whichever comes first counts.
+// Claude Code asks whether a tool may run. Allow or Deny answers it.
 export const PermissionCard = ({ ask, onAnswer }: { ask: PermissionAsk; onAnswer: (isAllowed: boolean) => void }) => {
   const askId = useId();
   return (

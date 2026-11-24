@@ -8,7 +8,7 @@ export type PageState = {
   roundTripMsByMachineId: Record<string, number>;
   entriesBySession: Record<string, SessionEntry[]>;
   waitingPromptsBySession: Record<string, WaitingPrompt[]>;
-  // Messages that waited and won't go in (an interrupt, Esc in the terminal),
+  // Messages that waited and won't go in (after an interrupt),
   // back for the session's message box: their text, and the images this page
   // sent with them.
   returnedBySession: Record<string, ReturnedMessage>;

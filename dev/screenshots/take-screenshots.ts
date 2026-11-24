@@ -145,7 +145,7 @@ const atlas = await connectMachine(
     {
       sessionName: "cleanup",
       folderName: "talos",
-      state: "stopped",
+      state: "idle",
       asks: {},
       openOutputs: [],
       link: "lost",

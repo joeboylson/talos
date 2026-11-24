@@ -85,7 +85,7 @@ describe("the view", () => {
   });
   test("a question whose answer was refused can be answered again", () => {
     const open = session({ state: "needs-you", openOutputs: [question] });
-    const refused = { type: "result", action: { do: "answer", outputId: "q1", choice: 0 }, result: { ok: false, code: "stopped", reason: "busy" } } as const;
+    const refused = { type: "result", action: { do: "answer", outputId: "q1", choice: 0 }, result: { ok: false, code: "closed", reason: "busy" } } as const;
     expect(play([open, { type: "key", key: "1" }, refused, open, { type: "key", key: "2" }]).actions).toEqual([
       { do: "answer", outputId: "q1", choice: 0 },
       { do: "answer", outputId: "q1", choice: 1 },

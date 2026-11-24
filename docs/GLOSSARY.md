@@ -19,14 +19,12 @@ docs. Use these and no others.
   time it connects.
 - **folder**: a folder on a machine that its owner allows sessions in. Only
   `talos` on that machine can add or remove one; the page just shows them.
-- **session**: a Claude Code conversation that `talos` runs in a folder. Its
-  state, as its mod reports it, is **starting**, **ready** (`idle` in code), **working**, **needs
-  you** (a permission prompt in its terminal, or an open question waiting for
-  its answer), or **stopped** (the person pressed Esc in its terminal; only
-  something entered in that terminal continues it, and talos sends nothing
-  until then).
-- **link lost**: a session whose mod is gone. It keeps running and its
-  terminal still works, but talos sends it nothing.
+- **session**: a Claude Code conversation that `talos` runs in a folder,
+  headless. Its state, as its stream says, is **starting**, **ready** (`idle`
+  in code), **working**, or **needs you** (a permission question to answer,
+  or an open question waiting for its answer).
+- **link lost**: a session whose mod is gone. It keeps running and takes
+  messages, but talos's tools and asks don't work in it.
 - **self-started turn**: a turn Claude Code starts on its own, not from a
   message: a sub-agent's, a background task's notice, a scheduled wake-up.
   It's shown as such and never taken for the person's.
@@ -48,14 +46,14 @@ docs. Use these and no others.
   answer. It lasts one turn.
 - **structured tool**: the tool a session calls to send an output of a kind
   (report_status, ask_decision). Its own call isn't shown in the conversation.
-- **attach**: show a session's terminal in your own, to watch or type.
+- **attach**: follow a session's conversation in your terminal and type to
+  it (`talos sessions <session> attach`).
 - **waiting message**: a message sent from the page while a session's turn
   runs, held by the session runner and sent once the turn is over, one per
   turn. Every page shows it.
-- **interrupt**: stopping a session's running turn from the page. Unlike Esc
-  in its terminal, the session goes on taking messages. Waiting messages go
-  back to the message box of the page that sent them, as they do after an
-  Esc.
+- **interrupt**: stopping a session's running turn, from the page or Ctrl-C
+  in attach. The session goes on taking messages. Waiting messages go back
+  to the message box of the page that sent them.
 
 ## Programs
 
@@ -130,15 +128,9 @@ something.
 - **ask** and **asks list**: asking a session for a kind. The asks list holds,
   per kind, where the latest ask stands (asking, answered, no response) and its
   latest answer.
-- **settled**: a session's turn is over, as its mod reports it, and the
-  session isn't stopped. Talos sends into a session only then, one thing per
-  turn: the person's waiting messages first, then its own text.
-- **framed**: how talos sends text it wrote itself (an ask, an answer, a
-  loop step): marked as coming from the talos mod, not as the person. Only
-  what the person types on the page is sent as them.
-- **draft**: text the person has in a session's input box, typed in an
-  attached terminal. It keeps talos's asks and answers waiting and ends a
-  queued ask; one no key has touched for a minute stops counting.
+- **settled**: a session's turn is over: its stream sent the turn's result.
+  Talos sends into a session only then, one thing per turn: the person's
+  waiting messages first, then its own text.
 - **held answer**: a click on an open output's choice, kept until the session
   has settled, then sent as `Answer to <id>: <choice>`. The message is
   `answer-output`.
@@ -151,7 +143,7 @@ something.
   program using it. Talos's is `~/.talos`; an example's is its `run/` folder.
 - **plain calls**: how a program uses `talos-sessions` (`connectToSessions`,
   given its home and the script that runs its session runner): start, send,
-  ask, answer, keys, resize, screen, stop, sessions, follow, attach, and
+  interrupt, answerPermission, ask, answer, stop, sessions, follow, and
   isRunning, ensureRunning and stopRunner for the session runner itself.
 - **result**: what a plain call gives back: done, or a **refusal**, which holds
   a short fixed **code** a program can check (like `closed`; the list is in

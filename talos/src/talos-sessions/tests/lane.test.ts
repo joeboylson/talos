@@ -50,7 +50,7 @@ const onlyTool = (lane: Lane) => onlyToolOf(lane, CATALOG);
 
 const step = (lane: Lane, event: LaneEvent, nowMs = NOW) => {
   const result = stepLane(lane, event, nowMs, CATALOG);
-  return { lane: result.lane, decision: decisionOf(result.reply), ask: result.askChange?.state ?? null, typed: result.requestToType };
+  return { lane: result.lane, decision: decisionOf(result.reply), ask: result.askChange?.state ?? null, typed: result.requestToSend };
 };
 const unchanged = (lane: Lane, decision = "") => ({ lane, decision, ask: null, typed: null });
 
@@ -88,7 +88,7 @@ describe("3. nothing but an answer or the timeout ends an asked-for turn", () =>
     expect(step(askingForced, { type: "stop" })).toEqual(unchanged(askingForced));
   });
   test("settling mid-turn doesn't end or restart it", () => {
-    expect(step(asking, { type: "settled", hasDraft: false })).toEqual(unchanged(asking));
+    expect(step(asking, { type: "settled" })).toEqual(unchanged(asking));
   });
   test.each([
     ["queued", queued],
@@ -98,31 +98,22 @@ describe("3. nothing but an answer or the timeout ends an asked-for turn", () =>
     expect(step(lane, { type: "ask", kind: "poll" }, NOW + 5000)).toEqual(unchanged(lane));
     expect(step(lane, { type: "ask", kind: "tally" }, NOW + 5000)).toEqual(unchanged(lane));
   });
-  test("the person typing ends an unanswered turn, so their message's tools run", () => {
-    expect(step(askingForced, { type: "person-typed", isTurnChanging: true })).toEqual({ lane: NO_LANE, decision: "", ask: "no-response", typed: null });
+  test("the person's message ends an unanswered turn, so their message's tools run", () => {
+    expect(step(askingForced, { type: "person-sent" })).toEqual({ lane: NO_LANE, decision: "", ask: "no-response", typed: null });
     expect(onlyTool(NO_LANE)).toBeNull();
   });
-  test("the person typing after an answer keeps the answer", () => {
-    expect(step(answered, { type: "person-typed", isTurnChanging: true })).toEqual(unchanged(NO_LANE));
+  test("the person's message after an answer keeps the answer", () => {
+    expect(step(answered, { type: "person-sent" })).toEqual(unchanged(NO_LANE));
   });
-  test("the person typing ends a queued ask, so their message isn't taken into an asked-for turn", () => {
-    expect(step(queued, { type: "person-typed", isTurnChanging: true })).toEqual({ lane: NO_LANE, decision: "", ask: "no-response", typed: null });
-  });
-  test.each([
-    ["asking", asking],
-    ["answered", answered],
-  ])("a key that doesn't change the turn (like an arrow) leaves %s alone", (_name, lane) => {
-    expect(step(lane, { type: "person-typed", isTurnChanging: false })).toEqual(unchanged(lane));
-  });
-  test("any key ends a queued ask, so a draft isn't sent with the request", () => {
-    expect(step(queued, { type: "person-typed", isTurnChanging: false }).lane).toEqual(NO_LANE);
+  test("the person's message ends a queued ask, so their message isn't taken into an asked-for turn", () => {
+    expect(step(queued, { type: "person-sent" })).toEqual({ lane: NO_LANE, decision: "", ask: "no-response", typed: null });
   });
   test("a Stop after the answer doesn't end it: the turn may still be running", () => {
     expect(step(answered, { type: "stop" })).toEqual(unchanged(answered));
     expect(onlyTool(answered)).toBe(mcpToolName(POLL.toolName));
   });
   test("the turn ends once it's over and the screen has settled", () => {
-    expect(step(answered, { type: "settled", hasDraft: false })).toEqual(unchanged(NO_LANE));
+    expect(step(answered, { type: "settled" })).toEqual(unchanged(NO_LANE));
   });
 });
 
@@ -192,11 +183,8 @@ describe("asking", () => {
     expect(step(NO_LANE, { type: "ask", kind: "note" })).toEqual(unchanged(NO_LANE));
     expect(step(NO_LANE, { type: "ask", kind: "nope" })).toEqual(unchanged(NO_LANE));
   });
-  test("settling types the kind's request and starts the turn's clock", () => {
-    expect(step(queued, { type: "settled", hasDraft: false }, NOW + 10)).toEqual({ lane: { ...asking, askedAtMs: NOW + 10 }, decision: "", ask: null, typed: "Send a poll." });
-  });
-  test("a queued ask that meets a draft ends: the request would be sent with it", () => {
-    expect(step(queued, { type: "settled", hasDraft: true })).toEqual({ lane: NO_LANE, decision: "", ask: "no-response", typed: null });
+  test("settling sends the kind's request and starts the turn's clock", () => {
+    expect(step(queued, { type: "settled" }, NOW + 10)).toEqual({ lane: { ...asking, askedAtMs: NOW + 10 }, decision: "", ask: null, typed: "Send a poll." });
   });
 });
 
@@ -268,7 +256,7 @@ describe("edges the lane must hold", () => {
     expect(step(NO_LANE, send(NOTE, twoByteText)).decision).toBe("deny");
   });
   test("Enter with no ask changes nothing", () => {
-    expect(step(NO_LANE, { type: "person-typed", isTurnChanging: true })).toEqual(unchanged(NO_LANE));
+    expect(step(NO_LANE, { type: "person-sent" })).toEqual(unchanged(NO_LANE));
   });
 });
 

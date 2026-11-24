@@ -7,7 +7,6 @@ import { encodeRunnerEvent, type RunnerEvent } from "../client/runner-protocol";
 import type { Lane } from "../lanes/lane";
 import type { OutputPlacing, Outputs } from "../lanes/outputs";
 import type { HeldAnswer } from "../lanes/held";
-import type { TrustChange } from "../claude/claude-trust";
 import { SESSION_LIMITS } from "../limits";
 
 export type ToolEntry = Extract<SessionEntry, { kind: "tool" }>;
@@ -67,8 +66,6 @@ export type HeldSession = {
 
 export const heldSessions = new Map<string, HeldSession>();
 export const eventListeners = new Set<ReadableStreamDefaultController<string>>();
-// The trust settings this session runner changed, to put back when it stops.
-export const trustChanges: TrustChange[] = [];
 // Sessions whose start is under way, by name, so a stop can wait for one; and
 // whether the runner is stopping, when it takes no new sessions.
 export const startingSessions = new Map<string, Promise<Response>>();

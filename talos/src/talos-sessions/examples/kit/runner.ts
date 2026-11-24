@@ -27,8 +27,7 @@ export const startExampleRunner = async ({ kinds, proseTurn }: { kinds: readonly
     isAllowedFolder: async (_folderName, path) => path === work,
     kinds,
     proseTurn,
-    restoreTrustOnStop: true,
-  });
+    });
   const watchdog = setInterval(() => {
     if (isRunning(exampleProcessId)) return;
     clearInterval(watchdog);

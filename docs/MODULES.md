@@ -50,35 +50,30 @@ Each block below is listed as what goes in → what comes out.
 - **`talos-sessions`** (created). Runs Claude Code and gets output back from it.
   - In, when the session runner starts: its home (the folder it keeps its own
     files in), a folder check, a logger, the kinds of output the program
-    defines, what a prose turn may send, and whether to put folder trust back
-    when it stops (`restoreTrustOnStop`). Tests can also set the command it
-    runs as Claude and the settings file it trusts folders in; otherwise it
-    runs the pinned Claude Code.
+    defines, and what a prose turn may send. Tests can also set the command it
+    runs as Claude; otherwise it runs the pinned Claude Code, headless (no
+    terminal: JSON lines on its input and output).
   - In, through its plain calls (`connectToSessions({ home, runnerScript })`):
-    start a session in a folder, send it a message (through its mod, one per
-    turn, waiting while a turn runs) or keys, interrupt its turn, answer a
-    permission prompt showing in its terminal (allow or deny), stop it,
-    resize
-    it, see its screen, ask it for a kind of output, answer an open output by
-    its id, attach a terminal, list the sessions, follow events, and start,
-    check or stop the session runner itself.
+    start a session in a folder, send it a message with any images (one per
+    turn, waiting while a turn runs), interrupt its turn, answer a
+    permission question it waits on (allow or deny), stop it, ask it for a
+    kind of output, answer an open output by its id, list the sessions,
+    follow events, and start, check or stop the session runner itself.
   - Out: results and refusals for each call; each session's state (from its
     stream), whether its mod's link is up or lost, whether its running
     turn was started by Claude Code on its own, its asks
     (state and latest answer per kind), its open outputs, its conversation as
     entries in conversation order (outputs and dropped markers included),
-    its waiting messages, the permission prompts showing in its terminal
-    (each with its tool and what it would do), notices like a dropped answer, each waiting
-    message given back (with the request id it was sent with) when an
-    interrupt or Esc means it won't go in, and its raw terminal output.
+    its waiting messages, the permission questions it waits on (each with
+    its tool and what it would do), notices like a dropped answer, and each
+    waiting message given back (with the request id it was sent with) when
+    an interrupt means it won't go in.
   - Refusal codes: `no-such-session`, `already-running`, `too-many-sessions`,
     `folder-not-allowed` (also a folder that's gone), `already-asking`,
     `closed` (that question has closed), `not-a-choice`, `not-sendable` (a
     choice that would act as a command), `too-many-waiting` (it already has
-    as many messages waiting for their turn as it takes), `stopped` (Esc in
-    its terminal stopped
-    it; only the person continues it, there), `link-lost` (its mod is gone,
-    so talos sends it nothing) and `no-claude-code` (the machine hasn't the
+    as many messages waiting for their turn as it takes), `link-lost` (its
+    mod is gone, so asks can't work) and `no-claude-code` (the machine hasn't the
     one Claude Code version talos runs) and `not-running` (an interrupt with
     no turn running). A malformed
     request, or a session runner that can't be reached, throws instead.
@@ -87,21 +82,20 @@ Each block below is listed as what goes in → what comes out.
     `mod/<hash>/` (the mod's snapshot), `claude-code/<version>/claude` (the
     pinned Claude Code, a hard link to the installer's copy), `runner.lock` (the one runner holding the home),
     `runner.log` (moved to `runner.log.1` past 10 MB when a runner starts),
-    `uploads/<session>/`
-    (a session's newest 20 images), `quarantine.log` (dropped items' data),
-    `trust-changes.json` (trust to put back, even after a crash) and
-    `session-groups.json` (what a runner that dies outright leaves to end).
+    `quarantine.log` (dropped items' data) and `session-groups.json` (what a runner that dies outright leaves to end).
   - Holds: the session runner, the mod (`mod/`, run inside every session's
     Claude Code, with its own tests under Claude Code's kit; it gives the
     session talos's tools, asks the runner about each tool call and Stop,
-    and refuses every other mod's hooks), the link server, the lane and output rules, held answers, the transcript reader, and its own copies of the
-    shapes and limits it shares with `talos-shared`.
+    and refuses every other mod's hooks), the link server, the stream
+    reader, the lane and output rules, held answers, and its own copies of
+    the shapes and limits it shares with `talos-shared`.
   - Known limit: it trusts everything that runs as the same user. A session's
     link secret is in its Claude Code's memory, which anything running as
-    that user could read, and then post to the link as the mod: put up questions with buttons, or answer an
-    asked-for turn. It can also open the control socket, which is this
-    user's like the rest, and drive every session through it. The fix is running sessions as a separate
-    OS user, left until talos runs for more than its one owner.
+    that user could read, and then post to the link as the mod: put up
+    questions with buttons, or answer an asked-for turn. It can also open
+    the control socket, which is this user's like the rest, and drive every
+    session through it. The fix is running sessions as a separate OS user,
+    left until talos runs for more than its one owner.
   - Shown by: `examples/receipts`, `examples/recipes`, `examples/explorer`.
   - Lives in: `talos/src/talos-sessions/`, tests in its own `tests/` and each
     example's `tests/`, all run by its `check.sh`.

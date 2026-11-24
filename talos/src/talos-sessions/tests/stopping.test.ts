@@ -1,13 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir, uptime } from "node:os";
 import { join } from "node:path";
 import { connectToSessions } from "../index";
 import { homePaths } from "../constants";
 
 // Stopping sessions and the session runner, on the real session runner with the
-// fake Claude (tests/fake/): nothing may keep running, and trust is always put
-// back, however the stop comes. Each test has its own home and runner.
+// fake Claude (tests/fake/): nothing may keep running, however the stop comes.
+// Each test has its own home and runner.
 const homes: string[] = [];
 const runnerScript = new URL("./fake/fake-runner.ts", import.meta.url).pathname;
 
@@ -38,7 +38,6 @@ const waitUntil = async (isDone: () => boolean | Promise<boolean>, what: string,
   }
 };
 const fileExists = (path: string) => Bun.file(path).exists();
-const trustOf = (home: string, folder: string) => JSON.parse(readFileSync(join(home, "claude.json"), "utf8")).projects?.[realpathSync(folder)];
 
 afterAll(async () => {
   await Promise.all(homes.map((home) => connectToSessions({ home, runnerScript }).stopRunner().catch(() => {})));
@@ -96,26 +95,6 @@ test(
 );
 
 test(
-  "trust is put back after a runner is killed outright (by the next one) or told to stop by the system",
-  async () => {
-    const { home, calls } = newHome();
-    const runnerPid = () => pidIn(homePaths(home).runnerLock);
-    for (const signal of ["SIGKILL", "SIGTERM"] as const) {
-      await calls.ensureRunning();
-      const work = folderIn(home, `work-${signal}`);
-      expect(await calls.start(signal.toLowerCase(), "work", work)).toEqual({ ok: true });
-      expect(trustOf(home, work)?.hasTrustDialogAccepted).toBe(true);
-      const killed = runnerPid();
-      process.kill(killed, signal);
-      await waitUntil(() => !isAlive(killed), "the runner to be gone");
-      if (signal === "SIGKILL") await calls.ensureRunning();
-      await waitUntil(() => trustOf(home, work)?.hasTrustDialogAccepted === undefined, `trust put back after ${signal}`);
-    }
-  },
-  30_000,
-);
-
-test(
   "two programs starting the runner on one home at once share one runner",
   async () => {
     for (const _try of [1, 2, 3]) {
@@ -142,11 +121,10 @@ test("a malformed ask or answer throws even for a session that isn't there", asy
 });
 
 test(
-  "a runner whose home was taken over leaves the new runner's trust record alone",
+  "a runner whose home was taken over leaves the new runner's socket and lock alone",
   async () => {
     const { home, calls } = newHome();
     await calls.ensureRunning();
-    // The old runner has trust of its own to put back, in a folder outside the home.
     const { home: elsewhere } = newHome();
     expect(await calls.start("old", "old", folderIn(elsewhere, "old"))).toEqual({ ok: true });
     const oldRunner = pidIn(homePaths(home).runnerLock);
@@ -157,30 +135,8 @@ test(
 const calls = connectToSessions({ home: ${JSON.stringify(home)}, runnerScript: ${JSON.stringify(runnerScript)} });
 await calls.ensureRunning(); mkdirSync(${JSON.stringify(join(home, "work"))}); await calls.start("new", "work", ${JSON.stringify(join(home, "work"))});`;
     expect(Bun.spawnSync([process.execPath, "-e", script]).exitCode).toBe(0);
-    expect(existsSync(homePaths(home).trustChanges)).toBe(true);
     await waitUntil(() => !isAlive(oldRunner), "the old runner to stop", 15_000);
-    expect(existsSync(homePaths(home).trustChanges)).toBe(true);
-  },
-  30_000,
-);
-
-test(
-  "trust a crashed runner left that can't be put back at the next start is still put back later",
-  async () => {
-    const { home, calls } = newHome();
-    await calls.ensureRunning();
-    const first = folderIn(home, "first");
-    expect(await calls.start("first", "first", first)).toEqual({ ok: true });
-    const crashed = pidIn(homePaths(home).runnerLock);
-    process.kill(crashed, "SIGKILL");
-    await waitUntil(() => !isAlive(crashed), "the runner to be gone");
-    // The settings file can't be read for a moment, so the put-back at start fails.
-    chmodSync(join(home, "claude.json"), 0o000);
-    await calls.ensureRunning();
-    chmodSync(join(home, "claude.json"), 0o600);
-    expect(await calls.start("second", "second", folderIn(home, "second"))).toEqual({ ok: true });
-    await calls.stopRunner();
-    expect(trustOf(home, first)?.hasTrustDialogAccepted).toBeUndefined();
+    expect([existsSync(homePaths(home).runnerSocket), existsSync(homePaths(home).runnerLock)]).toEqual([true, true]);
   },
   30_000,
 );
@@ -296,21 +252,6 @@ test(
     await calls.stopRunner();
   },
   20_000,
-);
-
-test(
-  "trust changed for sessions started together is all kept, so all of it is put back",
-  async () => {
-    const { home, calls } = newHome();
-    await calls.ensureRunning();
-    const names = ["t1", "t2", "t3", "t4", "t5", "t6"];
-    const folders = names.map((name) => folderIn(home, name));
-    expect(await Promise.all(names.map((name, at) => calls.start(name, name, folders[at]!)))).toEqual(names.map(() => ({ ok: true })));
-    const kept = JSON.parse(readFileSync(homePaths(home).trustChanges, "utf8")) as unknown[];
-    expect(kept).toHaveLength(names.length);
-    await calls.stopRunner();
-  },
-  30_000,
 );
 
 test(

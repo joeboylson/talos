@@ -90,7 +90,7 @@ const laneEvent: fc.Arbitrary<{ event: LaneEvent; advanceMs: number }> = fc.reco
   advanceMs: fc.oneof(fc.constant(0), fc.nat(5_000), fc.constant(SESSION_LIMITS.askTimeoutMs + 1), fc.constant(SESSION_LIMITS.queuedAskTimeoutMs + 1)),
   event: fc.oneof(
     fc.record({ type: fc.constant("ask" as const), kind: fc.constantFrom("poll", "pick", "nope") }),
-    fc.record({ type: fc.constant("settled" as const), hasDraft: fc.boolean() }),
+    fc.constant({ type: "settled" as const }),
     fc.record({
       type: fc.constant("tool-call" as const),
       toolName: fc.constantFrom(...TOOLS),
@@ -104,7 +104,7 @@ const laneEvent: fc.Arbitrary<{ event: LaneEvent; advanceMs: number }> = fc.reco
       output: fc.constantFrom("poll", "pick").map((kind): TakenOutput => ({ id: "out", toolUseId: "tu", kind, fields: {}, atMs: 0, waits: kind === "pick" })),
     }),
     fc.constant({ type: "stop" as const }),
-    fc.record({ type: fc.constant("person-typed" as const), isTurnChanging: fc.boolean() }),
+    fc.constant({ type: "person-sent" as const }),
     fc.constant({ type: "tick" as const }),
   ),
 });
@@ -126,14 +126,13 @@ describe("the lane", () => {
             const isAllowed = step.reply !== null && "result" in step.reply;
             if (event.type === "tool-call" && event.toolName !== askedTool && isAllowed) return false;
           } else if (onlyToolOf(before, CATALOG) !== null) return false;
-          // Only the settle, a turn-changing key or the long backstop ends a running turn.
-          // A running turn ends only on a turn-changing key, the long backstop, or
-          // (once answered) the settle. A Stop or the short timeout never ends it.
+          // A running turn ends only on the person's message, the long backstop,
+          // or (once answered) the settle. A Stop or the short timeout never ends it.
           if (isRunning(before) && step.lane.stage === "none") {
             const isLongBackstop = event.type === "tick" && nowMs - before.askedAtMs > SESSION_LIMITS.queuedAskTimeoutMs;
-            const isTurnChangingKey = event.type === "person-typed" && event.isTurnChanging;
+            const isPersonSent = event.type === "person-sent";
             const isAnsweredSettle = event.type === "settled" && before.stage === "answered";
-            if (!isLongBackstop && !isTurnChangingKey && !isAnsweredSettle) return false;
+            if (!isLongBackstop && !isPersonSent && !isAnsweredSettle) return false;
           }
           lane = step.lane;
         }

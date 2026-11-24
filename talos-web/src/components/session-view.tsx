@@ -1,4 +1,4 @@
-import { CircleStopIcon, LoaderCircleIcon, SquareTerminalIcon } from "lucide-react";
+import { CircleAlertIcon, CircleStopIcon, LoaderCircleIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { SessionEntry } from "talos-shared";
 import { DecisionCard } from "@/components/decision-card";
@@ -74,8 +74,8 @@ export const SessionView = (props: SessionViewProps) => {
         ))}
         {sessionRow.isPromptShowing && !sessionRow.permissionAsks && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <SquareTerminalIcon className="size-4" aria-hidden />
-            Answer in the terminal
+            <CircleAlertIcon className="size-4" aria-hidden />
+            Not responding
           </p>
         )}
         {openDecision && <DecisionCard key={openDecision.id} decision={openDecision} onChoose={(choice) => onAnswer(openDecision.id, choice)} />}

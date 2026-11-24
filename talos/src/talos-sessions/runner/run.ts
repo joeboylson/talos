@@ -5,7 +5,6 @@
 import { readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { uptime } from "node:os";
 import { chmod, lstat, mkdir, rm } from "node:fs/promises";
-import type { TrustChange } from "../claude/claude-trust";
 import { checkCatalog } from "../kinds";
 import { parseJsonOrNull } from "../json";
 import { join } from "node:path";
@@ -21,10 +20,10 @@ import {
 import { pinClaudeCode } from "../claude/pinned-claude";
 import { checkLinkSilence, linkServeOptions } from "./link-server";
 import { snapshotMod } from "./mod-snapshot";
-import { controlServeOptions, forgetTrustChanges, putTrustBack, stopRunner } from "./control-server";
+import { controlServeOptions, stopRunner } from "./control-server";
 import { log, paths, useRunnerInputs, type RunnerInputs } from "./inputs";
 import { applyLaneEvent } from "./session-state";
-import { heldSessions, runnerState, trustChanges as keptTrustChanges } from "./store";
+import { heldSessions, runnerState } from "./store";
 import { SESSION_LIMITS } from "../limits";
 
 const isAlive = (pid: number): boolean => {
@@ -67,16 +66,7 @@ const takeRunnerLock = (lockFile: string, isRetry = false): boolean => {
   }
 };
 
-// Trust answers a runner that crashed or was killed left behind, put back now
-// that none of its sessions run.
-const leftTrustChanges = async (file: string): Promise<TrustChange[]> => {
-  const saved = Bun.file(file);
-  if (!(await saved.exists())) return [];
-  const changes = parseJsonOrNull(await saved.text());
-  return Array.isArray(changes) ? changes : [];
-};
-
-// The home holds the sockets and the MCP config every session runs, so it must
+// The home holds the sockets every session reaches, so it must
 // be this user's own folder, closed to everyone else, even if it was made
 // before (mkdir sets the mode only when it makes the folder).
 const claimHome = async (home: string): Promise<void> => {
@@ -148,7 +138,7 @@ const pinClaudeCodeOrRefuse = (pinnedFolder: string): readonly string[] => {
 export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   checkCatalog({ kinds: inputs.kinds, proseTurn: inputs.proseTurn });
   useRunnerInputs(inputs);
-  const { home, runnerSocket, linkSocket, runnerLock, trustChanges, modSnapshots, pinnedClaudeCode } = paths();
+  const { home, runnerSocket, linkSocket, runnerLock, modSnapshots, pinnedClaudeCode } = paths();
   await claimHome(home);
   if (!takeRunnerLock(runnerLock)) {
     log.event("runner: another session runner holds this home; leaving it be");
@@ -158,13 +148,7 @@ export const runSessionRunner = async (inputs: RunnerInputs): Promise<void> => {
   // Tests pass their own Claude Code (a stand-in), which isn't pinned.
   if (!inputs.claudeCommand) useRunnerInputs({ ...inputs, claudeCommand: pinClaudeCodeOrRefuse(pinnedClaudeCode) });
   runnerState.modSnapshotFolder = snapshotMod(MOD_FOLDER, modSnapshots, PINNED_CLAUDE_CODE_VERSION).folder;
-  // Kept to put back at the next stop if they can't be put back now, so the
-  // record this runner writes still holds them.
-  const left = await leftTrustChanges(trustChanges);
-  if (await putTrustBack(left)) await forgetTrustChanges();
-  else keptTrustChanges.push(...left);
-  // A stop from the system (logout, kill) ends the sessions and puts trust back,
-  // the same as stopRunner.
+  // A stop from the system (logout, kill) ends the sessions, the same as stopRunner.
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(signal, () => void stopRunner());
   await Promise.all([rm(runnerSocket, { force: true }), rm(linkSocket, { force: true })]);
   Bun.serve(controlServeOptions(runnerSocket) as unknown as Parameters<typeof Bun.serve>[0]);

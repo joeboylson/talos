@@ -34,7 +34,6 @@ export const MOD_NAME = "talos";
 export const MOD_PLUGIN_ID = `${MOD_NAME}@inline`;
 
 export const CLAUDE_COMMAND = "claude";
-export const CLAUDE_CONFIG_FILE = join(homedir(), ".claude.json");
 
 // How much of a tool's input shows as its one-line summary; shorter than the
 // most an entry may carry.
@@ -55,9 +54,6 @@ export const homePaths = (givenHome: string) => {
   pinnedClaudeCode: join(home, "claude-code"),
   log: join(home, "runner.log"),
   quarantine: join(home, "quarantine.log"),
-  // The trust answers to put back, kept on disk so a runner that crashed or was
-  // killed puts them back when the next one starts.
-  trustChanges: join(home, "trust-changes.json"),
   // The process group of each session's Claude, so a runner that dies outright
   // leaves the next one able to end what its sessions started.
   sessionGroups: join(home, "session-groups.json"),

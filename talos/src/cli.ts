@@ -3,9 +3,10 @@
 // scripts.
 
 // The flags any command may take. --json, --help and --version are anyone's;
-// --owner answers pairing's one question, --name names a new session,
-// --runner picks the session runner's log.
-export type Flags = { json: boolean; help: boolean; version: boolean; runner: boolean; owner?: string; name?: string };
+// --owner answers pairing's one question, --name names a new session, --add
+// answers yes to adding a session's folder, --runner picks the session
+// runner's log.
+export type Flags = { json: boolean; help: boolean; version: boolean; runner: boolean; add: boolean; owner?: string; name?: string };
 export type ParsedArgs = { words: string[]; flags: Flags };
 
 export const EXIT_CODES = { done: 0, failed: 1, usage: 2 } as const;
@@ -19,14 +20,14 @@ const isCliError = (error: unknown): error is CliError => error instanceof Error
 export const usageError = (message: string, fix = "talos help"): CliError => cliError(message, fix, EXIT_CODES.usage);
 
 const VALUE_FLAGS = { "--owner": "owner", "--name": "name" } as const;
-const SWITCH_FLAGS = { "--json": "json", "--help": "help", "-h": "help", "--version": "version", "-V": "version", "--runner": "runner" } as const;
+const SWITCH_FLAGS = { "--json": "json", "--help": "help", "-h": "help", "--version": "version", "-V": "version", "--runner": "runner", "--add": "add" } as const;
 
 // Words stay in order; flags may come anywhere. A word is a flag only when it's
 // a dash and a letter (so "-1 is wrong" is a word), and `--` makes every word
 // after it a word. An unknown flag, or one missing its value, is a usage error.
 const looksLikeFlag = (arg: string): boolean => /^--?[A-Za-z]/.test(arg);
 export const parseArgs = (argv: readonly string[]): ParsedArgs => {
-  const empty: ParsedArgs = { words: [], flags: { json: false, help: false, version: false, runner: false } };
+  const empty: ParsedArgs = { words: [], flags: { json: false, help: false, version: false, runner: false, add: false } };
   const read = (rest: readonly string[], parsed: ParsedArgs): ParsedArgs => {
     const [arg, ...after] = rest;
     if (arg === undefined) return parsed;

@@ -1,7 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { ENV_KEYS, buildIdentifier, requireEnv } from "talos-shared";
+import { ENV_KEYS, buildIdentifier, requireEnv, type Folder } from "talos-shared";
 import { cliError, formatTable, type Flags } from "./cli";
 import type { FolderCommand } from "./commands";
 import { readCredentials } from "./credentials";
@@ -33,6 +33,13 @@ const changeOrFail = async (change: Awaited<ReturnType<typeof changeFolders>>) =
   return change.folder;
 };
 
+// Adds a folder (its real path) to this machine's list, and says so.
+export const addFolderAt = async (absolutePath: string): Promise<Folder> => {
+  const folder = await changeOrFail(await changeFolders((folders) => addFolder(folders, absolutePath)));
+  console.log(`added ${await describeFolder(folder.folderName)}`);
+  return folder;
+};
+
 // Folders belong to the machine these commands run on. They're kept on the
 // machine itself, so nothing else can change them.
 export const runFolderCommand = async (command: FolderCommand, flags: Flags): Promise<void> => {
@@ -47,8 +54,7 @@ export const runFolderCommand = async (command: FolderCommand, flags: Flags): Pr
     const typedPath = resolveFolderPath(command.path, process.cwd(), homedir());
     const absolutePath = await realFolderPath(typedPath);
     if (!absolutePath) throw cliError(`${typedPath} isn't a folder`);
-    const folder = await changeOrFail(await changeFolders((folders) => addFolder(folders, absolutePath)));
-    return console.log(`added ${await describeFolder(folder.folderName)}`);
+    return void (await addFolderAt(absolutePath));
   }
 
   if (command.name === "folders-rename") {

@@ -136,7 +136,7 @@ Every command lives here. Names follow the glossary
 | `talos folders remove <folder>` | Stops allowing a folder. |
 | `talos folders rename <folder> <new-name>` | Gives a folder a new name. Its path never changes. |
 | `talos sessions [--json]` | Lists this machine's Claude sessions. |
-| `talos sessions start <folder> [--name <name>]` | Starts a session in a folder, named after it unless `--name` says otherwise. Prints its identifier and page address. |
+| `talos sessions start [<folder>] [--name <name>] [--add]` | Starts a session in a folder, given by its name or its path (the current folder if none), named after it unless `--name` says otherwise. A folder that isn't added yet is added first, after asking (`--add` says yes without asking). Prints its identifier and page address. |
 | `talos sessions <session> send "<text>"` | Sends a session a message, as from the page; with no text, sends what's piped in. |
 | `talos sessions <session> attach` | Follows a session's conversation in your terminal: type a message, `y`/`n` for a permission question, a number for a question's choice; Ctrl-C stops its turn, Ctrl-D leaves it running. |
 | `talos sessions <session> open` | Prints the session's page address and opens it in the browser. |

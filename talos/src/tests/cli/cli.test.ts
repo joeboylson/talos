@@ -4,7 +4,8 @@ import { KNOWN_COMMANDS } from "../../commands";
 
 describe("parseArgs", () => {
   test("words keep their order, and flags may come anywhere", () => {
-    expect(parseArgs(["sessions", "--json"])).toEqual({ words: ["sessions"], flags: { json: true, help: false, version: false, runner: false } });
+    expect(parseArgs(["sessions", "--json"])).toEqual({ words: ["sessions"], flags: { json: true, help: false, version: false, runner: false, add: false } });
+    expect(parseArgs(["sessions", "start", ".", "--add"]).flags.add).toBe(true);
     expect(parseArgs(["--name", "homepage", "sessions", "start", "website"]).flags.name).toBe("homepage");
     expect(parseArgs(["-h"]).flags.help).toBe(true);
     expect(parseArgs(["-V"]).flags.version).toBe(true);

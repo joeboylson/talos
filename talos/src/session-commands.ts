@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { ENV_KEYS, buildIdentifier, pickUniqueName, requireEnv, toIdentifierName, type Folder } from "talos-shared";
 import { cliError, formatTable, type Flags } from "./cli";
 import type { SessionCommand } from "./commands";
@@ -5,6 +6,7 @@ import { RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
 import { readCredentials } from "./credentials";
 import { readFolders } from "./folders";
 import { attachToSession } from "./attach";
+import { addFolderAt, realFolderPath, resolveFolderPath } from "./folder-commands";
 import { openPage, pageAddress } from "./machine-commands";
 import { connectToSessions, type Result, type SessionSummary } from "./talos-sessions";
 
@@ -32,27 +34,41 @@ const listSessions = async (flags: Flags): Promise<void> => {
   console.log(formatTable(["session", "folder", "state"], rows, process.stdout.isTTY === true));
 };
 
-// Which folder a new session starts in, and its name: the folder's unless
-// --name says otherwise, made a name like an identifier, and unique among the
-// sessions running.
-export const planSessionStart = (
-  folderName: string,
-  wantedName: string | undefined,
-  folders: readonly Folder[],
-  takenNames: readonly string[],
-): { folder: Folder; sessionName: string } => {
-  const folder = folders.find((known) => known.folderName === folderName);
-  if (!folder) throw cliError(`this machine has no folder called ${folderName}`, "talos folders");
-  return { folder, sessionName: pickUniqueName(toIdentifierName(wantedName ?? folderName), [...takenNames]) };
+// The folder a start names: one of this machine's, by its name or its path
+// (realPath: what was typed, as a real folder on disk, if it is one). A folder
+// on disk that isn't one of them yet comes back to be added.
+export const chooseStartFolder = (typed: string, folders: readonly Folder[], realPath: string | null): { folder: Folder } | { pathToAdd: string } => {
+  const folder = folders.find((known) => known.folderName === typed) ?? folders.find((known) => known.path === realPath);
+  if (folder) return { folder };
+  if (realPath) return { pathToAdd: realPath };
+  throw cliError(`this machine has no folder called ${typed}`, "talos folders");
 };
 
-const startSession = async (folderName: string, flags: Flags): Promise<void> => {
+// A new session's name: the folder's unless --name says otherwise, made a name
+// like an identifier, and unique among the sessions running.
+export const sessionNameFor = (folder: Folder, wantedName: string | undefined, takenNames: readonly string[]): string =>
+  pickUniqueName(toIdentifierName(wantedName ?? folder.folderName), [...takenNames]);
+
+// A folder isn't added without a yes: from --add, or asked in a terminal.
+const addForStart = async (path: string, typed: string, flags: Flags): Promise<Folder> => {
+  if (!flags.add) {
+    if (!process.stdin.isTTY) throw cliError(`${path} isn't one of this machine's folders`, `talos sessions start ${typed} --add`);
+    const answer = prompt(`talos: ${path} isn't one of this machine's folders. Add it and start there? [Y/n]`);
+    if (/^n/i.test(answer?.trim() ?? "")) throw cliError("nothing started");
+  }
+  return addFolderAt(path);
+};
+
+const startSession = async (typed: string, flags: Flags): Promise<void> => {
   const folders = await readFolders();
   const machineName = await machineNameOrFail();
+  const realPath = await realFolderPath(resolveFolderPath(typed, process.cwd(), homedir()));
+  const chosen = chooseStartFolder(typed, folders, realPath);
+  const folder = "folder" in chosen ? chosen.folder : await addForStart(chosen.pathToAdd, typed, flags);
   await sessions.ensureRunning();
   const takenNames = (await sessions.sessions()).map(({ sessionName }) => sessionName);
-  const { folder, sessionName } = planSessionStart(folderName, flags.name, folders, takenNames);
-  succeedOrFail(await sessions.start(sessionName, folderName, folder.path));
+  const sessionName = sessionNameFor(folder, flags.name, takenNames);
+  succeedOrFail(await sessions.start(sessionName, folder.folderName, folder.path));
   console.log(`started ${buildIdentifier(["machines", machineName, "sessions", sessionName])}`);
   console.log(pageAddress(["sessions", machineName, sessionName]));
 };
@@ -88,7 +104,7 @@ const openSession = async (sessionName: string): Promise<void> => {
 
 export const runSessionCommand = async (command: SessionCommand, flags: Flags): Promise<void> => {
   if (command.name === "sessions-list") return listSessions(flags);
-  if (command.name === "sessions-start") return startSession(command.folderName, flags);
+  if (command.name === "sessions-start") return startSession(command.folder, flags);
   if (command.name === "sessions-send") return sendMessage(command.sessionName, command.text);
   if (command.name === "sessions-attach") return attach(command.sessionName);
   if (command.name === "sessions-open") return openSession(command.sessionName);

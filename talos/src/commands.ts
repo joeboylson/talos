@@ -10,7 +10,7 @@ export type Command =
   | { name: "folders-remove"; folderName: string }
   | { name: "folders-rename"; folderName: string; newName: string }
   | { name: "sessions-list" }
-  | { name: "sessions-start"; folderName: string }
+  | { name: "sessions-start"; folder: string }
   | { name: "sessions-send"; sessionName: string; text: string | null }
   | { name: "sessions-attach"; sessionName: string }
   | { name: "sessions-open"; sessionName: string }
@@ -69,7 +69,7 @@ const HELP_GROUPS: readonly HelpGroup[] = [
     topics: ["sessions", "runner"],
     commands: [
       ["talos sessions [--json]", "list this machine's Claude sessions"],
-      ["talos sessions start <folder> [--name <name>]", "start a session in a folder"],
+      ["talos sessions start [<folder>] [--name <name>] [--add]", "start a session in a folder, by name or path (here if none); one not added yet is added first"],
       ['talos sessions <session> send "<text>"', "send it a message (or pipe the text in)"],
       ["talos sessions <session> attach", "follow its conversation and type to it (Ctrl-D leaves it running)"],
       ["talos sessions <session> open", "open it on the page"],
@@ -115,15 +115,17 @@ const parseFoldersCommand = (args: string[], typed: string): Command => {
   return { name: "unknown", typed };
 };
 
-// `sessions start <folder>` starts one; otherwise the first word names a
+// `sessions start [<folder>]` starts one, here if no folder is named;
+// otherwise the first word names a
 // session and the second says what to do with it. A message to send is the
 // rest of the words, or, with none, what's piped in.
 const SESSION_ACTIONS = ["attach", "open", "stop"] as const;
 const parseSessionsCommand = (args: string[], typed: string): Command => {
   const [first, action, ...rest] = args;
   if (first === undefined) return { name: "sessions-list" };
+  if (first === "start" && action === undefined) return { name: "sessions-start", folder: "." };
   if (first === "start" && action && rest.length === 0 && !SESSION_ACTIONS.some((known) => known === action) && action !== "send") {
-    return { name: "sessions-start", folderName: action };
+    return { name: "sessions-start", folder: action };
   }
   if (action === "send") return { name: "sessions-send", sessionName: first, text: rest.length > 0 ? rest.join(" ") : null };
   if (rest.length > 0) return { name: "unknown", typed };

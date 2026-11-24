@@ -10,7 +10,12 @@ import { LIMITS } from "talos-shared";
 // onSend: false when it couldn't be sent, so what was typed stays.
 // returned: messages given back (they waited and won't go in), added to
 // what's typed, with their images; onReturnedTaken says they're in.
+// draftKey: the session the typed text is kept for, in this browser, so a
+// refresh or a dropped connection doesn't lose it. canSend: false while the
+// session can't be reached; typing still works.
 type MessageComposerProps = {
+  draftKey: string;
+  canSend?: boolean;
   onSend: (text: string, images: PreparedImage[]) => boolean;
   returned?: ReturnedMessage;
   onReturnedTaken?: () => void;
@@ -18,10 +23,30 @@ type MessageComposerProps = {
 
 const imagesOf = (files: Iterable<File>): File[] => [...files].filter((file) => file.type.startsWith("image/"));
 
+// Browser storage can be off or full (a private window); the draft is only a
+// convenience, so then it just isn't kept.
+const DRAFT_PREFIX = "talos:draft:";
+const readDraft = (draftKey: string): string => {
+  try {
+    return localStorage.getItem(`${DRAFT_PREFIX}${draftKey}`) ?? "";
+  } catch {
+    return "";
+  }
+};
+const saveDraft = (draftKey: string, text: string): void => {
+  try {
+    if (text) localStorage.setItem(`${DRAFT_PREFIX}${draftKey}`, text);
+    else localStorage.removeItem(`${DRAFT_PREFIX}${draftKey}`);
+  } catch {
+    // Not kept; see readDraft.
+  }
+};
+
 // The box for a new message. Images come from the attach button or from
 // pasting.
-export const MessageComposer = ({ onSend, returned, onReturnedTaken }: MessageComposerProps) => {
-  const [typedText, setTypedText] = useState("");
+export const MessageComposer = ({ draftKey, canSend: isReachable = true, onSend, returned, onReturnedTaken }: MessageComposerProps) => {
+  const [typedText, setTypedText] = useState(() => readDraft(draftKey));
+  useEffect(() => saveDraft(draftKey, typedText), [draftKey, typedText]);
   const [images, setImages] = useState<PreparedImage[]>([]);
 
   useEffect(() => {
@@ -39,7 +64,7 @@ export const MessageComposer = ({ onSend, returned, onReturnedTaken }: MessageCo
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canAddImages = images.length < LIMITS.maxImagesPerMessage;
-  const canSend = canSendMessage(typedText, images.length);
+  const canSend = isReachable && canSendMessage(typedText, images.length);
 
   const addImages = async (files: File[]) => {
     const prepared = await Promise.all(takeImagesThatFit(files, images.length).map(prepareImage)).catch((error: unknown) => {

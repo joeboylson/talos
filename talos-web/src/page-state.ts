@@ -46,12 +46,22 @@ const withoutRefusedPrompt = (state: PageState, requestId: string | undefined): 
         ),
       };
 
+// A machine the server knows nothing about yet (it restarted, as on each
+// deploy) keeps what this page last had for it, instead of its sessions and
+// folders vanishing until it reports again.
+const withLastKnown = (incoming: readonly MachineSummary[], known: readonly MachineSummary[] | null): MachineSummary[] =>
+  incoming.map((machine) => {
+    const last = known?.find(({ machineId }) => machineId === machine.machineId);
+    return { ...machine, folders: machine.folders ?? last?.folders ?? null, sessions: machine.sessions ?? last?.sessions ?? null };
+  });
+
 export const applyServerMessage = (state: PageState, message: ServerToPage): PageState => {
   if (message.type === "machines") {
-    const isKept = isStillThere(message.machines);
+    const machines = withLastKnown(message.machines, state.machines);
+    const isKept = isStillThere(machines);
     return {
       ...state,
-      machines: message.machines,
+      machines,
       entriesBySession: keptWhere(state.entriesBySession, isKept),
       waitingPromptsBySession: keptWhere(state.waitingPromptsBySession, isKept),
     };
@@ -86,9 +96,6 @@ export const forgetReturned = (state: PageState, key: string): PageState => {
   const { [key]: _taken, ...rest } = state.returnedBySession;
   return { ...state, returnedBySession: rest };
 };
-
-// The server sends every kept entry again on each new connection.
-export const forgetEntries = (state: PageState): PageState => ({ ...state, entriesBySession: {} });
 
 export const addWaitingPrompt = (
   state: PageState,

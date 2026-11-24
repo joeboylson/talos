@@ -39,14 +39,16 @@ export type SocketData =
 type Socket = ServerWebSocket<SocketData>;
 type MachineData = Extract<SocketData, { role: "machine" }>;
 
-// What a connected machine has told the server about itself. Only the
-// machine knows these, so they're gone while it's offline.
+// What a machine last told the server about itself. It's kept while the
+// machine is offline, so its sessions stay on the page, marked disconnected,
+// instead of vanishing every time its connection drops.
 export type MachineReport = { folders: Folder[]; sessions: SessionSummary[] };
 
 // A person only ever sees their own machines.
 export const buildMachineSummaries = (
   machines: MachineRecord[],
   reportsByMachineId: Map<string, MachineReport>,
+  connectedMachineIds: ReadonlySet<string>,
   personId: string,
 ): MachineSummary[] =>
   machines
@@ -56,7 +58,7 @@ export const buildMachineSummaries = (
       return {
         machineId,
         machineName,
-        isConnected: report !== undefined,
+        isConnected: connectedMachineIds.has(machineId),
         folders: report?.folders ?? null,
         sessions: report?.sessions ?? null,
       };
@@ -85,6 +87,10 @@ export const createConnections = (
   // unanswered ping went out.
   const machineSockets = new Map<string, Socket>();
   const reportsByMachineId = new Map<string, MachineReport>();
+  // What the page shows: each field as the machine last reported it, kept
+  // while it's offline and across reconnects. Commands check only the live
+  // report above, so they go only for what this connection has said it has.
+  const shownReportsByMachineId = new Map<string, MachineReport>();
   // Per-socket ingress byte budget, so one connection can't flood large frames
   // and starve the shared server thread's synchronous JSON.parse for all owners.
   const socketByteWindows = new Map<Socket, ByteWindow>();
@@ -169,7 +175,7 @@ export const createConnections = (
 
   const sendMachineList = (pageSocket: Socket, machines: MachineRecord[]) => {
     if (pageSocket.data.role !== "page") return;
-    const machineSummaries = buildMachineSummaries(machines, reportsByMachineId, pageSocket.data.personId);
+    const machineSummaries = buildMachineSummaries(machines, shownReportsByMachineId, new Set(machineSockets.keys()), pageSocket.data.personId);
     sendToPage(pageSocket, encode<ServerToPage>({ type: "machines", machines: machineSummaries }));
   };
 
@@ -229,12 +235,14 @@ export const createConnections = (
     }, relayCoalesceMs);
   };
 
-  // A page that just opened gets every kept entry of the person's sessions.
+  // A page that just opened gets every kept entry of the person's sessions,
+  // offline machines' too. Their list comes from the last table read, or, if
+  // that failed, from the machines connected now.
   const sendKeptEntries = (pageSocket: Socket, personId: string) => {
-    findOwnedSockets(machineSockets.values(), personId).forEach((machineSocket) => {
-      if (machineSocket.data.role !== "machine") return;
-      const { machineId } = machineSocket.data;
-      reportsByMachineId.get(machineId)?.sessions.forEach(({ sessionName }) => {
+    const connectedIds = findOwnedSockets(machineSockets.values(), personId).flatMap((socket) => (socket.data.role === "machine" ? [socket.data.machineId] : []));
+    const machineIds = machinesByOwner.get(personId)?.map(({ machineId }) => machineId) ?? connectedIds;
+    machineIds.forEach((machineId) => {
+      shownReportsByMachineId.get(machineId)?.sessions.forEach(({ sessionName }) => {
         // In batches: a session's whole kept history can be tens of MB, and one
         // message that big can be dropped, hiding the session from the page.
         const entries = entriesByMachine.get(machineId)?.get(sessionName) ?? [];
@@ -314,6 +322,8 @@ export const createConnections = (
   const disconnectMachine = (machineId: string): void => {
     noteRecent(removedAtMsByMachine, machineId);
     machineSockets.get(machineId)?.close(CLOSE_CODES.machineRemoved, "removed from the page");
+    shownReportsByMachineId.delete(machineId);
+    entriesByMachine.delete(machineId);
   };
 
   const handlePing = (pageSocket: Socket, personId: string, displayName: string, requestedMachineId?: string) => {
@@ -424,6 +434,8 @@ export const createConnections = (
   const updateReport = (machine: MachineData, change: Partial<MachineReport>) => {
     const currentReport = reportsByMachineId.get(machine.machineId) ?? { folders: [], sessions: [] };
     reportsByMachineId.set(machine.machineId, { ...currentReport, ...change });
+    const shownReport = shownReportsByMachineId.get(machine.machineId) ?? { folders: [], sessions: [] };
+    shownReportsByMachineId.set(machine.machineId, { ...shownReport, ...change });
     scheduleMachineListRelay(machine.ownerPersonId);
   };
 
@@ -531,7 +543,6 @@ export const createConnections = (
     if (!isCurrentConnection) return;
     machineSockets.delete(socket.data.machineId);
     reportsByMachineId.delete(socket.data.machineId);
-    entriesByMachine.delete(socket.data.machineId);
     pendingPingByMachineId.delete(socket.data.machineId);
     startedNamesByMachine.delete(socket.data.machineId);
     log.event(`machine disconnected: "${socket.data.machineName}"`);

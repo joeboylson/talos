@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RECONNECT_DELAY_MS, SERVER_ROUTES, decode, encode, type PageToServer, type ServerToPage } from "talos-shared";
 import type { PreparedImage } from "@/images";
-import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries, forgetReturned, type PageState } from "@/page-state";
+import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetReturned, type PageState } from "@/page-state";
 
 // The page's live line to the server: the person's machines as they connect
 // and disconnect, each machine's latest ping reply, and each session's
@@ -35,10 +35,9 @@ export const useServerSocket = () => {
       const socketScheme = location.protocol === "https:" ? "wss" : "ws";
       const socket = new WebSocket(`${socketScheme}://${location.host}${SERVER_ROUTES.pageSocket}`);
       socketRef.current = socket;
-      socket.onopen = () => {
-        setPageState(forgetEntries);
-        setIsConnected(true);
-      };
+      // The server sends every kept entry again on each new connection; they
+      // merge into what's shown, so a reconnect doesn't blank the conversation.
+      socket.onopen = () => setIsConnected(true);
       socket.onmessage = (event) => {
         const message = decode<ServerToPage>(event.data);
         if (message) setPageState((current) => applyServerMessage(current, message));

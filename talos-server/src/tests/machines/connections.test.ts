@@ -16,15 +16,24 @@ const SPARK_REPORT: MachineReport = {
 };
 const EMPTY_REPORT: MachineReport = { folders: [], sessions: [] };
 
-test("a person sees only their own machines, sorted, with what each connected one reported, and no key hashes", () => {
+test("a person sees only their own machines, sorted, with what each one last reported, and no key hashes", () => {
   const reports = new Map([
     ["2", SPARK_REPORT],
     ["3", EMPTY_REPORT],
   ]);
-  expect(buildMachineSummaries(MACHINES, reports, "joe")).toEqual([
+  expect(buildMachineSummaries(MACHINES, reports, new Set(["2", "3"]), "joe")).toEqual([
     { machineId: "1", machineName: "atlas", isConnected: false, folders: null, sessions: null },
     { machineId: "2", machineName: "spark", isConnected: true, ...SPARK_REPORT },
   ]);
+});
+
+test("a machine that went offline keeps its last report, marked not connected", () => {
+  expect(buildMachineSummaries(MACHINES, new Map([["2", SPARK_REPORT]]), new Set(), "joe")[1]).toEqual({
+    machineId: "2",
+    machineName: "spark",
+    isConnected: false,
+    ...SPARK_REPORT,
+  });
 });
 
 test("another person sees none of Joe's machines", () => {
@@ -33,13 +42,13 @@ test("another person sees none of Joe's machines", () => {
     ["2", EMPTY_REPORT],
     ["3", EMPTY_REPORT],
   ]);
-  expect(buildMachineSummaries(MACHINES, reports, "sam")).toEqual([
+  expect(buildMachineSummaries(MACHINES, reports, new Set(["1", "2", "3"]), "sam")).toEqual([
     { machineId: "3", machineName: "laptop", isConnected: true, folders: [], sessions: [] },
   ]);
 });
 
 test("someone with no machines sees an empty list", () => {
-  expect(buildMachineSummaries(MACHINES, new Map(), "new-person")).toEqual([]);
+  expect(buildMachineSummaries(MACHINES, new Map(), new Set(), "new-person")).toEqual([]);
 });
 
 describe("chooseMachinesToPing", () => {

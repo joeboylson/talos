@@ -7,8 +7,9 @@ import { StartSessionDialog } from "@/components/start-session-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { buildSessionRows, type SessionRow } from "@/session-rows";
 
+// machines: null until the first list arrives, so "No sessions" never flashes.
 type SessionsTableProps = {
-  machines: MachineSummary[];
+  machines: MachineSummary[] | null;
   notice: string | null;
   onStart: (machineId: string, folderName: string, sessionName?: string) => void;
   onOpen: (sessionRow: SessionRow) => void;
@@ -17,13 +18,13 @@ type SessionsTableProps = {
 };
 
 export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop, onAskUpdate }: SessionsTableProps) => {
-  const sessionRows = buildSessionRows(machines);
+  const sessionRows = buildSessionRows(machines ?? []);
 
   return (
     <div className="flex flex-col gap-4 px-4 lg:px-6">
       <div className="flex items-center justify-end gap-2">
         {notice && <p className="mr-auto text-sm text-destructive">{notice}</p>}
-        <StartSessionDialog machines={machines} onStart={onStart} />
+        <StartSessionDialog machines={machines ?? []} onStart={onStart} />
       </div>
       <div className="overflow-hidden rounded-lg border">
         <Table>
@@ -38,7 +39,7 @@ export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop, onAsk
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sessionRows.length === 0 && (
+            {machines !== null && sessionRows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   No sessions
@@ -55,7 +56,12 @@ export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop, onAsk
                 <TableCell>{sessionRow.machineName}</TableCell>
                 <TableCell>{sessionRow.folderName}</TableCell>
                 <TableCell>
-                  <SessionStateBadge state={sessionRow.state} link={sessionRow.link} isSelfStarted={sessionRow.isSelfStarted} />
+                  <SessionStateBadge
+                    state={sessionRow.state}
+                    isMachineConnected={sessionRow.isMachineConnected}
+                    link={sessionRow.link}
+                    isSelfStarted={sessionRow.isSelfStarted}
+                  />
                 </TableCell>
                 <TableCell className="max-w-xs">
                   {sessionRow.status && <SessionStatusBadge status={sessionRow.status} />}
@@ -65,6 +71,7 @@ export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop, onAsk
                     <IconButton
                       label={`Ask ${sessionRow.sessionName} for an update`}
                       icon={<RefreshCwIcon />}
+                      disabled={!sessionRow.isMachineConnected}
                       onClick={() => onAskUpdate(sessionRow)}
                     />
                     <IconButton
@@ -75,6 +82,7 @@ export const SessionsTable = ({ machines, notice, onStart, onOpen, onStop, onAsk
                     <IconButton
                       label={`Stop ${sessionRow.sessionName}`}
                       icon={<SquareIcon />}
+                      disabled={!sessionRow.isMachineConnected}
                       onClick={() => onStop(sessionRow)}
                     />
                   </div>

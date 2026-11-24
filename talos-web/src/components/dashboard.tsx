@@ -38,6 +38,10 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
   const { machineName: openMachineName, sessionName: openSessionName } = pageLocation;
   const isSessionOpen = activeView === "sessions" && openMachineName !== null && openSessionName !== null;
   const openSessionRow = isSessionOpen ? findSessionRow(machineList, openMachineName, openSessionName) : null;
+  // Its sessions aren't known yet (the list hasn't come, or the server just
+  // started and the machine hasn't reported), so it isn't "no such session" yet.
+  const openMachine = machineList.find(({ machineName }) => machineName === openMachineName);
+  const isOpenSessionLoading = machines === null || openMachine?.sessions === null;
   const openSessionKey = openSessionRow ? sessionKey(openSessionRow.machineId, openSessionRow.sessionName) : "";
   const { takeReturned } = serverSocket;
   const takeOpenReturned = useCallback(() => takeReturned(openSessionKey), [takeReturned, openSessionKey]);
@@ -83,7 +87,7 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
           {activeView === "folders" && <FoldersTable machines={machineList} />}
           {activeView === "sessions" && !isSessionOpen && (
             <SessionsTable
-              machines={machineList}
+              machines={machines}
               notice={notice}
               onStart={serverSocket.startSession}
               onOpen={openSession}
@@ -94,6 +98,8 @@ export const Dashboard = ({ currentUser }: { currentUser: CurrentUserResponse })
           {isSessionOpen && (
             <SessionView
               sessionRow={openSessionRow}
+              isLoading={isOpenSessionLoading}
+              draftKey={`${openMachineName}/${openSessionName}`}
               entries={serverSocket.entriesBySession[openSessionKey] ?? []}
               waitingPrompts={serverSocket.waitingPromptsBySession[openSessionKey] ?? []}
               notice={notice}

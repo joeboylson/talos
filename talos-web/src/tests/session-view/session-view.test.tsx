@@ -4,12 +4,12 @@ import { SessionView } from "../../components/session-view";
 import { TooltipProvider } from "../../components/ui/tooltip";
 import type { SessionRow } from "../../session-rows";
 
-const sessionRow = { machineId: "m1", machineName: "atlas", sessionName: "web", folderName: "proj", state: "idle", isPromptShowing: false } as SessionRow;
+const sessionRow = { machineId: "m1", machineName: "atlas", sessionName: "web", folderName: "proj", state: "idle", isMachineConnected: true, isPromptShowing: false } as SessionRow;
 
 test("what the person couldn't do in a session is shown in it", () => {
   const html = renderToStaticMarkup(
     <TooltipProvider>
-      <SessionView sessionRow={sessionRow} entries={[]} waitingPrompts={[]} onSend={() => true} onAnswer={() => {}} onInterrupt={() => {}} onAnswerPermission={() => {}} onReturnedTaken={() => {}} notice="atlas: That question closed" />
+      <SessionView sessionRow={sessionRow} isLoading={false} draftKey="atlas/web" entries={[]} waitingPrompts={[]} onSend={() => true} onAnswer={() => {}} onInterrupt={() => {}} onAnswerPermission={() => {}} onReturnedTaken={() => {}} notice="atlas: That question closed" />
     </TooltipProvider>,
   );
   expect(html).toContain("atlas: That question closed");
@@ -21,6 +21,8 @@ const viewOf = (row: Partial<SessionRow>, waitingPrompts: { text: string; imageP
     <TooltipProvider>
       <SessionView
         sessionRow={{ ...sessionRow, state: "needs-you", decision, ...row }}
+        isLoading={false}
+        draftKey="atlas/web"
         entries={[]}
         waitingPrompts={waitingPrompts}
         onSend={() => true}
@@ -59,4 +61,20 @@ test("a permission prompt shows its tool and what it would do, with Allow and De
   expect(html).toContain('aria-label="Allow"');
   expect(html).toContain('aria-label="Deny"');
   expect(html).not.toContain("Answer in the terminal");
+});
+
+test("an offline machine's session keeps its conversation, says Offline, and can't be answered or sent to", () => {
+  const html = viewOf({ isMachineConnected: false });
+  expect(html).toContain("Offline");
+  expect(html).not.toContain("Which one?");
+  expect(html).toMatch(/aria-label="Send"[^>]*disabled|disabled[^>]*aria-label="Send"/);
+});
+
+test("while the machine list is still coming, a session isn't called missing", () => {
+  const html = renderToStaticMarkup(
+    <TooltipProvider>
+      <SessionView sessionRow={null} isLoading draftKey="atlas/web" entries={[]} waitingPrompts={[]} onSend={() => true} onAnswer={() => {}} onInterrupt={() => {}} onAnswerPermission={() => {}} onReturnedTaken={() => {}} notice={null} />
+    </TooltipProvider>,
+  );
+  expect(html).not.toContain("No such session");
 });

@@ -22,13 +22,21 @@ const SessionMark = ({ icon: Icon, label }: { icon: LucideIcon; label: string })
   </Tooltip>
 );
 
-export const SessionStateBadge = ({ state, link, isSelfStarted }: { state: SessionState; link?: LinkState; isSelfStarted?: true }) => (
+// While its machine is offline, the state it last had isn't known to hold.
+const OFFLINE_LOOK = { label: "Offline", dotClass: "bg-muted-foreground" };
+
+type SessionStateBadgeProps = { state: SessionState; isMachineConnected: boolean; link?: LinkState; isSelfStarted?: true };
+
+export const SessionStateBadge = ({ state, isMachineConnected, link, isSelfStarted }: SessionStateBadgeProps) => {
+  const look = isMachineConnected ? STATE_LOOKS[state] : OFFLINE_LOOK;
+  return (
   <span className="inline-flex items-center gap-1.5">
     <Badge variant="outline" className="px-1.5 text-muted-foreground">
-      <span className={`size-2 rounded-full ${STATE_LOOKS[state].dotClass}`} />
-      {STATE_LOOKS[state].label}
+      <span className={`size-2 rounded-full ${look.dotClass}`} />
+      {look.label}
     </Badge>
     {isSelfStarted && <SessionMark icon={BotIcon} label="Started by Claude Code" />}
     {link === "lost" && <SessionMark icon={UnplugIcon} label="Link lost" />}
   </span>
-);
+  );
+};

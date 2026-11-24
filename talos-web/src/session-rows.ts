@@ -6,6 +6,8 @@ export type SessionRow = {
   sessionName: string;
   folderName: string;
   state: SessionState;
+  // False while its machine is offline: the row shows what it last reported.
+  isMachineConnected: boolean;
   status?: SessionStatus;
   decision?: SessionDecision;
   // It needs the person mid-turn: a permission question, or (with none
@@ -21,10 +23,11 @@ export type SessionRow = {
 
 export const sessionKey = (machineId: string, sessionName: string): string => `${machineId}:${sessionName}`;
 
-// Every session on the person's connected machines, by machine then session.
+// Every session on the person's machines, by machine then session. An offline
+// machine's are the ones it last reported.
 export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
   machines
-    .flatMap(({ machineId, machineName, sessions }) =>
+    .flatMap(({ machineId, machineName, isConnected: isMachineConnected, sessions }) =>
       (sessions ?? []).map((session) => {
         const status = statusOf(session);
         const decision = openDecisionOf(session);
@@ -36,6 +39,7 @@ export const buildSessionRows = (machines: MachineSummary[]): SessionRow[] =>
           sessionName,
           folderName,
           state,
+          isMachineConnected,
           isPromptShowing,
           ...(status && { status }),
           ...(decision && { decision }),

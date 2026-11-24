@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { LIMITS, type SessionEntry } from "talos-shared";
-import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetEntries, forgetReturned } from "../../page-state";
+import { EMPTY_PAGE_STATE, addWaitingPrompt, applyServerMessage, droppedPreviewUrls, forgetReturned } from "../../page-state";
 import { sessionKey } from "../../session-rows";
 
 const KEY = sessionKey("m1", "web");
@@ -37,11 +37,19 @@ test("machines and ping replies are kept", () => {
   expect(withPong.roundTripMsByMachineId).toEqual({ m1: 12 });
 });
 
-test("a new connection forgets entries but keeps waiting messages", () => {
+test("entries sent again after a reconnect merge in, so the conversation never blanks", () => {
   const state = addWaitingPrompt(applyServerMessage(EMPTY_PAGE_STATE, entriesFor("web", [textEntry("t1", "one")])), "m1", "web", "hi", []);
-  const reconnected = forgetEntries(state);
-  expect(reconnected.entriesBySession).toEqual({});
-  expect(reconnected.waitingPromptsBySession[KEY]).toHaveLength(1);
+  const sentAgain = applyServerMessage(state, entriesFor("web", [textEntry("t1", "one")]));
+  expect(sentAgain.entriesBySession[KEY]).toEqual([textEntry("t1", "one")]);
+  expect(sentAgain.waitingPromptsBySession[KEY]).toHaveLength(1);
+});
+
+test("a machine the server doesn't know about yet keeps the sessions and folders this page last had", () => {
+  const sessions = [{ sessionName: "web", folderName: "talos", state: "idle" as const, asks: {}, openOutputs: [] }];
+  const folders = [{ folderName: "talos", path: "/home/joe/talos" }];
+  const known = applyServerMessage(EMPTY_PAGE_STATE, { type: "machines", machines: [{ machineId: "m1", machineName: "m1", isConnected: true, folders, sessions }] });
+  const afterRestart = applyServerMessage(known, { type: "machines", machines: [{ machineId: "m1", machineName: "m1", isConnected: false, folders: null, sessions: null }] });
+  expect(afterRestart.machines).toEqual([{ machineId: "m1", machineName: "m1", isConnected: false, folders, sessions }]);
 });
 
 test("a waiting message is kept without its outer spaces, with its previews", () => {

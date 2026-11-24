@@ -44,8 +44,8 @@ export type Settings = { allowNewPeople: boolean };
 export type RenameRequest = { name: string };
 export type MachineCheckResponse = { machineName: string };
 
-// folders and sessions are null while the machine is offline: only the
-// machine knows them.
+// folders and sessions are what the machine last reported, kept while it's
+// offline; null when it hasn't reported since the server started.
 export type MachineSummary = {
   machineId: string;
   machineName: string;

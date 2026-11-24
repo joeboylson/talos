@@ -18,6 +18,8 @@ test("the launch agent runs talos at login and again whenever it stops, logging 
 test("a launch agent path with characters XML treats specially reads back as it was", () => {
   const plist = buildLaunchAgentPlist(specOf(["/Users/joe/a & b/<x>/index.ts"]));
   expect(plist).toContain("<string>/Users/joe/a &amp; b/&lt;x&gt;/index.ts</string>");
+  // plutil reads it back as macOS would, so that part runs only on macOS.
+  if (!Bun.which("plutil")) return;
   const parsed = Bun.spawnSync(["plutil", "-convert", "json", "-o", "-", "-"], { stdin: new TextEncoder().encode(plist) });
   if (parsed.exitCode === 0) expect(JSON.parse(parsed.stdout.toString()).ProgramArguments).toEqual(["/Users/joe/a & b/<x>/index.ts"]);
 });

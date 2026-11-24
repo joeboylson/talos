@@ -96,12 +96,16 @@ test(
     while (!fromTalos.slice(before).some(({ type }) => type === "error") && Date.now() < giveUpAt) await Bun.sleep(25);
     expect(fromTalos.slice(before).find(({ type }) => type === "error")?.message).toContain("isn't a folder list");
     // Nor does one it isn't allowed to read (say, left owned by root by sudo).
-    chmodSync(join(home, "folders.json"), 0o000);
-    const beforeLocked = fromTalos.length;
-    machineSocket?.send(JSON.stringify({ type: "start-session", folderName: "proj", sessionName: "web5" }));
-    const lockedGiveUpAt = Date.now() + 3000;
-    while (!fromTalos.slice(beforeLocked).some(({ type }) => type === "error") && Date.now() < lockedGiveUpAt) await Bun.sleep(25);
-    expect(fromTalos.slice(beforeLocked).find(({ type }) => type === "error")?.message).toContain("EACCES");
+    // Root reads any file, so where the tests run as root (the deploy's build)
+    // there's no way to make one unreadable.
+    if (process.getuid?.() !== 0) {
+      chmodSync(join(home, "folders.json"), 0o000);
+      const beforeLocked = fromTalos.length;
+      machineSocket?.send(JSON.stringify({ type: "start-session", folderName: "proj", sessionName: "web5" }));
+      const lockedGiveUpAt = Date.now() + 3000;
+      while (!fromTalos.slice(beforeLocked).some(({ type }) => type === "error") && Date.now() < lockedGiveUpAt) await Bun.sleep(25);
+      expect(fromTalos.slice(beforeLocked).find(({ type }) => type === "error")?.message).toContain("EACCES");
+    }
     expect(told).toEqual([
       "That folder isn't allowed",
       "There's no folder called nowhere",

@@ -5,7 +5,7 @@
 # the module stands alone.)
 set -e
 cd "$(dirname "$0")"
-bunx tsc --noEmit -p tsconfig.json
+bun x tsc --noEmit -p tsconfig.json
 # CI=true: a stray test.only fails instead of skipping the tests beside it.
 # The mod's own tests run under Claude Code's kit, not bun (below).
 CI=true bun test --path-ignore-patterns 'mod/**' .

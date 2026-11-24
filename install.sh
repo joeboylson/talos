@@ -88,11 +88,13 @@ if ! (cd "$NEW_APP" && "$BUN" install --production >/dev/null 2>&1); then
 fi
 
 # The session runner outlives talos; it only needs a restart (which ends its
-# sessions) when its own code changed. cksum is on every system, and only
-# tells a change.
+# sessions) when its own code changed. That's talos-sessions' files (its mod
+# is read from disk) and everything session-runner.ts loads, like loops, which
+# bundling it gathers. cksum is on every system, and only tells a change.
 sessions_hash() {
   if [ -d "$1/talos/src/talos-sessions" ]; then
     (cd "$1/talos/src/talos-sessions" && find . -type f -not -path './tests/*' -not -path './examples/*' | LC_ALL=C sort | xargs cat | cksum)
+    (cd "$1" && "$BUN" build talos/src/session-runner.ts --target bun 2>/dev/null | cksum)
   else
     echo none
   fi

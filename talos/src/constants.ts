@@ -13,6 +13,12 @@ export const FOLDERS_FILE = join(CREDENTIALS_FOLDER, "folders.json");
 // A pairing code waiting to be entered, so a talos started again shows it
 // rather than asking the server for another.
 export const WAITING_PAIRING_FILE = join(CREDENTIALS_FOLDER, "pairing.json");
+// How long talos waits before reaching the server again: twice as long after
+// each failure, up to the longest; a minute when the server says too many
+// pairing requests came from here, since each try counts as one more.
+export const RETRY_LONGEST_WAIT_MS = 30_000;
+export const PAIRING_BUSY_WAIT_MS = 60_000;
+
 // How often a running talos checks the folders file for a change made by
 // another talos command.
 export const FOLDERS_CHECK_MS = 1000;

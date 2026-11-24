@@ -143,12 +143,18 @@ export const uninstallService = (): void => {
 };
 
 // install.sh does the work, so an update and a fresh install are one path.
+// Then `talos install` runs, from the new copy: the machine ends up updated
+// and running at login, whatever it had before (pairing first if it must).
 export const updateTalos = (): void => {
   if (!isInstalledCopy()) throw new Error("talos: this copy runs from a git checkout; update it with git pull");
-  const ran = Bun.spawnSync(["sh", "-c", `curl -fsSL ${INSTALL_SCRIPT_URL} | sh`], {
+  const env = { ...process.env, TALOS_HOME: TALOS_FOLDER };
+  const updated = Bun.spawnSync(["sh", "-c", `curl -fsSL ${INSTALL_SCRIPT_URL} | sh`], { stdout: "inherit", stderr: "inherit", env });
+  if (updated.exitCode !== 0) throw new Error("talos: the update didn't finish");
+  const installed = Bun.spawnSync([process.execPath, `--env-file=${INSTALLED_ENV_FILE}`, INDEX_SCRIPT, "install"], {
+    stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
-    env: { ...process.env, TALOS_HOME: TALOS_FOLDER },
+    env,
   });
-  if (ran.exitCode !== 0) throw new Error("talos: the update didn't finish");
+  if (installed.exitCode !== 0) throw new Error("talos: updated, but couldn't run talos install");
 };

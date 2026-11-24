@@ -18,7 +18,17 @@ import {
   type SessionEntry,
   type SessionSummary,
 } from "talos-shared";
-import { CREDENTIALS_FOLDER, CREDENTIALS_FOLDER_MODE, FOLDERS_CHECK_MS, FOLDERS_FILE, RUNNER_SCRIPT, TALOS_FOLDER } from "./constants";
+import {
+  CREDENTIALS_FOLDER,
+  CREDENTIALS_FOLDER_MODE,
+  FOLDERS_CHECK_MS,
+  FOLDERS_FILE,
+  PAIRING_BUSY_WAIT_MS,
+  RETRY_LONGEST_WAIT_MS,
+  RUNNER_SCRIPT,
+  TALOS_FOLDER,
+} from "./constants";
+import { createStatusLine } from "./status-line";
 import { readCredentials, saveCredentials } from "./credentials";
 import { changeFolders, readFolders, renameFolder } from "./folders";
 import { connectToSessions, type Result } from "./talos-sessions";
@@ -27,6 +37,21 @@ import { startLocalStatusServer } from "./local-status-server";
 import { acceptMachine } from "./pairing";
 import { connectToServer, type SendToServer } from "./server-connection";
 import { TALOS_LIMITS } from "./limits";
+
+// The server turned away a pairing: too many from this address.
+const isPairingBusy = (error: unknown): boolean => error instanceof Error && error.message.includes("/api/pair/start failed: 429");
+
+export const retryWaitMs = (failedAttempts: number, error: unknown): number =>
+  isPairingBusy(error) ? PAIRING_BUSY_WAIT_MS : Math.min(RECONNECT_DELAY_MS * 2 ** (failedAttempts - 1), RETRY_LONGEST_WAIT_MS);
+
+// Short, so the retry line stays one line: a network failure's code (like
+// ECONNREFUSED) says it all.
+const describeFailure = (error: unknown): string => {
+  if (isPairingBusy(error)) return "too many pairing requests from here";
+  const code = error instanceof Error ? Reflect.get(error, "code") : undefined;
+  if (typeof code === "string") return code;
+  return error instanceof Error ? error.message : String(error);
+};
 
 // `talos` with no command: pair this machine if it isn't yet, connect to the
 // server, and stay connected.
@@ -45,7 +70,18 @@ export const runConnect = async (): Promise<void> => {
   }
   const serverOrigin = httpOriginFromServerUrl(serverUrl);
   const wantedMachineName = toIdentifierName(process.env[ENV_KEYS.machineName] || hostname());
-  const log = createLogger(readLogsMode(process.env[ENV_KEYS.logsMode]));
+  const statusLine = createStatusLine((text) => process.stdout.write(text), process.stdout.isTTY === true);
+  const log = createLogger(
+    readLogsMode(process.env[ENV_KEYS.logsMode]),
+    (line) => {
+      statusLine.end();
+      console.log(line);
+    },
+    (line) => {
+      statusLine.end();
+      console.warn(line);
+    },
+  );
   const sessions = connectToSessions({ home: TALOS_FOLDER, runnerScript: RUNNER_SCRIPT });
 
   // What talos changes as it runs: whether it's connected, the name the server
@@ -248,12 +284,20 @@ export const runConnect = async (): Promise<void> => {
     });
   };
 
-  // While the server is down, keep trying instead of crashing.
+  // While the server is down, keep trying instead of crashing, on one line.
+  let failedAttempts = 0;
   const connectWithRetry = (): void => {
-    connect().catch((error: unknown) => {
-      log.event(`talos: can't reach ${serverOrigin} (${error}), retrying in ${RECONNECT_DELAY_MS / 1000}s`);
-      setTimeout(connectWithRetry, RECONNECT_DELAY_MS);
-    });
+    connect()
+      .then(() => {
+        failedAttempts = 0;
+        statusLine.end();
+      })
+      .catch((error: unknown) => {
+        failedAttempts += 1;
+        const waitMs = retryWaitMs(failedAttempts, error);
+        statusLine.show(`talos: can't reach ${serverOrigin}: ${describeFailure(error)}; trying again in ${Math.round(waitMs / 1000)}s (${failedAttempts} tries)`);
+        setTimeout(connectWithRetry, waitMs);
+      });
   };
 
   // `talos folders add|remove` edits the folders file from another terminal;

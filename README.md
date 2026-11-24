@@ -94,7 +94,8 @@ The script downloads main from GitHub into `~/.talos/app` (only talos and
 `talos install` pairs the machine (the code shows in the terminal), then runs
 talos at login and again if it stops: a launch agent on macOS, a systemd user
 service on Linux. Its log is `~/.talos/talos.log`. After a push to main, `talos update` brings the machine
-up to it and restarts talos. It restarts the session runner, which ends its
+up to it and runs `talos install` again, so it's running at login on the new
+code. It restarts the session runner, which ends its
 sessions, only when the runner's own code changed.
 
 To take talos off a machine (the login service, the session runner and its
@@ -127,7 +128,7 @@ Every command lives here. Names follow the glossary
 | `talos runner stop`                        | Ends the session runner and every session in it.                                  |
 | `talos install`                            | Pairs this machine if it isn't yet, then runs talos at login and again if it stops (macOS and Linux). |
 | `talos uninstall`                          | Stops running talos at login. Its sessions run on until `talos runner stop`.      |
-| `talos update`                             | Brings a copy put in place by `install.sh` up to main, and restarts it.           |
+| `talos update`                             | Brings a copy put in place by `install.sh` up to main, then runs `talos install`. |
 | `talos help`                               | Lists these commands.                                                             |
 
 Folders belong to the machine the command runs on. They're kept there (in

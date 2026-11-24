@@ -10,6 +10,9 @@ export const CREDENTIALS_FOLDER = TALOS_FOLDER;
 export const CREDENTIALS_FOLDER_MODE = 0o700;
 export const CREDENTIALS_FILE = join(CREDENTIALS_FOLDER, "credentials.json");
 export const FOLDERS_FILE = join(CREDENTIALS_FOLDER, "folders.json");
+// A pairing code waiting to be entered, so a talos started again shows it
+// rather than asking the server for another.
+export const WAITING_PAIRING_FILE = join(CREDENTIALS_FOLDER, "pairing.json");
 // How often a running talos checks the folders file for a change made by
 // another talos command.
 export const FOLDERS_CHECK_MS = 1000;

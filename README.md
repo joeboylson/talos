@@ -73,6 +73,11 @@ code can't take the machine. Then it saves its key in
 `~/.talos/credentials.json` and connects. The admin (`TALOS_ADMIN_GITHUB_ID`, a GitHub account number) has a switch under Settings
 that lets new people sign up; it starts off.
 
+Until the code is entered, a talos started again (after Ctrl-C, a crash or a
+restart) shows the same code, kept in `~/.talos/pairing.json` until it runs
+out after 10 minutes. The server takes only a few codes at a time from one
+address, so a new one each time would soon be turned away.
+
 The emulator forgets everything when it stops, so after `make down` each
 machine shows a new code to pair with.
 

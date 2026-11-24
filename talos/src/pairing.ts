@@ -9,7 +9,10 @@ import {
   type PairPollResponse,
   type PairStartResponse,
 } from "talos-shared";
+import { rm } from "node:fs/promises";
+import { WAITING_PAIRING_FILE } from "./constants";
 import { forgetCredentials, readCredentials, saveCredentials } from "./credentials";
+import { writePrivately } from "./talos-folder";
 
 const postJson = async <T>(url: URL, body: unknown): Promise<T> => {
   const response = await fetch(url, {
@@ -55,13 +58,46 @@ const confirmApprover = async (approvedBy: string, expectedOwner: string | undef
   return answer?.trim().toLowerCase() === "y";
 };
 
-// Shows a code for its owner to type into the page, waits for someone to
-// enter it, checks it was the owner, and only then collects the key. Starts
-// over with a fresh code if this one runs out.
+// A code this machine is waiting on, saved so a talos started again (after a
+// crash, Ctrl-C or a service restart) shows the same one: asking for another
+// each time used up the server's few codes per address. Kept only for the same
+// server and machine name, and only until it runs out.
+export type WaitingPairing = { serverOrigin: string; machineName: string; pairingId: string; userCode: string; expiresAtMs: number };
+
+export const pickWaitingPairing = (saved: unknown, serverOrigin: string, machineName: string, nowMs: number): WaitingPairing | null => {
+  if (typeof saved !== "object" || saved === null) return null;
+  const { pairingId, userCode, expiresAtMs } = saved as Partial<WaitingPairing>;
+  const isWaiting =
+    Reflect.get(saved, "serverOrigin") === serverOrigin &&
+    Reflect.get(saved, "machineName") === machineName &&
+    typeof pairingId === "string" &&
+    typeof userCode === "string" &&
+    typeof expiresAtMs === "number" &&
+    expiresAtMs > nowMs;
+  return isWaiting ? { serverOrigin, machineName, pairingId, userCode, expiresAtMs } : null;
+};
+
+const readWaitingPairing = async (serverOrigin: string, machineName: string): Promise<WaitingPairing | null> => {
+  const saved = await Bun.file(WAITING_PAIRING_FILE)
+    .json()
+    .catch(() => null);
+  return pickWaitingPairing(saved, serverOrigin, machineName, Date.now());
+};
+const forgetWaitingPairing = (): Promise<void> => rm(WAITING_PAIRING_FILE, { force: true });
+
+const startPairing = async (serverOrigin: string, machineName: string): Promise<WaitingPairing> => {
+  const started = await postJson<PairStartResponse>(new URL(SERVER_ROUTES.pairStart, serverOrigin), { machineName });
+  const waiting = { serverOrigin, machineName, ...started };
+  await writePrivately(WAITING_PAIRING_FILE, JSON.stringify(waiting));
+  return waiting;
+};
+
+// Shows a code for its owner to type into the page (the one already waiting,
+// if there is one), waits for someone to enter it, checks it was the owner,
+// and only then collects the key. Starts over with a fresh code if this one
+// runs out.
 export const pairMachine = async (serverOrigin: string, machineName: string, log: Logger): Promise<PairedMachine> => {
-  const { pairingId, userCode } = await postJson<PairStartResponse>(new URL(SERVER_ROUTES.pairStart, serverOrigin), {
-    machineName,
-  });
+  const { pairingId, userCode } = (await readWaitingPairing(serverOrigin, machineName)) ?? (await startPairing(serverOrigin, machineName));
   log.event(`\ntalos: this machine isn't paired yet.`);
   log.event(`talos: open ${serverOrigin}, sign in, and enter this code under "Pair a machine":\n`);
   log.event(`    ${userCode}\n`);
@@ -78,9 +114,12 @@ export const pairMachine = async (serverOrigin: string, machineName: string, log
 
   const approvedBy = await waitForApproval();
   if (!approvedBy) {
+    await forgetWaitingPairing();
     log.event("talos: that code ran out; here's a new one.");
     return pairMachine(serverOrigin, machineName, log);
   }
+  // Entered by someone, so it's spent either way.
+  await forgetWaitingPairing();
   if (!(await confirmApprover(approvedBy, process.env[ENV_KEYS.pairOwner], log))) {
     throw new Error(`talos: not pairing with ${approvedBy}. Someone else may have seen the code; start talos again for a new one`);
   }
